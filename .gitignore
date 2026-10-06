@@ -1,0 +1,31 @@
+# Secrets: never commit (public repo)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Runtime data (friends' profiles, voice transcripts, logs)
+saves/
+logs/
+*.log
+
+# Large / generated
+node_modules/
+dist/
+.assets/
+tools/bin/
+tools/*.exe
+services/stt/.venv/
+services/stt/models/
+.cache/
+test-results/
+tests/artifacts/
+*.tsbuildinfo
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/

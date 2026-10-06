@@ -1,0 +1,258 @@
+<!doctype html><html><head><meta charset="utf-8"><title>fc probe</title></head><body><script>
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const gum = c => navigator.mediaDevices.getUserMedia(c);
+const db = x => +(20 * Math.log10(x + 1e-12)).toFixed(1);
+
+async function rmsOfStream(stream, ms = 2000) {
+  const ac = new AudioContext(); await ac.resume();
+  const src = ac.createMediaStreamSource(stream);
+  const an = ac.createAnalyser(); an.fftSize = 2048;
+  src.connect(an);
+  const buf = new Float32Array(an.fftSize);
+  let sum = 0, n = 0, peak = 0;
+  await sleep(300);
+  const t0 = performance.now();
+  while (performance.now() - t0 < ms) {
+    an.getFloatTimeDomainData(buf);
+    for (const v of buf) { sum += v * v; n++; if (Math.abs(v) > peak) peak = Math.abs(v); }
+    await sleep(40);
+  }
+  await ac.close();
+  return { rmsDb: db(Math.sqrt(sum / n)), peak: +peak.toFixed(4) };
+}
+
+window.apiSurface = async () => {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const r = {
+    ua: navigator.userAgent,
+    supportedConstraints: Object.keys(navigator.mediaDevices.getSupportedConstraints()).sort().join(','),
+    SpeechRecognition: typeof window.SpeechRecognition,
+    webkitSpeechRecognition: typeof window.webkitSpeechRecognition,
+    SR_processLocally: SR ? 'processLocally' in SR.prototype : null,
+    SR_mode: SR ? 'mode' in SR.prototype : null,
+    SR_static_available: SR ? typeof SR.available : null,
+    SR_static_install: SR ? typeof SR.install : null,
+    SR_static_availableOnDevice: SR ? typeof SR.availableOnDevice : null,
+    SR_static_installOnDevice: SR ? typeof SR.installOnDevice : null,
+    SR_phrases: SR ? 'phrases' in SR.prototype : null,
+    SpeechRecognitionPhrase: typeof window.SpeechRecognitionPhrase,
+    SR_start_length: SR ? SR.prototype.start.length : null,
+    AudioEncoder: typeof window.AudioEncoder, AudioDecoder: typeof window.AudioDecoder,
+    MediaStreamTrackProcessor_window: typeof window.MediaStreamTrackProcessor,
+    MediaStreamTrackGenerator_window: typeof window.MediaStreamTrackGenerator,
+    AudioListener_positionX: 'positionX' in AudioListener.prototype,
+    AudioListener_forwardX: 'forwardX' in AudioListener.prototype,
+    AudioListener_setPosition: typeof AudioListener.prototype.setPosition,
+    AudioContext_setSinkId: 'setSinkId' in AudioContext.prototype,
+    MediaRecorder_types: ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/mp4;codecs=opus', 'audio/webm;codecs=pcm']
+      .map(t => t + '=' + MediaRecorder.isTypeSupported(t)).join(' '),
+  };
+  try { r.opusEnc = (await AudioEncoder.isConfigSupported({ codec: 'opus', sampleRate: 48000, numberOfChannels: 1, bitrate: 32000 })).supported; } catch (e) { r.opusEnc = 'ERR ' + e.name; }
+  try { r.opusDec = (await AudioDecoder.isConfigSupported({ codec: 'opus', sampleRate: 48000, numberOfChannels: 1 })).supported; } catch (e) { r.opusDec = 'ERR ' + e.name; }
+  r.MSTP_worker = await new Promise(res => {
+    const w = new Worker(URL.createObjectURL(new Blob(['postMessage({p: typeof MediaStreamTrackProcessor, g: typeof VideoTrackGenerator})'], { type: 'text/javascript' })));
+    w.onmessage = e => { res(e.data); w.terminate(); };
+    w.onerror = () => res('worker error');
+  });
+  if (SR && typeof SR.available === 'function') {
+    for (const pl of [true, false]) {
+      try { r['SR_available_en_processLocally_' + pl] = await Promise.race([SR.available({ langs: ['en-US'], processLocally: pl }), sleep(6000).then(() => 'timeout')]); }
+      catch (e) { r['SR_available_en_processLocally_' + pl] = 'ERR ' + e.name + ': ' + e.message; }
+    }
+  }
+  r.voices = speechSynthesis.getVoices().length;
+  return r;
+};
+
+window.ecCaps = async () => {
+  const out = {};
+  let s = await gum({ audio: true });
+  let t = s.getAudioTracks()[0];
+  const c = t.getCapabilities();
+  out.default_caps_ec = JSON.stringify(c.echoCancellation);
+  out.default_caps_agc = JSON.stringify(c.autoGainControl);
+  out.default_caps_ns = JSON.stringify(c.noiseSuppression);
+  out.default_settings = JSON.stringify((({ echoCancellation, autoGainControl, noiseSuppression, voiceIsolation, sampleRate, channelCount, latency }) => ({ echoCancellation, autoGainControl, noiseSuppression, voiceIsolation, sampleRate, channelCount, latency }))(t.getSettings()));
+  s.getTracks().forEach(x => x.stop());
+  for (const ec of [true, false, 'all', 'remote-only']) {
+    try {
+      s = await gum({ audio: { echoCancellation: { exact: ec } } });
+      t = s.getAudioTracks()[0];
+      out['exact_' + ec] = JSON.stringify(t.getSettings().echoCancellation);
+      s.getTracks().forEach(x => x.stop());
+    } catch (e) { out['exact_' + ec] = 'ERR ' + e.name + ' ' + (e.constraint || '') + ' ' + e.message; }
+    await sleep(200);
+  }
+  return out;
+};
+
+window.twoTracks = async () => {
+  const out = {};
+  const pick = s => { const x = s.getAudioTracks()[0].getSettings(); return JSON.stringify({ ec: x.echoCancellation, agc: x.autoGainControl, ns: x.noiseSuppression }); };
+  const A = await gum({ audio: { echoCancellation: true, autoGainControl: true, noiseSuppression: true } });
+  out.A = pick(A);
+  const B = await gum({ audio: { echoCancellation: false, autoGainControl: false, noiseSuppression: false } });
+  out.B_raw = pick(B);
+  let C, D, E, F;
+  try { C = await gum({ audio: { echoCancellation: true, autoGainControl: false, noiseSuppression: false } }); out.C_ecOn_agcOffIdeal = pick(C); } catch (e) { out.C_ecOn_agcOffIdeal = 'ERR ' + e.name + ' ' + (e.constraint || ''); }
+  try { D = await gum({ audio: { echoCancellation: true, autoGainControl: { exact: false } } }); out.D_ecOn_agcOffExact = pick(D); } catch (e) { out.D_ecOn_agcOffExact = 'ERR ' + e.name + ' ' + (e.constraint || ''); }
+  try { E = await gum({ audio: { echoCancellation: { exact: 'remote-only' }, autoGainControl: false, noiseSuppression: false } }); out.E_remoteOnly_agcOffIdeal = pick(E); } catch (e) { out.E_remoteOnly_agcOffIdeal = 'ERR ' + e.name + ' ' + (e.constraint || ''); }
+  try { F = await gum({ audio: { echoCancellation: false, autoGainControl: true, noiseSuppression: false } }); out.F_ecOff_agcOn = pick(F); } catch (e) { out.F_ecOff_agcOn = 'ERR ' + e.name + ' ' + (e.constraint || ''); }
+  out.A_after = pick(A);
+  const [la, lb] = await Promise.all([rmsOfStream(A, 4000), rmsOfStream(B, 4000)]);
+  out.levelA_processed = la; out.levelB_raw = lb;
+  [A, B, C, D, E, F].forEach(s => s && s.getTracks().forEach(t => t.stop()));
+  return out;
+};
+
+async function loopbackPair(micStream) {
+  const pc1 = new RTCPeerConnection(), pc2 = new RTCPeerConnection();
+  pc1.onicecandidate = e => e.candidate && pc2.addIceCandidate(e.candidate);
+  pc2.onicecandidate = e => e.candidate && pc1.addIceCandidate(e.candidate);
+  micStream.getAudioTracks().forEach(t => pc1.addTrack(t, micStream));
+  const got = new Promise(r => pc2.ontrack = e => r(e.streams[0] || new MediaStream([e.track])));
+  await pc1.setLocalDescription(); await pc2.setRemoteDescription(pc1.localDescription);
+  await pc2.setLocalDescription(); await pc1.setRemoteDescription(pc2.localDescription);
+  const remote = await got;
+  return { pc1, pc2, remote };
+}
+
+async function recordAndMeasure(stream, ms) {
+  const rec = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+  const chunks = [];
+  rec.ondataavailable = e => e.data.size && chunks.push(e.data);
+  const stopped = new Promise(r => rec.onstop = r);
+  rec.start(); await sleep(ms); rec.stop(); await stopped;
+  const blob = new Blob(chunks, { type: 'audio/webm' });
+  const ac = new OfflineAudioContext(1, 48000, 48000);
+  try {
+    const ab = await ac.decodeAudioData(await blob.arrayBuffer());
+    const d = ab.getChannelData(0); let s = 0; for (const v of d) s += v * v;
+    return { bytes: blob.size, dur: +ab.duration.toFixed(2), rmsDb: +(10 * Math.log10(s / d.length + 1e-24)).toFixed(1) };
+  } catch (e) { return { bytes: blob.size, err: e.name }; }
+}
+
+window.remoteTests = async () => {
+  const mic = await gum({ audio: { echoCancellation: false, autoGainControl: false, noiseSuppression: false } });
+  const out = {};
+  out.local = await rmsOfStream(mic, 1500);
+  for (const variant of ['none', 'mutedEl', 'volume0El', 'srcObjectNoPlay', 'none_again']) {
+    const { pc1, pc2, remote } = await loopbackPair(mic);
+    await sleep(1500);
+    let el;
+    if (variant === 'mutedEl') { el = new Audio(); el.srcObject = remote; el.muted = true; await el.play().catch(e => out.playErr = e.name); }
+    if (variant === 'volume0El') { el = new Audio(); el.srcObject = remote; el.volume = 0; await el.play().catch(e => out.playErr = e.name); }
+    if (variant === 'srcObjectNoPlay') { el = new Audio(); el.srcObject = remote; el.autoplay = false; }
+    out[variant] = await rmsOfStream(remote, 2500);
+    if (variant === 'none') out.recorder_noEl = await recordAndMeasure(remote, 2000);
+    if (variant === 'mutedEl') out.recorder_mutedEl = await recordAndMeasure(remote, 2000);
+    if (el) { el.pause(); el.srcObject = null; }
+    pc1.close(); pc2.close();
+    await sleep(300);
+  }
+  mic.getTracks().forEach(t => t.stop());
+  return out;
+};
+
+window.chunkTest = async () => {
+  const mic = await gum({ audio: { echoCancellation: false, autoGainControl: false, noiseSuppression: false } });
+  const out = {};
+  for (const mt of ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus']) {
+    if (!MediaRecorder.isTypeSupported(mt)) { out[mt] = 'unsupported'; continue; }
+    const rec = new MediaRecorder(mic, { mimeType: mt });
+    const chunks = [];
+    rec.ondataavailable = e => e.data.size && chunks.push(e.data);
+    const stopped = new Promise(r => rec.onstop = r);
+    rec.start(500); await sleep(2700); rec.stop(); await stopped;
+    const dec = async (blobs) => {
+      if (blobs.some(b => !b)) return 'n/a';
+      const ac = new OfflineAudioContext(1, 48000, 48000);
+      try { const ab = await ac.decodeAudioData(await new Blob(blobs, { type: mt }).arrayBuffer()); return 'ok ' + ab.duration.toFixed(2) + 's'; }
+      catch (e) { return 'ERR ' + e.name; }
+    };
+    out[mt] = { n: chunks.length, sizes: chunks.map(c => c.size).join(','), c0: await dec([chunks[0]]), c1: await dec([chunks[1]]), c2: await dec([chunks[2]]), c0_plus_c2: await dec([chunks[0], chunks[2]]), all: await dec(chunks) };
+  }
+  mic.getTracks().forEach(t => t.stop());
+  return out;
+};
+
+window.pannerModels = async () => {
+  const out = {};
+  for (const model of ['linear', 'inverse', 'exponential']) {
+    for (const rolloff of [0.5, 1, 2]) {
+      const row = [];
+      for (const d of [1, 5, 10, 20, 100, 1000]) {
+        const ctx = new OfflineAudioContext(2, 256, 48000);
+        const src = new ConstantSourceNode(ctx, { offset: 1 });
+        const p = new PannerNode(ctx, { panningModel: 'equalpower', distanceModel: model, refDistance: 1, maxDistance: 10, rolloffFactor: rolloff, positionX: 0, positionY: 0, positionZ: -d });
+        src.connect(p).connect(ctx.destination); src.start();
+        const b = await ctx.startRendering();
+        row.push('d' + d + '=' + (b.getChannelData(0)[200] / Math.SQRT1_2).toFixed(4));
+      }
+      out[model + '_rolloff' + rolloff] = row.join(' ');
+    }
+  }
+  return out;
+};
+
+window.pannerGlitch = async () => {
+  const sr = 48000;
+  const runCase = async (name, setup, change) => {
+    const ctx = new OfflineAudioContext(1, sr, sr);
+    const src = new ConstantSourceNode(ctx, { offset: 1 });
+    const node = setup(ctx);
+    src.connect(node).connect(ctx.destination); src.start();
+    ctx.suspend(0.5).then(() => { change(node, ctx); ctx.resume(); });
+    const b = await ctx.startRendering();
+    const d = b.getChannelData(0);
+    let maxJump = 0, at = 0;
+    for (let i = 23500; i < 26500; i++) { const j = Math.abs(d[i] - d[i - 1]); if (j > maxJump) { maxJump = j; at = i; } }
+    const before = d[23400], after = d[40000];
+    const lo = before + 0.1 * (after - before), hi = before + 0.9 * (after - before);
+    let i10 = -1, i90 = -1;
+    const up = after > before;
+    for (let i = 23400; i < 40000; i++) {
+      if (i10 < 0 && (up ? d[i] >= lo : d[i] <= lo)) i10 = i;
+      if (i90 < 0 && (up ? d[i] >= hi : d[i] <= hi)) { i90 = i; break; }
+    }
+    return `${name}: before=${before.toFixed(4)} after=${after.toFixed(4)} maxSampleJump=${maxJump.toFixed(4)}@${at} rise10-90=${i90 - i10} samples`;
+  };
+  const mkPanner = (opts) => (ctx) => new PannerNode(ctx, Object.assign({ panningModel: 'equalpower', positionZ: -4, refDistance: 1, maxDistance: 10000, rolloffFactor: 1, distanceModel: 'inverse' }, opts));
+  const res = [];
+  res.push(await runCase('inverse_refDistance_1to2', mkPanner({}), (p) => { p.refDistance = 2; }));
+  res.push(await runCase('linear_maxDistance_8to16', mkPanner({ distanceModel: 'linear', maxDistance: 8 }), (p) => { p.maxDistance = 16; }));
+  res.push(await runCase('inverse_rolloff_1to0', mkPanner({}), (p) => { p.rolloffFactor = 0; }));
+  res.push(await runCase('positionZ.value_-4to-2', mkPanner({}), (p) => { p.positionZ.value = -2; }));
+  res.push(await runCase('positionZ.setTargetAtTime_tau20ms', mkPanner({}), (p, ctx) => { p.positionZ.setTargetAtTime(-2, ctx.currentTime, 0.02); }));
+  res.push(await runCase('gain.value_0.25to0.5', (ctx) => new GainNode(ctx, { gain: 0.25 }), (g) => { g.gain.value = 0.5; }));
+  res.push(await runCase('gain.setTargetAtTime_tau20ms', (ctx) => new GainNode(ctx, { gain: 0.25 }), (g, ctx) => { g.gain.setTargetAtTime(0.5, ctx.currentTime, 0.02); }));
+  return res;
+};
+
+window.bgSetup = async () => {
+  window.raf = 0; const tick = () => { window.raf++; requestAnimationFrame(tick); }; requestAnimationFrame(tick);
+  const code = "class C extends AudioWorkletProcessor { constructor(){ super(); this.n = 0; } process(){ this.n++; if (this.n % 50 === 0) this.port.postMessage(this.n); return true; } } registerProcessor('c', C);";
+  const ac = new AudioContext();
+  await ac.audioWorklet.addModule(URL.createObjectURL(new Blob([code], { type: 'text/javascript' })));
+  const n = new AudioWorkletNode(ac, 'c'); n.connect(ac.destination);
+  window.wl = 0; n.port.onmessage = e => window.wl = e.data;
+  window.timer = 0; setInterval(() => window.timer++, 100);
+  await ac.resume(); window.bgac = ac;
+};
+window.bgRead = () => ({ raf: window.raf, worklet: window.wl, timer: window.timer, vis: document.visibilityState, acState: window.bgac.state, acTime: +window.bgac.currentTime.toFixed(2) });
+
+window.aecMixProbe = async (mode) => {
+  const ec = mode === 'true' ? true : mode === 'false' ? false : mode;
+  const s = await gum({ audio: { echoCancellation: { exact: ec } } });
+  const settings = JSON.stringify(s.getAudioTracks()[0].getSettings().echoCancellation);
+  await sleep(1000);
+  const ac = new AudioContext(); await ac.resume();
+  const o = ac.createOscillator(); const g = ac.createGain(); g.gain.value = 0; // silent
+  o.connect(g).connect(ac.destination); o.start();
+  await sleep(2500);
+  await ac.close();
+  s.getTracks().forEach(t => t.stop());
+  await sleep(500);
+  return settings;
+};
+</script></body></html>
