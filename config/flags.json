@@ -13,5 +13,6 @@
   "mimic": false,
   "elevenlabsSfx": true,
   "volumetrics": true,
-  "gtao": true
+  "gtao": true,
+  "devAllWalkies": false
 }

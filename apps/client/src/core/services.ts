@@ -23,7 +23,7 @@ export interface SfxOpts {
 }
 
 export interface SfxService {
-  play(id: string, pos?: Vec3, opts?: SfxOpts): void;
+  play(id: string, pos?: Vec3, opts?: SfxOpts): { stop(): void; setPos?(p: Vec3): void } | null | void;
 }
 
 export interface InputService {

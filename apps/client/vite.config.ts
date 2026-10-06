@@ -36,7 +36,10 @@ export default defineConfig(({ command }) => {
       target: 'es2023',
       sourcemap: true,
       chunkSizeWarningLimit: 4096,
-      rolldownOptions: { output: { keepNames: true } },
+      rolldownOptions: {
+        input: { main: resolve(here, 'index.html'), voicetest: resolve(here, 'voicetest.html') },
+        output: { keepNames: true },
+      },
     },
     worker: { format: 'es' },
   };

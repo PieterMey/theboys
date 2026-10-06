@@ -4,7 +4,7 @@ import type { ClientContext } from './context.ts';
 
 export function installTestApi(ctx: ClientContext): void {
   const api: GameTestApi = {
-    ready: () => ctx.readiness.isReady(),
+    ready: () => ctx.readiness.isReady() && ctx.loop.perf.frames > 2,
     backend: () => ctx.services.use('three')?.backend ?? 'none',
     async join(crew, name) {
       ctx.audio.unlock();
