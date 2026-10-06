@@ -1,0 +1,5 @@
+# Generated locally (see setup.ps1 / test_stt.mjs); the root .gitignore covers .venv/ and models/.
+.venv/
+models/
+__pycache__/
+test*.wav

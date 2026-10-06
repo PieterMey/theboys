@@ -18,7 +18,13 @@
     "typecheck": "tsc --noEmit",
     "test:unit": "node --test \"packages/**/*.test.ts\" \"apps/**/*.test.ts\" \"tools/**/*.test.ts\" \"tests/unit/**/*.test.ts\"",
     "gate:g0": "node tests/gates/g0.mjs",
-    "fixtures:voice": "node tests/fixtures/make-voice.mjs"
+    "fixtures:voice": "node tests/fixtures/make-voice.mjs",
+    "host": "node tools/host.mjs",
+    "server:restart": "node tools/server-restart.mjs",
+    "ai:check": "node --env-file=C:/Users/Pieter/repos/theboys/.env tools/ai-check.mjs",
+    "stt": "powershell -NoProfile -ExecutionPolicy Bypass -File services/stt/run.ps1",
+    "stt:test": "node services/stt/test_stt.mjs",
+    "gate:g1": "node tests/gates/g1.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.131.0",

@@ -1,0 +1,14 @@
+# DEAD AIR speech-to-text sidecar (Python 3.13, Windows, RTX 5090).
+# Pinned to the set measured on this host (docs/research/speech.*.md).
+# av must stay at 16.1.0: PyAV 19 breaks faster-whisper's decoder on Windows.
+faster-whisper==1.2.1
+ctranslate2==4.8.2
+av==16.1.0
+numpy==2.5.3
+# cuBLAS for CTranslate2's CUDA path; server.py adds its bin dirs to the DLL search path.
+nvidia-cublas-cu12==12.9.2.10
+nvidia-cuda-nvrtc-cu12==12.9.86
+# Transitive deps, pinned to the tested versions.
+huggingface_hub==1.33.0
+tokenizers==0.23.2
+onnxruntime==1.30.0
