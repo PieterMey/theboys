@@ -34,9 +34,9 @@
   "briefMaxPerSession": 12,
   "reviewMaxPerSession": 4,
 
-  "lureDeadlineMs": 2500,
+  "lureDeadlineMs": 4500,
   "lureTtsReserveMs": 480,
-  "lureHaikuTimeoutMs": 2000,
+  "lureHaikuTimeoutMs": 3500,
   "lureHaikuMaxTokens": 80,
   "lureCooldownMs": 60000,
   "lureMaxPerSession": 40,

@@ -168,13 +168,16 @@ async function ensureStt(state) {
   const h = await sttHealth();
   if (h) return say(`STT: re-attached (${STT_URL}, device=${h.device ?? '?'}, warm=${h.warm})`);
   const here = join(ROOT, 'services/stt');
-  const py = join(here, '.venv/Scripts/python.exe');
+  // pythonw (no console): the venv's python.exe launcher opens a blank console window for the real interpreter, and
+  // closing that window killed the sidecar ("forrtl: error (200): program aborting due to window-CLOSE event")
+  const pyw = join(here, '.venv/Scripts/pythonw.exe');
+  const py = existsSync(pyw) ? pyw : join(here, '.venv/Scripts/python.exe');
   if (!existsSync(join(here, 'server.py'))) return warn('STT: services/stt missing: speech features (Listener memory) disabled tonight');
   if (!existsSync(py)) return warn('STT: services/stt/.venv missing (run services/stt/setup.ps1): skipped');
   // same environment as services/stt/run.ps1 (a detached powershell -File exits at once on this host, so the
   // venv python is started directly)
   const port = new URL(STT_URL).port || '3100';
-  const sttEnv = { ...process.env, HF_HOME: join(here, 'models'), HF_HUB_DISABLE_SYMLINKS_WARNING: '1', HF_HUB_DISABLE_TELEMETRY: '1', PYTHONUNBUFFERED: '1', STT_PORT: port };
+  const sttEnv = { ...process.env, HF_HOME: join(here, 'models'), HF_HUB_DISABLE_SYMLINKS_WARNING: '1', HF_HUB_DISABLE_TELEMETRY: '1', PYTHONUNBUFFERED: '1', STT_PORT: port, FOR_DISABLE_CONSOLE_CTRL_HANDLER: '1' };
   state.sttPid = detached(py, ['-u', join(here, 'server.py')], 'stt.log', sttEnv, here);
   writeState(state);
   say('STT: starting (logs/stt.log) ...');

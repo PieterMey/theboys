@@ -7,7 +7,7 @@
 //  - Line: Haiku 4.5 (strict JSON schema; heard speech is untrusted data) -> code validation (<= 12 words, no digits,
 //    no meta/AI talk, a PG-13 word filter, ALL-CAPS words must be real callsigns) -> else a code-built template line.
 //  - The caller's garbled clip (fallback) plays instead when TTS fails or the whole pipeline misses the deadline
-//    (balance.ai.lureDeadlineMs, 2.5 s). A late result is dropped (its audio stays cached).
+//    (balance.ai.lureDeadlineMs, 4.5 s: Haiku takes ~2-2.6 s from here, TTS ~0.3-0.5 s). A late result is dropped (its audio stays cached).
 //  - Budgets: 1 per crew per lureCooldownMs (60 s); lureMaxPerSession (40) per process; lureTtsCharBudget (3000)
 //    characters per budget window (restart-safe via logs/ai-usage.jsonl); Haiku through the gateway $ budget.
 //  - AI_MODE mock: template-shaped Haiku mock + a synthetic WAV (no network). replay: Haiku fixtures + the audio
