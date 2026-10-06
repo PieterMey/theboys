@@ -166,7 +166,10 @@ export function createFixturePool(scene: THREE.Scene, cfg: FixtureCfg, poolSize:
           const idx = order[i];
           const f = list[idx];
           l.position.set(f.pos[0], f.pos[1] - 0.22, f.pos[2]);
-          l.intensity = cfg.intensity * (levels ? levels[idx] : 1);
+          // per-kind tuning: the van cargo light sits ~1 m from faces/walls and blew out the cab; lot lamps hang at 6 m
+          const kind = (f as { kind?: string }).kind;
+          const kindMult = kind === 'van' ? 0.3 : kind === 'lamp' ? 1.8 : kind === 'wall' ? 0.8 : 1;
+          l.intensity = cfg.intensity * kindMult * (levels ? levels[idx] : 1);
           // keep the batched set constant: always visible, unused = parked at intensity 0
           lit++;
         } else {

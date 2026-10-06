@@ -37,6 +37,8 @@ export function installTestApi(ctx: ClientContext): void {
     look: (yaw, pitch) => ctx.services.use('input')?.look(yaw, pitch),
     setInput: (input) => ctx.services.use('input')?.setInput(input),
     errors: () => ctx.errors(),
+    /** test-only: any game request (e.g. meta.pick / meta.ready / meta.drive) */
+    req: (r: string, a?: unknown) => (ctx.net as any).req(r, a ?? {}),
     dbg: (r, a) => ctx.net.dbg(r, a),
   };
   window.__game = api;

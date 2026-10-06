@@ -33,6 +33,8 @@ export interface GameTestApi {
   errors(): string[];
   /** send a dev-only request (server registers 'dbg.*' only with NODE_ENV=development) */
   dbg(r: string, a?: unknown): Promise<unknown>;
+  /** test-only: send any game request (e.g. 'meta.pick') */
+  req?(r: string, a?: unknown): Promise<unknown>;
 }
 
 export interface VoicePeerDebug {
