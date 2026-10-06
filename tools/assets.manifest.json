@@ -1,0 +1,810 @@
+{
+  "note": "DEAD AIR asset sources. tools/fetch-assets.mjs downloads these into .assets/src, optimizes into .assets/dist (content-hashed) and writes .assets/dist/manifest.json + credits.json. Keys are the runtime names in packages/shared/src/assets.ts.",
+  "userAgent": "DeadAir-build/1.0",
+  "archives": {
+    "ual1": {
+      "title": "Universal Animation Library [Standard] v3",
+      "author": "Quaternius",
+      "license": "CC0-1.0",
+      "page": "https://quaternius.itch.io/universal-animation-library",
+      "itch": {
+        "game": "https://quaternius.itch.io/universal-animation-library",
+        "upload": 17958403
+      },
+      "file": "ual1_standard_itch.zip"
+    },
+    "ual2": {
+      "title": "Universal Animation Library 2 [Standard]",
+      "author": "Quaternius",
+      "license": "CC0-1.0",
+      "page": "https://opengameart.org/content/universal-animation-library-2",
+      "url": "https://opengameart.org/sites/default/files/universal_animation_library_2standard.zip",
+      "file": "universal_animation_library_2standard.zip"
+    }
+  },
+  "characters": {
+    "char.mannequin_m": {
+      "archive": "ual1",
+      "path": "Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb",
+      "out": "characters/mannequin_m.glb"
+    },
+    "char.mannequin_f": {
+      "archive": "ual2",
+      "path": "Universal Animation Library 2 [Standard]/Female Mannequin/Unreal-Godot/Mannequin_F.glb",
+      "out": "characters/mannequin_f.glb"
+    }
+  },
+  "animations": {
+    "anim.ual1": {
+      "archive": "ual1",
+      "path": "Universal Animation Library[Standard]/Unreal-Godot/UAL1_Standard.glb",
+      "out": "anims/ual1.glb"
+    },
+    "anim.ual2": {
+      "archive": "ual2",
+      "path": "Universal Animation Library 2 [Standard]/Unreal-Godot/UAL2_Standard.glb",
+      "out": "anims/ual2.glb"
+    }
+  },
+  "monsters": {
+    "mon.hound": {
+      "title": "Zombie Apocalypse Kit - Characters_GermanShepherd",
+      "author": "Quaternius",
+      "license": "CC0-1.0",
+      "page": "https://quaternius.com/packs/zombieapocalypsekit.html",
+      "url": "https://drive.usercontent.google.com/download?id=1QovajqzAj7gFG8vCG4DmQ_vm7OP0cVLq&export=download",
+      "file": "zak/Characters_GermanShepherd.gltf",
+      "out": "monsters/hound.glb",
+      "cleanup": {
+        "note": "horror restyle: drop saddlebag/bedroll/straps (non-body components on the back), milky blind eyes, bandana -> fur colour",
+        "backMinY": 0.58,
+        "backMaxZ": 0.26,
+        "eyes": {
+          "from": "252023",
+          "to": "a4a69d",
+          "minZ": 0.5
+        },
+        "recolor": [
+          {
+            "from": "933d11",
+            "to": "603b20"
+          },
+          {
+            "from": "2f2f2f",
+            "to": "603b20",
+            "maxZ": 0.3,
+            "note": "chest harness band (keeps the black nose)"
+          }
+        ]
+      }
+    }
+  },
+  "textures": {
+    "defaults": {
+      "albedo": "2k",
+      "normal": "1k",
+      "orm": "1k"
+    },
+    "materials": {
+      "concrete_floor": {
+        "ph": "concrete_floor_worn_001",
+        "albedo": "2k",
+        "group": "site"
+      },
+      "wall_plaster": {
+        "ph": "peeling_painted_wall",
+        "albedo": "2k",
+        "group": "site"
+      },
+      "wall_concrete": {
+        "ph": "concrete_wall_008",
+        "albedo": "2k",
+        "group": "site"
+      },
+      "tiles_white": {
+        "ph": "long_white_tiles",
+        "albedo": "2k",
+        "group": "site"
+      },
+      "floor_linoleum": {
+        "ph": "old_linoleum_flooring_01",
+        "albedo": "2k",
+        "group": "site"
+      },
+      "floor_tiles": {
+        "ph": "worn_tile_floor",
+        "albedo": "1k",
+        "group": "site"
+      },
+      "ceiling_tiles": {
+        "acg": "OfficeCeiling001",
+        "acgRes": "1K",
+        "group": "site",
+        "note": "ambientCG acoustic drop-ceiling grid"
+      },
+      "ceiling_plaster": {
+        "ph": "ceiling_interior",
+        "albedo": "1k",
+        "group": "site"
+      },
+      "metal_rusty": {
+        "ph": "rusty_metal_02",
+        "albedo": "1k",
+        "group": "site"
+      },
+      "metal_painted": {
+        "ph": "rusty_painted_metal",
+        "albedo": "1k",
+        "group": "site"
+      },
+      "metal_plate": {
+        "ph": "metal_plate",
+        "albedo": "1k",
+        "group": "lobby"
+      },
+      "asphalt": {
+        "ph": "asphalt_02",
+        "albedo": "1k",
+        "group": "lobby"
+      },
+      "corrugated_metal": {
+        "ph": "corrugated_iron",
+        "albedo": "1k",
+        "group": "lobby"
+      },
+      "rubber_floor": {
+        "ph": "rubber_tiles",
+        "albedo": "1k",
+        "group": "lobby"
+      }
+    }
+  },
+  "props": {
+    "res": "1k",
+    "items": {
+      "prop.shelves": {
+        "ph": "steel_frame_shelves_01",
+        "group": "site",
+        "scale": 0.1,
+        "note": "source mesh is authored ~10x too large"
+      },
+      "prop.crate": {
+        "ph": "wooden_crate_01",
+        "group": "site"
+      },
+      "prop.barrel": {
+        "ph": "Barrel_01",
+        "group": "site"
+      },
+      "prop.cabinet": {
+        "ph": "drawer_cabinet",
+        "group": "site"
+      },
+      "prop.desk": {
+        "ph": "metal_office_desk",
+        "group": "site"
+      },
+      "prop.chair": {
+        "ph": "SchoolChair_01",
+        "group": "site"
+      },
+      "prop.bed_frame": {
+        "ph": "old_bed_frame",
+        "group": "site"
+      },
+      "prop.wheelchair": {
+        "ph": "wheelchair_01",
+        "group": "site"
+      },
+      "prop.fluorescent_lamp": {
+        "ph": "mounted_fluorescent_lights",
+        "group": "site"
+      },
+      "prop.fuse_box": {
+        "ph": "power_box_01",
+        "group": "site"
+      },
+      "prop.security_camera": {
+        "ph": "security_camera_01",
+        "group": "site"
+      },
+      "prop.radio": {
+        "ph": "vintage_radio_transceiver",
+        "group": "lobby",
+        "maxTex": 512
+      },
+      "prop.flashlight": {
+        "ph": "vintage_flashlight",
+        "group": "boot"
+      },
+      "prop.gas_mask": {
+        "ph": "old_gas_mask",
+        "group": "boot"
+      },
+      "prop.medical_box": {
+        "ph": "medical_box",
+        "group": "site"
+      },
+      "prop.tool_chest": {
+        "ph": "metal_tool_chest",
+        "group": "site"
+      },
+      "prop.shutter_door": {
+        "ph": "rollershutter_door",
+        "group": "site"
+      },
+      "prop.rat": {
+        "ph": "street_rat",
+        "group": "site"
+      },
+      "prop.bottles": {
+        "ph": "wine_bottles_01",
+        "group": "site"
+      },
+      "prop.generator": {
+        "ph": "portable_generator",
+        "group": "site"
+      },
+      "prop.crowbar": {
+        "ph": "crowbar_01",
+        "group": "boot"
+      },
+      "prop.trash_can": {
+        "ph": "metal_trash_can",
+        "group": "site",
+        "maxTex": 512
+      },
+      "prop.jerrycan": {
+        "ph": "metal_jerrycan",
+        "group": "site"
+      },
+      "prop.cardboard_box": {
+        "ph": "cardboard_box_01",
+        "group": "site"
+      }
+    }
+  },
+  "elevenlabs": {
+    "note": "Prompts live in tools/sfx-manifest.json; generation: node --env-file=.env tools/fetch-assets.mjs --only el --generate [--tts]. Post-processing of the cached takes:",
+    "mono": [
+      "sfx.core_hum_loop",
+      "sfx.fluorescent_hum_loop",
+      "sfx.van_engine_idle_loop"
+    ],
+    "gainDb": {
+      "sfx.core_hum_loop": -1.5
+    }
+  },
+  "audio": {
+    "note": "Curated CC0 / CC-BY packs. file = path inside the extracted zip (.assets/src/audio/<source>/). Keys with a numeric suffix are variant sets (assetVariants).",
+    "sources": {
+      "kenney_impact": {
+        "zip": "kenney_impact-sounds.zip",
+        "url": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+        "page": "https://kenney.nl/assets/impact-sounds",
+        "author": "Kenney",
+        "license": "CC0-1.0",
+        "title": "Impact Sounds"
+      },
+      "kenney_rpg": {
+        "zip": "kenney_rpg-audio.zip",
+        "url": "https://kenney.nl/media/pages/assets/rpg-audio/8e99002d76-1677590336/kenney_rpg-audio.zip",
+        "page": "https://kenney.nl/assets/rpg-audio",
+        "author": "Kenney",
+        "license": "CC0-1.0",
+        "title": "RPG Audio"
+      },
+      "kenney_scifi": {
+        "zip": "kenney_sci-fi-sounds.zip",
+        "url": "https://kenney.nl/media/pages/assets/sci-fi-sounds/6b296f9ecf-1677589334/kenney_sci-fi-sounds.zip",
+        "page": "https://kenney.nl/assets/sci-fi-sounds",
+        "author": "Kenney",
+        "license": "CC0-1.0",
+        "title": "Sci-Fi Sounds"
+      },
+      "kenney_interface": {
+        "zip": "kenney_interface-sounds.zip",
+        "url": "https://kenney.nl/media/pages/assets/interface-sounds/fa43c1dd4d-1677589452/kenney_interface-sounds.zip",
+        "page": "https://kenney.nl/assets/interface-sounds",
+        "author": "Kenney",
+        "license": "CC0-1.0",
+        "title": "Interface Sounds"
+      },
+      "rd_creature": {
+        "zip": "80-CC0-creature-SFX_0.zip",
+        "url": "https://opengameart.org/sites/default/files/80-CC0-creature-SFX_0.zip",
+        "page": "https://opengameart.org/content/80-cc0-creature-sfx",
+        "author": "rubberduck",
+        "license": "CC0-1.0",
+        "title": "80 CC0 creature SFX"
+      },
+      "rd_woodmetal": {
+        "zip": "100-CC0-wood-metal-SFX.zip",
+        "url": "https://opengameart.org/sites/default/files/100-CC0-wood-metal-SFX.zip",
+        "page": "https://opengameart.org/content/100-cc0-metal-and-wood-sfx",
+        "author": "rubberduck",
+        "license": "CC0-1.0",
+        "title": "100 CC0 metal and wood SFX"
+      },
+      "rd_sfx100": {
+        "zip": "100-CC0-SFX_0.zip",
+        "url": "https://opengameart.org/sites/default/files/100-CC0-SFX_0.zip",
+        "page": "https://opengameart.org/content/100-cc0-sfx",
+        "author": "rubberduck",
+        "license": "CC0-1.0",
+        "title": "100 CC0 SFX"
+      },
+      "rd_sfx100v2": {
+        "zip": "sfx_100_v2.zip",
+        "url": "https://opengameart.org/sites/default/files/sfx_100_v2.zip",
+        "page": "https://opengameart.org/content/100-cc0-sfx-2",
+        "author": "rubberduck",
+        "license": "CC0-1.0",
+        "title": "100 CC0 SFX #2"
+      },
+      "rd_breaking": {
+        "zip": "sfx_breaking_and_falling.zip",
+        "url": "https://opengameart.org/sites/default/files/sfx_breaking_and_falling.zip",
+        "page": "https://opengameart.org/content/75-cc0-breaking-falling-hit-sfx",
+        "author": "rubberduck",
+        "license": "CC0-1.0",
+        "title": "75 CC0 breaking / falling / hit sfx"
+      },
+      "lrsf_horror": {
+        "zip": "Horror Sound Library.zip",
+        "url": "https://opengameart.org/sites/default/files/Horror%20Sound%20Library.zip",
+        "page": "https://opengameart.org/content/horror-sound-effects-library",
+        "author": "Little Robot Sound Factory (www.littlerobotsoundfactory.com)",
+        "license": "CC-BY-3.0",
+        "title": "Horror Sound Effects Library",
+        "attribution": "Horror Sound Effects Library by Little Robot Sound Factory (www.littlerobotsoundfactory.com), CC-BY 3.0, https://opengameart.org/content/horror-sound-effects-library"
+      }
+    },
+    "sounds": [
+      {
+        "key": "sfx.step_concrete.1",
+        "source": "kenney_impact",
+        "file": "Audio/footstep_concrete_000.ogg",
+        "durationSec": 0.106
+      },
+      {
+        "key": "sfx.step_concrete.2",
+        "source": "kenney_impact",
+        "file": "Audio/footstep_concrete_001.ogg",
+        "durationSec": 0.108
+      },
+      {
+        "key": "sfx.step_concrete.3",
+        "source": "kenney_impact",
+        "file": "Audio/footstep_concrete_002.ogg",
+        "durationSec": 0.113
+      },
+      {
+        "key": "sfx.step_concrete.4",
+        "source": "kenney_impact",
+        "file": "Audio/footstep_concrete_003.ogg",
+        "durationSec": 0.11
+      },
+      {
+        "key": "sfx.step_metal.1",
+        "source": "kenney_impact",
+        "file": "Audio/impactMetal_light_000.ogg",
+        "durationSec": 0.351
+      },
+      {
+        "key": "sfx.step_metal.2",
+        "source": "kenney_impact",
+        "file": "Audio/impactMetal_light_001.ogg",
+        "durationSec": 0.252
+      },
+      {
+        "key": "sfx.step_metal.3",
+        "source": "kenney_impact",
+        "file": "Audio/impactMetal_light_002.ogg",
+        "durationSec": 0.236
+      },
+      {
+        "key": "sfx.step_metal.4",
+        "source": "kenney_impact",
+        "file": "Audio/impactMetal_light_004.ogg",
+        "durationSec": 0.213
+      },
+      {
+        "key": "sfx.step_wood.1",
+        "source": "kenney_impact",
+        "file": "Audio/footstep_wood_000.ogg",
+        "durationSec": 0.25
+      },
+      {
+        "key": "sfx.step_wood.2",
+        "source": "kenney_impact",
+        "file": "Audio/footstep_wood_001.ogg",
+        "durationSec": 0.252
+      },
+      {
+        "key": "sfx.step_wood.3",
+        "source": "kenney_impact",
+        "file": "Audio/footstep_wood_002.ogg",
+        "durationSec": 0.251
+      },
+      {
+        "key": "sfx.step_wood.4",
+        "source": "kenney_impact",
+        "file": "Audio/footstep_wood_003.ogg",
+        "durationSec": 0.252
+      },
+      {
+        "key": "sfx.step_carpet.1",
+        "source": "kenney_impact",
+        "file": "Audio/footstep_carpet_000.ogg",
+        "durationSec": 0.145
+      },
+      {
+        "key": "sfx.step_carpet.2",
+        "source": "kenney_impact",
+        "file": "Audio/footstep_carpet_001.ogg",
+        "durationSec": 0.145
+      },
+      {
+        "key": "sfx.step_carpet.3",
+        "source": "kenney_impact",
+        "file": "Audio/footstep_carpet_003.ogg",
+        "durationSec": 0.145
+      },
+      {
+        "key": "sfx.door_open.1",
+        "source": "kenney_rpg",
+        "file": "Audio/doorOpen_1.ogg",
+        "durationSec": 0.919
+      },
+      {
+        "key": "sfx.door_open.2",
+        "source": "kenney_rpg",
+        "file": "Audio/doorOpen_2.ogg",
+        "durationSec": 1.413
+      },
+      {
+        "key": "sfx.door_close.1",
+        "source": "kenney_rpg",
+        "file": "Audio/doorClose_1.ogg",
+        "durationSec": 0.675
+      },
+      {
+        "key": "sfx.door_close.2",
+        "source": "kenney_rpg",
+        "file": "Audio/doorClose_2.ogg",
+        "durationSec": 0.612
+      },
+      {
+        "key": "sfx.door_creak.1",
+        "source": "kenney_rpg",
+        "file": "Audio/creak1.ogg",
+        "durationSec": 0.661
+      },
+      {
+        "key": "sfx.door_creak.2",
+        "source": "kenney_rpg",
+        "file": "Audio/creak2.ogg",
+        "durationSec": 0.83
+      },
+      {
+        "key": "sfx.door_creak.3",
+        "source": "kenney_rpg",
+        "file": "Audio/creak3.ogg",
+        "durationSec": 0.338
+      },
+      {
+        "key": "sfx.metal_latch",
+        "source": "kenney_rpg",
+        "file": "Audio/metalLatch.ogg",
+        "durationSec": 0.261
+      },
+      {
+        "key": "sfx.metal_click",
+        "source": "kenney_rpg",
+        "file": "Audio/metalClick.ogg",
+        "durationSec": 0.446
+      },
+      {
+        "key": "sfx.metal_hit.1",
+        "source": "kenney_scifi",
+        "file": "Audio/impactMetal_000.ogg",
+        "durationSec": 0.635
+      },
+      {
+        "key": "sfx.metal_hit.2",
+        "source": "kenney_scifi",
+        "file": "Audio/impactMetal_001.ogg",
+        "durationSec": 0.688
+      },
+      {
+        "key": "sfx.metal_hit.3",
+        "source": "kenney_scifi",
+        "file": "Audio/impactMetal_002.ogg",
+        "durationSec": 0.471
+      },
+      {
+        "key": "sfx.metal_hit.4",
+        "source": "kenney_scifi",
+        "file": "Audio/impactMetal_003.ogg",
+        "durationSec": 0.777
+      },
+      {
+        "key": "sfx.crowbar_hit.1",
+        "source": "rd_woodmetal",
+        "file": "hammer_02.ogg",
+        "durationSec": 0.237
+      },
+      {
+        "key": "sfx.crowbar_hit.2",
+        "source": "rd_woodmetal",
+        "file": "hammer_03.ogg",
+        "durationSec": 0.227
+      },
+      {
+        "key": "sfx.wood_hit.1",
+        "source": "kenney_impact",
+        "file": "Audio/impactWood_heavy_000.ogg",
+        "durationSec": 0.313
+      },
+      {
+        "key": "sfx.wood_hit.2",
+        "source": "kenney_impact",
+        "file": "Audio/impactPlank_medium_000.ogg",
+        "durationSec": 0.779
+      },
+      {
+        "key": "sfx.bottle_smash.1",
+        "source": "rd_breaking",
+        "file": "bfh1_glass_breaking_02.ogg",
+        "durationSec": 0.388
+      },
+      {
+        "key": "sfx.bottle_smash.2",
+        "source": "rd_breaking",
+        "file": "bfh1_glass_breaking_05.ogg",
+        "durationSec": 0.438
+      },
+      {
+        "key": "sfx.glass_break.1",
+        "source": "rd_breaking",
+        "file": "bfh1_glass_breaking_01.ogg",
+        "durationSec": 0.761
+      },
+      {
+        "key": "sfx.glass_break.2",
+        "source": "rd_breaking",
+        "file": "bfh1_glass_breaking_06.ogg",
+        "durationSec": 0.916
+      },
+      {
+        "key": "sfx.item_pickup.1",
+        "source": "kenney_rpg",
+        "file": "Audio/handleSmallLeather.ogg",
+        "durationSec": 0.338
+      },
+      {
+        "key": "sfx.item_pickup.2",
+        "source": "kenney_rpg",
+        "file": "Audio/handleSmallLeather2.ogg",
+        "durationSec": 0.307
+      },
+      {
+        "key": "sfx.item_drop.1",
+        "source": "kenney_rpg",
+        "file": "Audio/dropLeather.ogg",
+        "durationSec": 0.415
+      },
+      {
+        "key": "sfx.item_drop.2",
+        "source": "kenney_impact",
+        "file": "Audio/impactSoft_medium_001.ogg",
+        "durationSec": 0.183
+      },
+      {
+        "key": "sfx.loot_deposit",
+        "source": "kenney_rpg",
+        "file": "Audio/handleCoins.ogg",
+        "durationSec": 0.846
+      },
+      {
+        "key": "sfx.cloth.1",
+        "source": "kenney_rpg",
+        "file": "Audio/cloth2.ogg",
+        "durationSec": 0.415
+      },
+      {
+        "key": "sfx.cloth.2",
+        "source": "kenney_rpg",
+        "file": "Audio/cloth3.ogg",
+        "durationSec": 0.477
+      },
+      {
+        "key": "sfx.keypad_press.1",
+        "source": "kenney_interface",
+        "file": "Audio/click_002.ogg",
+        "durationSec": 0.01
+      },
+      {
+        "key": "sfx.keypad_press.2",
+        "source": "kenney_interface",
+        "file": "Audio/click_003.ogg",
+        "durationSec": 0.01
+      },
+      {
+        "key": "sfx.keypad_press.3",
+        "source": "kenney_interface",
+        "file": "Audio/click_004.ogg",
+        "durationSec": 0.01
+      },
+      {
+        "key": "sfx.switch_click.1",
+        "source": "rd_sfx100v2",
+        "file": "sfx100v2_switch_01.ogg",
+        "durationSec": 0.227
+      },
+      {
+        "key": "sfx.switch_click.2",
+        "source": "rd_sfx100v2",
+        "file": "sfx100v2_switch_02.ogg",
+        "durationSec": 0.233
+      },
+      {
+        "key": "sfx.flashlight_click",
+        "source": "rd_sfx100",
+        "file": "switch_01.ogg",
+        "durationSec": 0.231
+      },
+      {
+        "key": "sfx.ui_click",
+        "source": "kenney_interface",
+        "file": "Audio/click_001.ogg",
+        "durationSec": 0.1
+      },
+      {
+        "key": "sfx.ui_hover",
+        "source": "kenney_interface",
+        "file": "Audio/tick_001.ogg",
+        "durationSec": 0.023
+      },
+      {
+        "key": "sfx.ui_confirm",
+        "source": "kenney_interface",
+        "file": "Audio/confirmation_001.ogg",
+        "durationSec": 0.29
+      },
+      {
+        "key": "sfx.ui_deny",
+        "source": "kenney_interface",
+        "file": "Audio/error_001.ogg",
+        "durationSec": 0.165
+      },
+      {
+        "key": "sfx.ui_open",
+        "source": "kenney_interface",
+        "file": "Audio/open_001.ogg",
+        "durationSec": 0.148
+      },
+      {
+        "key": "sfx.ui_close",
+        "source": "kenney_interface",
+        "file": "Audio/close_001.ogg",
+        "durationSec": 0.148
+      },
+      {
+        "key": "sfx.creature_growl.1",
+        "source": "lrsf_horror",
+        "file": "Horror Sound Library/Mp3/Zombie_01.mp3",
+        "durationSec": 0.784
+      },
+      {
+        "key": "sfx.creature_growl.2",
+        "source": "lrsf_horror",
+        "file": "Horror Sound Library/Mp3/Zombie_04.mp3",
+        "durationSec": 1.646
+      },
+      {
+        "key": "sfx.creature_growl.3",
+        "source": "lrsf_horror",
+        "file": "Horror Sound Library/Mp3/Monster_06.mp3",
+        "durationSec": 2.664
+      },
+      {
+        "key": "sfx.creature_growl.4",
+        "source": "lrsf_horror",
+        "file": "Horror Sound Library/Mp3/Monster_03.mp3",
+        "durationSec": 3.239
+      },
+      {
+        "key": "sfx.creature_scream.1",
+        "source": "rd_creature",
+        "file": "scream_01.ogg",
+        "durationSec": 0.96
+      },
+      {
+        "key": "sfx.creature_scream.2",
+        "source": "rd_creature",
+        "file": "scream_02.ogg",
+        "durationSec": 0.96
+      },
+      {
+        "key": "sfx.creature_death.1",
+        "source": "lrsf_horror",
+        "file": "Horror Sound Library/Mp3/Monster_02.mp3",
+        "durationSec": 3.03
+      },
+      {
+        "key": "sfx.creature_breath.1",
+        "source": "rd_creature",
+        "file": "breath.ogg",
+        "durationSec": 0.67
+      },
+      {
+        "key": "sfx.creature_breath.2",
+        "source": "rd_creature",
+        "file": "snore.ogg",
+        "durationSec": 0.442
+      },
+      {
+        "key": "sfx.breath_scared.1",
+        "source": "lrsf_horror",
+        "file": "Horror Sound Library/Mp3/Breath Scared/Breath_Scared_09.mp3",
+        "durationSec": 1.123
+      },
+      {
+        "key": "sfx.breath_scared.2",
+        "source": "lrsf_horror",
+        "file": "Horror Sound Library/Mp3/Breath Scared/Breath_Scared_11.mp3",
+        "durationSec": 1.071
+      },
+      {
+        "key": "sfx.breath_scared.3",
+        "source": "lrsf_horror",
+        "file": "Horror Sound Library/Mp3/Breath Scared/Breath_Scared_12.mp3",
+        "durationSec": 1.149
+      },
+      {
+        "key": "sfx.breath_scared.4",
+        "source": "lrsf_horror",
+        "file": "Horror Sound Library/Mp3/Breath Scared/Breath_Scared_15.mp3",
+        "durationSec": 1.384
+      },
+      {
+        "key": "sfx.bone_crack.1",
+        "source": "lrsf_horror",
+        "file": "Horror Sound Library/Mp3/Bonecrack_01.mp3",
+        "durationSec": 0.34
+      },
+      {
+        "key": "sfx.bone_crack.2",
+        "source": "lrsf_horror",
+        "file": "Horror Sound Library/Mp3/Bonecrack_03.mp3",
+        "durationSec": 0.522
+      },
+      {
+        "key": "sfx.body_fall.1",
+        "source": "rd_breaking",
+        "file": "bfh1_falling_05.ogg",
+        "durationSec": 0.927
+      },
+      {
+        "key": "sfx.amb_drone.1",
+        "source": "lrsf_horror",
+        "file": "Horror Sound Library/Mp3/Ambience_Hell_01.mp3",
+        "durationSec": 26.54
+      },
+      {
+        "key": "sfx.amb_drone.2",
+        "source": "lrsf_horror",
+        "file": "Horror Sound Library/Mp3/Ambience_MonstersBelly_00.mp3",
+        "durationSec": 60.212
+      },
+      {
+        "key": "sfx.amb_machine_loop",
+        "source": "lrsf_horror",
+        "file": "Horror Sound Library/Mp3/Evil_Machine_Loop_00.mp3",
+        "durationSec": 9.691
+      }
+    ]
+  }
+}
