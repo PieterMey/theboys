@@ -10,6 +10,8 @@ The browser co-op horror game we're building tonight. The full design is in PLAN
 - Do NOT `git commit`, `git push`, or change git config. The integrator commits at green gates. **This repo is PUBLIC on GitHub.**
 - Do NOT edit `package.json` or `package-lock.json`, and do NOT run `npm install <pkg>`. Every dependency is pre-installed. If one is missing, report it.
 - Ports: each track has its own (table below), and the tunnel targets `main` on :3000 only. Read `PORT`, `BASE_URL` and `STT_URL` from the environment.
+- **The live server is always on.** :3000 (https://play.dead-air.io via the 'Cloudflared' Windows service), the STT sidecar on :3100 and cloudflared are the host's. Never connect test players to them, and never stop, restart or kill them (no `taskkill /IM node.exe`, `python*` or `cloudflared`; kill only PIDs you started). Using the STT sidecar's HTTP API from tests is fine.
+- **Never run `npm run build`** (it rewrites `apps/client/dist`, which the live server serves). For a production-like test, build to a temp dir, `npx vite build --config apps/client/vite.config.ts --outDir <tmp> --emptyOutDir`, and start the server with `CLIENT_DIST=<tmp>`.
 - `tsc` covers the whole repo, so errors in other tracks' files may show up while they're mid-edit. Only errors in YOUR files block you.
 
 ## Ownership
@@ -32,7 +34,7 @@ The browser co-op horror game we're building tonight. The full design is in PLAN
 
 ## Commands (repo root)
 - `npm run dev`: game server + Vite middleware with HMR on `PORT` (default 3000).
-- `npm run build`: production client build into `apps/client/dist`.
+- `npm run build`: production client build into `apps/client/dist` (integrator only, see above).
 - `npm run check`: `tsc --noEmit`, the forbidden-API grep and the secret check. Must pass before you report done.
 - `npm run selftest`: boots the server, connects 2 ws clients to one crew, exits 0.
 - `node tools/gen-cli.ts --seed X --png out.png`: render a level map to PNG (② track).
