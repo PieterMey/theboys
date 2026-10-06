@@ -1,0 +1,120 @@
+/* DEAD AIR overlay base styles (integrator-owned). Tracks style their own components with their own class prefixes. */
+:root {
+  --bg: #030405;
+  --panel: rgba(8, 10, 12, 0.88);
+  --line: #2a2f33;
+  --text: #d9d6cc;
+  --dim: #7c7f7a;
+  --amber: #f0b43c;
+  --red: #d23b2e;
+  --green: #7fd36b;
+  --font-stencil: 'Stencil', 'Stencil Std', 'Bahnschrift SemiBold Condensed', 'Bahnschrift', 'Impact', 'Arial Narrow', sans-serif;
+  --font-mono: 'Cascadia Mono', 'Consolas', 'Lucida Console', 'Courier New', monospace;
+  color-scheme: dark;
+}
+
+#overlay {
+  font-family: var(--font-mono);
+  color: var(--text);
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+
+.hud { position: absolute; inset: 0; pointer-events: none; }
+.hud-slot { position: absolute; display: flex; gap: 8px; padding: 14px; }
+.hud-top-left { top: 0; left: 0; flex-direction: column; align-items: flex-start; }
+.hud-top { top: 0; left: 50%; transform: translateX(-50%); }
+.hud-top-right { top: 0; right: 0; flex-direction: column; align-items: flex-end; }
+.hud-left { top: 50%; left: 0; transform: translateY(-50%); flex-direction: column; }
+.hud-center { top: 50%; left: 50%; transform: translate(-50%, -50%); }
+.hud-right { top: 50%; right: 0; transform: translateY(-50%); flex-direction: column; }
+.hud-bottom-left { bottom: 0; left: 0; flex-direction: column-reverse; align-items: flex-start; }
+.hud-bottom { bottom: 0; left: 50%; transform: translateX(-50%); }
+.hud-bottom-right { bottom: 0; right: 0; flex-direction: column-reverse; align-items: flex-end; }
+.hud-chip {
+  font: 600 11px/1 var(--font-mono);
+  letter-spacing: 0.14em;
+  color: var(--dim);
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.55);
+  padding: 5px 8px;
+}
+
+.screen {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: auto;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.85));
+}
+.screen-none { display: none; }
+
+.panel {
+  width: min(440px, calc(100vw - 32px));
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--amber);
+  padding: 28px 28px 20px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7);
+}
+.title {
+  margin: 0;
+  font: 400 64px/0.9 var(--font-stencil);
+  letter-spacing: 0.08em;
+  color: var(--text);
+  text-shadow: 0 0 18px rgba(240, 180, 60, 0.18);
+}
+.sub { margin: 8px 0 24px; font-size: 10px; letter-spacing: 0.22em; color: var(--dim); }
+.join label { display: block; margin-bottom: 14px; }
+.join label span { display: block; font-size: 10px; letter-spacing: 0.24em; color: var(--amber); margin-bottom: 6px; }
+.join input {
+  width: 100%;
+  box-sizing: border-box;
+  background: #000;
+  border: 1px solid var(--line);
+  color: var(--text);
+  font: 600 18px var(--font-mono);
+  letter-spacing: 0.12em;
+  padding: 10px 12px;
+  outline: none;
+}
+.join input:focus { border-color: var(--amber); }
+.row { display: flex; gap: 10px; margin-top: 8px; }
+.btn {
+  flex: 1;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--line);
+  font: 700 13px var(--font-mono);
+  letter-spacing: 0.2em;
+  padding: 12px 10px;
+  cursor: pointer;
+}
+.btn:hover:not(:disabled) { border-color: var(--text); }
+.btn.primary { background: var(--amber); color: #120d02; border-color: var(--amber); }
+.btn.primary:hover:not(:disabled) { filter: brightness(1.1); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+.error { color: var(--red); margin: 14px 0 0; font-size: 12px; letter-spacing: 0.06em; }
+.fine { margin: 18px 0 0; font-size: 10px; color: var(--dim); letter-spacing: 0.1em; }
+
+.toasts { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; align-items: center; }
+.toast {
+  background: rgba(0, 0, 0, 0.78);
+  border-left: 3px solid var(--dim);
+  padding: 7px 12px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  animation: toast-in 160ms ease-out;
+}
+.toast-warn { border-left-color: var(--amber); }
+.toast-error { border-left-color: var(--red); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } }
+
+/* Join screen sits left so the scene stays visible */
+.screen-join {
+  justify-items: start;
+  padding-left: max(16px, 7vw);
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.88) 0%, rgba(0, 0, 0, 0.55) 40%, rgba(0, 0, 0, 0) 72%);
+}

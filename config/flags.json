@@ -1,0 +1,17 @@
+{
+  "ai": true,
+  "jev": true,
+  "listenerAi": true,
+  "stt": true,
+  "briefsAi": true,
+  "reviewAi": true,
+  "mannequin": true,
+  "radioLeak": false,
+  "deadStatic": false,
+  "emotes": true,
+  "proxText": true,
+  "mimic": false,
+  "elevenlabsSfx": true,
+  "volumetrics": true,
+  "gtao": true
+}

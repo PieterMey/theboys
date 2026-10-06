@@ -1,0 +1,15 @@
+{
+  "aiBudgetUsdPerSession": 3,
+  "contractRealSec": 900,
+  "lobbyCap": 6,
+  "playerMult": { "1": 0.6, "2": 0.75, "3": 0.88, "4": 1.0, "5": 1.12, "6": 1.25 },
+  "riskLootMult": { "1": 1.0, "2": 1.4, "3": 1.9 },
+  "lootBudgetBase": 650,
+  "startScrip": 150,
+  "firstQuotaBase": 500,
+  "quotaStep": 275,
+  "contractsPerShift": 3,
+  "overtimeBonus": 0.2,
+  "badgeFine": 0.1,
+  "xpLevels": [0, 150, 400, 750, 1200, 1800, 2600]
+}
