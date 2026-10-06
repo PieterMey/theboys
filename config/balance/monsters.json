@@ -26,7 +26,7 @@
     "speed": 7,
     "killRadiusM": 0.8,
     "seeRangeM": 30,
-    "sightTtlMs": 300,
+    "sightTtlMs": 450,
     "blinkMinSec": 18,
     "blinkMaxSec": 30,
     "blinkMs": 350,

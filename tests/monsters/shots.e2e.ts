@@ -2,7 +2,8 @@
 // Chrome/WebGPU. Starts its own dev server on PORT (default 3013) unless BASE_URL is given.
 //   node tests/monsters/shots.e2e.ts        -> tests/artifacts/monsters/*.png
 import { ANIM } from '../../packages/shared/src/anim.ts';
-import { launchPlayer, screenshot, waitForGame } from '../lib/launch.ts';
+import { waitForGame } from '../lib/launch.ts';
+import { launchStable as launchPlayer, shot as screenshot } from './browser.ts';
 import { startServer, sleep } from './bot.ts';
 
 const PORT = Number(process.env.PORT ?? 3013);

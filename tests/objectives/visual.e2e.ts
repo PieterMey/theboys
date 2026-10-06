@@ -67,7 +67,8 @@ try {
   const start = await p.page.evaluate(() => window.__game!.dbg('objectives.start', { fixture: 'facility_s1_p2', realSec: 900, monsters: false, openDoors: true }));
   results.push(`start: ${JSON.stringify(start)}`);
   await p.page.waitForFunction(() => (window as unknown as { __objectives?: Obj }).__objectives?.state()?.active === true, undefined, { timeout: 15000 });
-  await sleep(2500);
+  await sleep(2800);
+  await p.page.evaluate(() => window.__game!.dbg('monsters.freeze', { on: true })).catch(() => undefined);
   const st = await p.page.evaluate(() => (window as unknown as { __objectives: Obj }).__objectives.state()) as ObjectivesState;
   const [l0, l1] = st.levers;
   // stand in front of breaker 0 (lever faces +rot direction), look at it

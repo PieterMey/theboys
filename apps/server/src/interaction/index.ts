@@ -147,6 +147,12 @@ export async function install(ctx: ServerContext): Promise<void> {
     E.flush(crew);
     return { lights: E.slice(crew).lights };
   });
+  ctx.registerDbg('interaction.setLights', (crew, _p, args) => {
+    const a = (args ?? {}) as { space?: number | 'all'; on?: boolean };
+    E.setSwitch(crew, a.space === undefined ? 'all' : a.space, a.on !== false);
+    E.flush(crew);
+    return { lights: E.slice(crew).lights };
+  });
   ctx.registerDbg('interaction.litAt', (crew, _p, args) => {
     const a = (args ?? {}) as { x?: number; z?: number };
     return { lit: E.litAtXZ(crew, Number(a.x ?? 0), Number(a.z ?? 0)) };

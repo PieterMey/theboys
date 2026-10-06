@@ -59,7 +59,11 @@ function observedBy(rt: Rt, m: MannequinAgent): ServerPlayer | null {
   const range = num(rt.mannequin, 'seeRangeM', 30);
   for (const p of rt.alive()) {
     const s = sight.get(p.id);
-    if (!s || s.until < now) continue;
+    // a client that stalls (shader compile, tab hitch) stops sending poses AND reports: keep its last sighting
+    const ps = p.slices.monsters as { poses?: number; lastPose?: number } | undefined;
+    const gap = now - (ps?.lastPose ?? 0);
+    const stalled = (ps?.poses ?? 0) > 10 && gap > 250 && gap < 4000;
+    if (!s || (s.until < now && !(stalled && s.until >= (ps?.lastPose ?? 0) - 100))) continue;
     if (isBlinking(rt, p.id)) continue;
     const [px, , pz] = p.pose.p;
     if (dist(px, pz, m.x, m.z) > range) continue;
@@ -148,6 +152,7 @@ export function mannequinTick(rt: Rt, m: MannequinAgent, dt: number): void {
     }
     return;
   }
+  if (m.state === 'frozen' && m.st < 2 && cm.time - m.movedAt > 2) { m.anim = ANIM.mFrozen; return; } // spawn/return grace
   const watcher = observedBy(rt, m);
   const lit = watcher ? litAt(rt, m.x, m.z) : false;
   m.observed = !!watcher && lit;

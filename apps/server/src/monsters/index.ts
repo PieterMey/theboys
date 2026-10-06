@@ -211,8 +211,11 @@ export function install(ctx: ServerContext): void | Promise<void> {
     if ((cm.mode === 'contract' && to !== 'contract') || (cm.mode === 'hub' && to !== 'hub')) stopMonsters(crew);
   });
 
-  // a grabbed victim is held in place
+  // a grabbed victim is held in place; pose cadence is tracked for the mannequin's stall tolerance
   ctx.hooks.pose.push((crew, player, pose: PlayerPose) => {
+    const ps = (player.slices.monsters ??= {}) as { poses?: number; lastPose?: number };
+    ps.poses = (ps.poses ?? 0) + 1;
+    ps.lastPose = performance.now();
     const rt = rtFor(crew);
     const L = rt ? listenerOf(rt) : null;
     if (!L || L.state !== 'grab' || L.grabVictim !== player.id) return;
@@ -353,6 +356,8 @@ export function install(ctx: ServerContext): void | Promise<void> {
     m.spawned = true;
     m.active = true;
     m.state = 'frozen';
+    m.st = 0;
+    m.path = null;
     if (a.x !== undefined) m.x = m.lastX = Number(a.x);
     if (a.z !== undefined) m.z = m.lastZ = Number(a.z);
     const blinkIn = Number((args as { blinkIn?: number } | null)?.blinkIn ?? 18);

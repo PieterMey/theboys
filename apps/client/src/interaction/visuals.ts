@@ -248,7 +248,7 @@ export function createVisuals(scene: THREE.Scene): Visuals {
       case 'bottle': return { pos: [0.02, -0.12, 0.02], rot: [0.35, 0.2, 0.25], scale: 0.85 };
       case 'walkie': return { pos: [0, -0.06, 0], rot: [0.25, -0.5, 0], scale: 1.1 };
       case 'medkit': return { pos: [-0.02, -0.1, -0.05], rot: [0.35, -0.4, 0], scale: 0.8 };
-      case 'glowstick': return { pos: [0, -0.04, 0], rot: [0.5, 0.3, 0.2], scale: 1.2 };
+      case 'glowstick': return { pos: [0.03, -0.09, 0.02], rot: [0.9, 0.4, 0.3], scale: 0.75 };
       case 'airhorn': return { pos: [0, -0.09, 0], rot: [0.9, 0, 0], scale: 1 };
       case 'keycard': return { pos: [0, 0, 0], rot: [1.2, 0.1, 0], scale: 1.4 };
       case 'badge': return { pos: [0, 0, 0], rot: [1.2, 0.1, 0], scale: 1.4 };

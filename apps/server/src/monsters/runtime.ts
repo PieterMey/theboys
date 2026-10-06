@@ -8,7 +8,7 @@ import { makeRng } from '@dead-air/shared/rng.ts';
 import type { MonsterKind, SnapMonster, Snapshot } from '@dead-air/shared/state.ts';
 import type { MonsterCue } from '@dead-air/shared/messages/monsters.ts';
 import type { Crew, ServerContext, ServerPlayer } from '../core/types.ts';
-import { extDoorOpen, extKill, extSetDoor, hasDoorApi, isAlive, isHidden } from './ext.ts';
+import { extDoorOpen, extKill, extSetDoor, extUnhide, hasDoorApi, isAlive, isHidden } from './ext.ts';
 import { dist, inCab, perceive } from './geo.ts';
 import type { Perceived } from './geo.ts';
 import { bal, num } from './types.ts';
@@ -28,7 +28,8 @@ export interface Rt {
   retreatBal: Bal;
   cue(a: Agent, cue: MonsterCue, radius: number): void;
   kill(a: Agent, p: ServerPlayer, reason: string, detail: string): void;
-  openDoor(id: number): void;
+  /** a monster pushes a door open (its own door noise is not heard by itself) */
+  openDoor(id: number, by?: Agent): void;
   /** connected, alive players (any position) */
   alive(): ServerPlayer[];
   hidden(p: ServerPlayer): boolean;
@@ -78,7 +79,7 @@ function baseState(ctx: ServerContext, crew: Crew, layout: LevelLayout, mode: 'h
     players: Math.max(1, ctx.crews.connected(crew).length),
     rng: makeRng(`${layout.seed}|${crew.code}|${o.contractIndex}`, 'monsters'),
     agents: [], noiseQ: [], frozen: false, log: [], sight: new Map(), blinks: new Map(), deaths: new Map(),
-    voiceAcc: 0, sightAcc: 0,
+    voiceAcc: 0, sightAcc: 0, selfNoise: [],
     callsigns: [...callsignSpace.keys()], spaceCallsign, callsignSpace,
     lastAutoStart: 0,
   };
@@ -168,17 +169,16 @@ export function makeRt(ctx: ServerContext, crew: Crew, cm: CrewMonsters, onDeath
       ctx.log('monsters').info(`crew ${crew.code}: ${a.kind.toUpperCase()} killed ${p.name}: ${reason} (${detail})`);
       onDeath(crew, p.id, a, x, z);
     },
-    openDoor(id) {
+    openDoor(id, by) {
       if (cm.doorOpen(id)) return;
+      const dd = cm.layout.doors.find((q) => q.id === id);
+      if (dd && by) {
+        const cx = dd.dir === 'v' ? dd.x : dd.x + dd.len / 2, cz = dd.dir === 'v' ? dd.y + dd.len / 2 : dd.y;
+        cm.selfNoise.push({ x: cx, z: cz, until: cm.time + 0.6, agent: by.id });
+      }
       if (!extSetDoor(crew, id, true)) {
         const i = cm.doorIndex.get(id);
         if (i !== undefined) cm.doorState[i] = 1;
-      }
-      const d = cm.layout.doors.find((q) => q.id === id);
-      if (d) {
-        // monsters opening doors are audible (and visible: the interaction track animates the door)
-        const cx = d.dir === 'v' ? d.x : d.x + d.len / 2, cz = d.dir === 'v' ? d.y + d.len / 2 : d.y;
-        cm.noiseQ.push({ x: cx, z: cz, radiusM: 0, kind: 'monsterDoor', source: '' });
       }
     },
     alive() {
@@ -242,8 +242,10 @@ function processNoise(rt: Rt): void {
       if (sp && !isAlive(crew, sp)) continue; // the dead make no noise for monsters
     }
     let field: Float32Array | null = null;
+    const doorish = n.kind === 'door' || n.kind === 'securityDoor';
     for (const a of cm.agents) {
       if (!canHear(a) || inCab(cm.layout, a.x, a.z)) continue;
+      if (doorish && !n.source && cm.selfNoise.some((s) => s.agent === a.id && s.until >= cm.time && Math.abs(s.x - n.x) < 1.5 && Math.abs(s.z - n.z) < 1.5)) continue;
       if (Math.abs(a.x - n.x) > n.radiusM + 1 || Math.abs(a.z - n.z) > n.radiusM + 1) continue;
       if (!field) {
         field = soundFlood(cm.grid, n.x, n.z, n.radiusM, cm.doorOpen);
@@ -252,6 +254,11 @@ function processNoise(rt: Rt): void {
       const d = fieldAt(cm.grid, field, a.x, a.z);
       if (!(d <= n.radiusM)) continue;
       const per: Perceived = perceive(cm, field, a.x, a.z, n.x, n.z);
+      // any voice above a whisper from a hiding spot right next to a monster gives you away
+      if (n.kind === 'voice' && (n.band ?? 0) >= 2 && d <= 2.5 && n.source && (a.kind === 'hound' || a.kind === 'listener')) {
+        const hp = crew.players.get(n.source);
+        if (hp && isHidden(crew, hp)) extUnhide(crew, hp.id);
+      }
       if (a.kind === 'hound') houndHear(rt, a as HoundAgent, n, d, per);
       else if (a.kind === 'listener') listenerHearNoise(rt, a as ListenerAgent, n, d, per);
     }
@@ -266,6 +273,7 @@ export function tickRuntime(rt: Rt, dt: number): void {
     return;
   }
   cm.time += dt;
+  if (cm.selfNoise.length) cm.selfNoise = cm.selfNoise.filter((s) => s.until >= cm.time);
   voiceNoise(rt, dt);
   processNoise(rt);
   for (const a of cm.agents) {

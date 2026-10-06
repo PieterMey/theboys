@@ -2,7 +2,8 @@
 // camera (in frustum, LOS clear, <= 30 m) stays frozen; when the player looks away it moves. Also the hub's chained
 // kennel hound renders in its pen. Real Chrome/WebGPU; screenshots in tests/artifacts/monsters/.
 //   node tests/monsters/sight.e2e.ts
-import { launchPlayer, screenshot, waitForGame } from '../lib/launch.ts';
+import { waitForGame } from '../lib/launch.ts';
+import { launchStable as launchPlayer, shot as screenshot } from './browser.ts';
 import { startServer, sleep } from './bot.ts';
 
 const PORT = Number(process.env.PORT ?? 3013);
@@ -61,6 +62,8 @@ try {
   await dbg('monsters.place', { id: 'hound0', outSec: 999 });
   await dbg('monsters.place', { id: 'listener0', outSec: 999 });
   await p.page.evaluate(([x, z, y]) => { window.__game!.teleport(x, z, y); window.__game!.look(y, -0.05); }, [cam[0], cam[1], yaw] as const);
+  // let the new level finish its first (shader-compiling) frames before the mannequin appears
+  await p.page.waitForFunction(() => window.__game!.perf().frameMs < 40, undefined, { timeout: 30_000, polling: 250 }).catch(() => null);
   await sleep(1200);
   await dbg('monsters.spawnMannequin', { x: man[0], z: man[1], blinkIn: 120 });
   await sleep(1500);

@@ -59,7 +59,61 @@ try {
     await sleep(1500);
     await screenshot(page, `${OUT}/v2-world-${type}.png`);
   }
+  // room lights: biggest lit zone-0 room, flashlight off, switch its lights off via the API (render.setPower)
+  const room = await ev<{ id: number; rect: { x: number; y: number; w: number; h: number } } | undefined>(page, `(() => { const L = __ix.layout(); const st = __ix.state(); const rs = L.spaces.filter(s => s.kind !== 'corridor' && s.kind !== 'outside' && s.type !== 'van' && s.powerZone === 0 && st.lights[s.id]); rs.sort((a, b) => b.rect.w * b.rect.h - a.rect.w * a.rect.h); return rs[0]; })()`);
+  if (room) {
+    const r = room.rect;
+    await ev(page, `__game.teleport(${r.x + 0.8}, ${r.y + 0.8}, 0)`);
+    await sleep(400);
+    await ev(page, `__ix.aim(${r.x + r.w - 0.5}, 1.0, ${r.y + r.h - 0.5})`);
+    await ev(page, '__ix.flashlight(false)');
+    await sleep(1200);
+    await screenshot(page, `${OUT}/v3-room-lights-on.png`);
+    await ev(page, `__game.dbg('interaction.setLights', { space: ${room.id}, on: false })`);
+    await sleep(1500);
+    await screenshot(page, `${OUT}/v4-room-lights-off.png`);
+    const lit = await ev<boolean>(page, `__ix.state().lights[${room.id}]`);
+    console.log(`room ${room.id} lights after switch-off: ${lit}`);
+    if (lit !== false) ok = false;
+  }
   clearInterval(keep);
+  // teammate down: corpse + revive ring + prompt, then a medkit revive with E
+  await ev(page, `__game.teleport(${sp[0]}, ${sp[2] - 1.6}, 0)`);
+  await sleep(400);
+  await ev(page, `__game.dbg('interaction.kill', { pid: '${mate.me}', killer: 'MANNEQUIN', reason: 'moved while nobody was watching' })`);
+  await sleep(800);
+  await ev(page, `__ix.aim(${sp[0]}, 0.2, ${sp[2]})`);
+  await sleep(600);
+  const tb = await ev<{ id: string; view?: { text: string } } | null>(page, '__ix.target()');
+  console.log('body target:', JSON.stringify(tb?.view ?? tb));
+  await screenshot(page, `${OUT}/v5-teammate-down.png`);
+  await ev(page, `__game.dbg('interaction.give', { type: 'medkit' })`);
+  await sleep(500);
+  const tb2 = await ev<{ id: string; view?: { text: string } } | null>(page, '__ix.target()');
+  await ev(page, `__game.setInput({ interact: true })`);
+  await sleep(900);
+  const stR = await ev<{ dead: string[] }>(page, '__ix.state()');
+  console.log(`medkit revive via E (${tb2?.view?.text}): ${!stR.dead.includes(mate.me)}`);
+  if (stR.dead.includes(mate.me)) ok = false;
+  // glowstick dropped in the darkened room (emissive marker + floor halo, no light source)
+  if (room) {
+    const r = room.rect;
+    await ev(page, `__game.dbg('interaction.give', { type: 'glowstick' })`);
+    await sleep(400);
+    const slot = (await ev<(string | null)[]>(page, '__ix.inventory()')).indexOf('glowstick');
+    await ev(page, `__game.setInput({ slot: ${slot} })`);
+    await ev(page, `__game.teleport(${r.x + r.w / 2}, ${r.y + 1.0}, 0)`);
+    await sleep(400);
+    await ev(page, `__ix.aim(${r.x + r.w / 2}, 0, ${r.y + 2.2})`);
+    await ev(page, '__ix.flashlight(false)');
+    await sleep(300);
+    await ev(page, `__game.setInput({ use: true })`);
+    await sleep(900);
+    const glows = Object.keys((await ev<{ glows: Record<string, unknown> }>(page, '__ix.state()')).glows).length;
+    console.log(`glowsticks on the floor: ${glows}`);
+    if (glows < 1) ok = false;
+    await screenshot(page, `${OUT}/v6-glowstick-dark-room.png`);
+  }
   const errs = (await ev<string[]>(page, '__game.errors()')).filter((e) => /interaction|\bix\b/i.test(e));
   console.log('interaction client errors:', JSON.stringify(errs.slice(0, 5)));
   ok = errs.length === 0;

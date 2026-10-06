@@ -12,6 +12,7 @@ import { buildEdgeGrid, los } from '@dead-air/shared/nav/index.ts';
 import type { EdgeGrid } from '@dead-air/shared/nav/index.ts';
 import { NOISE_M, PLAYER, WORLD } from '@dead-air/shared/constants.ts';
 import { STANCE } from '@dead-air/shared/state.ts';
+import { ANIM } from '@dead-air/shared/anim.ts';
 import type { Vec3 } from '@dead-air/shared/state.ts';
 import { makeRng } from '@dead-air/shared/rng.ts';
 
@@ -898,6 +899,8 @@ export function killPid(crew: Crew, pid: string, cause: DeathCause): boolean {
   const t = now();
   const p: Vec3 = [pl.pose.p[0], 0, pl.pose.p[2]];
   pl.alive = false;
+  // snapshots carry the corpse right away (the victim's client may not send another pose for a while)
+  pl.pose = { ...pl.pose, stance: STANCE.dead, anim: (ANIM as Record<string, number>).death ?? pl.pose.anim, light: 0 };
   s.dead.push(pid);
   markDead(s);
   s.hp[pid] = 0;
@@ -1125,8 +1128,11 @@ export function endContract(crew: Crew, s: IxSlice): void {
 }
 
 export function onPhase(crew: Crew, from: string, to: string): void {
+  const before = (crew.slices[TRACK] as IxSlice | undefined)?.layoutKey ?? null;
   const s = slice(crew); // rebuilds on a layout change (patch.reset)
-  if (from === 'contract' && to !== 'contract') endContract(crew, s);
+  const relayout = before !== s.layoutKey;
+  // leaving the contract, or a new facility while still in 'contract' (dbg restart): nobody stays dead
+  if (from === 'contract' && (to !== 'contract' || relayout)) endContract(crew, s);
   if (to === 'contract' && !s.walkiesGiven && !adapters.meta) {
     // fallback while meta (d) is absent: the crew gets its 2 company walkies on the first contract
     s.walkiesGiven = true;

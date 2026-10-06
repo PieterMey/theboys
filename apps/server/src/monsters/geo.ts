@@ -156,12 +156,12 @@ export type FollowResult = 'moving' | 'arrived' | 'blocked' | 'door';
  * Follow the planned path at `speed`. Closed doors the agent may open: wait `doorPause` s, then `openDoor(id)`.
  * Returns 'arrived' at the end of the path.
  */
-export function follow(cm: CrewMonsters, a: Agent, dt: number, speed: number, canOpen: CanOpen | undefined, doorPause: number, openDoor: (id: number) => void): FollowResult {
+export function follow(cm: CrewMonsters, a: Agent, dt: number, speed: number, canOpen: CanOpen | undefined, doorPause: number, openDoor: (id: number, by: Agent) => void): FollowResult {
   if (!a.path) return 'arrived';
   if (a.doorWait > 0) {
     a.doorWait -= dt;
     if (a.doorWait <= 0) {
-      if (a.pendingDoor >= 0) openDoor(a.pendingDoor);
+      if (a.pendingDoor >= 0) openDoor(a.pendingDoor, a);
       a.pendingDoor = -1;
     }
     return 'door';

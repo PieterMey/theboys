@@ -338,6 +338,11 @@ export function buildDoor(L: LevelLayout, d: LayoutDoor, mats: LevelMaterials): 
       return null;
   }
 
+  // fewer draw calls: merge same-material static meshes inside every group (leaf decorations, bolts, ribs...)
+  const groupsToMerge: THREE.Object3D[] = [g];
+  g.traverse((o) => { if (o !== g && (o as THREE.Group).isGroup) groupsToMerge.push(o); });
+  for (const grp of groupsToMerge) mergeChildrenByMaterial(grp, new Set(['status', 'leaf']));
+
   const vis: DoorVisual = {
     id: d.id, kind: d.kind, group: g, open: d.initiallyOpen, t: d.initiallyOpen ? 1 : 0, speed, spaces, status,
     apply(t: number) {
@@ -351,4 +356,35 @@ export function buildDoor(L: LevelLayout, d: LayoutDoor, mats: LevelMaterials): 
   vis.apply(vis.t);
   g.traverse((o) => { o.matrixAutoUpdate = true; });
   return vis;
+}
+
+/** merge a group's direct mesh children that share a material (transforms baked), keeping named meshes */
+export function mergeChildrenByMaterial(grp: THREE.Object3D, keep: Set<string>, disposeOld = true): THREE.Mesh[] {
+  const made: THREE.Mesh[] = [];
+  const byMat = new Map<THREE.Material, THREE.Mesh[]>();
+  for (const c of grp.children) {
+    const m = c as THREE.Mesh;
+    if (!m.isMesh || Array.isArray(m.material) || keep.has(m.name) || m.children.length) continue;
+    const list = byMat.get(m.material) ?? [];
+    list.push(m);
+    byMat.set(m.material, list);
+  }
+  for (const [mat, list] of byMat) {
+    if (list.length < 2) continue;
+    const geos = list.map((m) => {
+      m.updateMatrix();
+      const gg = (m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone()).applyMatrix4(m.matrix);
+      for (const name of Object.keys(gg.attributes)) if (!['position', 'normal', 'uv'].includes(name)) gg.deleteAttribute(name);
+      return gg;
+    });
+    const merged = mergeGeometries(geos);
+    if (!merged) continue;
+    for (const m of list) { m.removeFromParent(); if (disposeOld) m.geometry.dispose(); }
+    for (const gg of geos) gg.dispose();
+    const out = new THREE.Mesh(merged, mat);
+    out.name = 'merged';
+    made.push(out);
+    grp.add(out);
+  }
+  return made;
 }

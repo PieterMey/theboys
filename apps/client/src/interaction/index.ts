@@ -576,6 +576,7 @@ export function install(ctx: ClientContext): void {
         setTimeout(() => { ctx.bus.emit('action:interact', { down: false }); res(); }, ms);
       }),
       layout: () => ctx.world.layout,
+      flashlight: (on: boolean) => loose<{ setFlashlight?(on: boolean): void }>(ctx, 'players')?.setFlashlight?.(on),
       inventory: () => service.inventory(),
       ui: () => ({ target: ui.target.value, slots: ui.slots.value.map((s) => s.item?.type ?? null), active: ui.active.value, death: !!ui.death.value, hidden: ui.hidden.value, spec: ui.spec.value }),
     };

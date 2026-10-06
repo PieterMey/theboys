@@ -69,6 +69,7 @@ const CUE_SFX: Record<string, [string, number]> = {
 };
 
 export function install(ctx: ClientContext): void {
+  if (ctx.params.get('nomonsters') === '1') return;
   const views = new Map<string, View>();
   let lib: MonsterLib | null = null;
   let libRequested = false;
@@ -116,7 +117,38 @@ export function install(ctx: ClientContext): void {
     void loadMonsterLib((m) => console.info(`[monsters] ${m}`)).then((l) => {
       lib = l;
       for (const v of views.values()) attachModel(v);
+      startWarmup();
     });
+  };
+
+  // ---- shader warm-up: draw every monster once (tiny, at the camera) so its pipelines compile now, not the first
+  // time it appears (a 1-2 s compile hitch there would let the mannequin move while you watch it) ----
+  let warmGroup: THREE.Group | null = null;
+  let warmFrames = 0;
+  const startWarmup = () => {
+    const three = ctx.services.use('three');
+    if (!three || !lib) return;
+    warmGroup?.removeFromParent();
+    warmGroup = new THREE.Group();
+    warmGroup.name = 'monsters:warmup';
+    for (const t of Object.values(lib.templates)) {
+      if (!t) continue;
+      const m = instantiate(t);
+      m.root.scale.setScalar(0.004);
+      m.mixer.update(0);
+      warmGroup.add(m.root);
+    }
+    three.scene.add(warmGroup);
+    warmFrames = 4;
+  };
+  const warmTick = () => {
+    const three = ctx.services.use('three');
+    if (!warmGroup || !three) return;
+    if (warmFrames-- <= 0) { warmGroup.removeFromParent(); warmGroup = null; return; }
+    const cam = three.camera;
+    const fwd = new THREE.Vector3();
+    cam.getWorldDirection(fwd);
+    warmGroup.position.copy(cam.getWorldPosition(new THREE.Vector3())).addScaledVector(fwd, 0.6);
   };
 
   const placeholder = (kind: string): THREE.Object3D => {
@@ -237,8 +269,9 @@ export function install(ctx: ClientContext): void {
         for (const y of [0.3, 1.2, 1.7]) {
           if (frustum.containsPoint(tmp.set(s.p[0], y, s.p[2]))) { vis = true; break; }
         }
-        if (vis && g) vis = los(g, c.x, c.z, s.p[0], s.p[2], doorOpen());
-      }
+        if (!vis) seeStats.why = `frustum c=${c.x.toFixed(1)},${c.z.toFixed(1)} m=${s.p[0]},${s.p[2]}`;
+        if (vis && g) { vis = los(g, c.x, c.z, s.p[0], s.p[2], doorOpen()); if (!vis) seeStats.why = 'los'; }
+      } else seeStats.why = blinking ? 'blink' : `far ${d.toFixed(1)}`;
       out[s.id] = vis;
     }
     seeStats.sent++;
@@ -399,10 +432,14 @@ export function install(ctx: ClientContext): void {
     }
   });
   ctx.bus.on('world:phase', () => {
+    if (lib) { startWarmup(); setTimeout(() => startWarmup(), 1500); }
     grabState.value = null;
     vignette.style.opacity = '0';
     players()?.freeze?.('monsters.grab', false);
   });
+
+  // load + warm the models early (join/hub), long before a monster first appears
+  ctx.bus.on('net:welcome', () => ensureLib());
 
   // ---------------- per-frame ----------------
   ctx.registerSystem({
@@ -455,6 +492,7 @@ export function install(ctx: ClientContext): void {
       }
       for (const [id, v] of views) if (!seen.has(id)) { dropView(v); views.delete(id); }
       seeStats.reached++;
+      warmTick();
       reportSightings(dt);
       if (performance.now() > blinkUntil && overlay.style.opacity !== '0' && overlay.style.opacity !== '') overlay.style.opacity = '0';
       if (grabState.value && myId() === grabState.value.victim) vignette.style.opacity = String(0.75 + 0.25 * Math.sin(performance.now() / 90));

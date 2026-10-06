@@ -11,7 +11,7 @@ import type { DoorOpenFn, EdgeGrid, SpaceLink } from '@dead-air/shared/nav/index
 import { verifyLayoutHash } from '@dead-air/shared/procgen/hash.ts';
 import { LevelMaterials } from './materials.ts';
 import { buildLevelGeometry } from './mesher.ts';
-import { buildDoor } from './doors.ts';
+import { buildDoor, mergeChildrenByMaterial } from './doors.ts';
 import type { DoorVisual } from './doors.ts';
 import { buildItem } from './props.ts';
 import { buildStencils } from './stencils.ts';
@@ -61,6 +61,10 @@ declare module '../core/services.ts' {
 }
 
 const CULL_DEPTH = 3;
+/** small wall-mounted items: not worth a shadow-map draw per shadowed light */
+const NO_SHADOW_ITEMS = new Set(['switch', 'note', 'intercom', 'keypad', 'vent', 'deposit', 'leave_lever']);
+/** named item parts other tracks may animate / restyle: never merged */
+const ITEM_KEEP = new Set(['led', 'screen', 'screen0', 'screen1', 'screen2', 'toggle', 'glow', 'placeholder']);
 
 export function install(ctx: ClientContext): void {
   const done = ctx.readiness.require('level');
@@ -179,7 +183,11 @@ export function install(ctx: ClientContext): void {
     for (const it of L.items) {
       const o = buildItem(it, L, mats);
       if (!o) continue;
-      o.traverse((c) => { const m = c as THREE.Mesh; if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
+      const sub: THREE.Object3D[] = [];
+      o.traverse((c) => { if ((c as THREE.Group).isGroup) sub.push(c); });
+      for (const grp of sub) for (const mm of mergeChildrenByMaterial(grp, ITEM_KEEP, false)) disposable.push(mm.geometry);
+      const casts = !NO_SHADOW_ITEMS.has(it.kind);
+      o.traverse((c) => { const m = c as THREE.Mesh; if (m.isMesh) { m.castShadow = casts; m.receiveShadow = true; } });
       items.set(it.id, o);
       itemSpace.set(it.id, it.space);
       groups[it.space]?.add(o);

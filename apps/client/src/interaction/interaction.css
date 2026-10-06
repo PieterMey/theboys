@@ -15,7 +15,7 @@
   text-shadow: 0 0 6px #000, 0 0 2px #000;
 }
 .ix-prompt.disabled .ix-prompt-text { color: #8e8a80; }
-.ix-sub { font: 500 11px var(--font-mono); letter-spacing: 0.12em; color: #a9a392; text-shadow: 0 0 6px #000; }
+.ix-sub { font: 500 11px var(--font-mono); letter-spacing: 0.12em; color: #cfc8b4; text-shadow: 0 0 4px #000, 0 0 8px #000, 0 1px 1px #000; padding: 1px 6px; background: rgba(0, 0, 0, 0.32); }
 .ix-msg {
   font: 600 12px var(--font-mono); letter-spacing: 0.1em; color: #ffcf8a; text-shadow: 0 0 6px #000;
   padding: 3px 10px; background: rgba(0, 0, 0, 0.45); border-left: 2px solid var(--amber);

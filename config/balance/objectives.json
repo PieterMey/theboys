@@ -32,5 +32,6 @@
     "EXTRACT_ABOVE_frac": 0.55,
     "LURE_IT_WITH_A_LIE": 150
   },
-  "coreReminderMin": 240
+  "coreReminderMin": 240,
+  "soloAssist": true
 }

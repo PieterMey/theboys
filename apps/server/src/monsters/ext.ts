@@ -246,3 +246,14 @@ export function extBlackout(crew: Crew): boolean {
   st ??= crew.slices.objectives ?? null;
   return !!(st && typeof st === 'object' && (st as { blackout?: unknown }).blackout === true);
 }
+
+/** pull a hidden player out of their locker (a monster heard them talk right next to it) */
+export function extUnhide(crew: Crew, pid: string): boolean {
+  const f = fn('interaction', 'unhide');
+  if (!f) return false;
+  try {
+    return f(crew, pid) !== false;
+  } catch {
+    return false;
+  }
+}

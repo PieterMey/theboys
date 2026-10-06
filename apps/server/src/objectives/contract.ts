@@ -27,6 +27,8 @@ export type OrderLike = Partial<Pick<WorkOrder, 'id' | 'seed' | 'risk' | 'siteNa
 export interface StartOpts {
   /** override balance.core.contractRealSec (tests: 180) */
   realSec?: number;
+  /** dev/test: fields merged over the work order (e.g. requests) */
+  orderPatch?: OrderLike;
   /** contract index within the shift (0..2), informational */
   contractIndex?: number;
 }
@@ -156,6 +158,12 @@ function livingPlayers(crew: Crew): ServerPlayer[] {
   return [...crew.players.values()].filter((p) => deps.isAlive(crew, p));
 }
 
+/** one living connected player (solo host test): twin objectives degrade to one-person versions (balance.soloAssist) */
+function solo(crew: Crew): boolean {
+  if (bal().soloAssist === false) return false;
+  return livingPlayers(crew).filter((p) => p.connected).length <= 1;
+}
+
 // ---------------- state sync ----------------
 function markDirty(r: ContractRt, reg = false): void {
   r.dirty = true;
@@ -164,7 +172,8 @@ function markDirty(r: ContractRt, reg = false): void {
 
 export function publicState(crew: Crew): ObjectivesState | null {
   const r = rt(crew);
-  if (!r) return null;
+  // a different layout (hub after results): the old contract no longer describes this crew's world
+  if (!r || crew.layout !== r.layout) return null;
   r.st.clockMin = Math.round(clockMinOf(r) * 10) / 10;
   return r.st;
 }
@@ -257,6 +266,7 @@ export function startContract(crew: Crew, order: OrderLike, opts: StartOpts = {}
     nextOpts.delete(crew);
     opts = { ...pend, ...Object.fromEntries(Object.entries(opts).filter(([, v]) => v !== undefined)) };
   }
+  if (opts.orderPatch) order = { ...order, ...opts.orderPatch };
   const layout = crew.layout;
   if (!layout || layout.kind !== 'facility') throw new Error('startContract: crew has no facility layout (setPhase(contract, layout) first)');
   void deps.loadDeps();
@@ -363,6 +373,12 @@ export function pullLever(crew: Crew, p: ServerPlayer, id: string): { ok: boolea
       return { ok: true, result: 'success', msg: 'Power restored' };
     }
   }
+  if (solo(crew)) {
+    lever.down = true;
+    powerOn(crew, r, lever.zone, [p.id]);
+    c.emit(crew, 'objectives.lever', { id: lever.id, by: p.id, result: 'success', zone: lever.zone, p: lever.p });
+    return { ok: true, result: 'success', msg: 'Power restored (solo: one breaker is enough)' };
+  }
   r.pending.set(lever.id, { by: p.id, at: now });
   lever.down = true;
   lever.by = p.id;
@@ -463,7 +479,7 @@ export function coreAction(crew: Crew, p: ServerPlayer, action: 'grab' | 'releas
   const [px, pz] = pos(p);
   if (d2(px, pz, core.p[0], core.p[2]) > num('coreGrabRangeM', 2.2) + num('interactSlackM', 0.8)) return { ok: false, msg: 'Too far from the Core', state: core.state };
   core.carriers.push(p.id);
-  if (core.carriers.length === 2) {
+  if (core.carriers.length === 2 || solo(crew)) {
     core.state = 'carried';
     r.st.coreState = 'carried';
     r.leashSince = 0;
@@ -514,9 +530,14 @@ function tickCore(crew: Crew, r: ContractRt, dt: number): void {
       if (d2(px, pz, core.p[0], core.p[2]) > num('coreGrabRangeM', 2.2) + 1.5) releaseCore(crew, r, pid, 'left');
     }
   }
-  if (core.state !== 'carried' || core.carriers.length < 2) return;
+  if (core.state !== 'carried') return;
+  if (core.carriers.length < 2 && !(core.carriers.length === 1 && solo(crew))) {
+    // partner gone (left / died) while lifted: it drops
+    if (core.carriers.length) releaseCore(crew, r, core.carriers[0], 'left');
+    return;
+  }
   const a = crew.players.get(core.carriers[0])!;
-  const b = crew.players.get(core.carriers[1])!;
+  const b = crew.players.get(core.carriers[1] ?? core.carriers[0])!;
   const [ax, az] = pos(a);
   const [bx, bz] = pos(b);
   const sep = d2(ax, az, bx, bz);
@@ -527,9 +548,16 @@ function tickCore(crew: Crew, r: ContractRt, dt: number): void {
       return;
     }
   } else r.leashSince = 0;
-  const mx = (ax + bx) / 2, mz = (az + bz) / 2;
-  core.p = [mx, 0.55, mz];
+  let mx = (ax + bx) / 2, mz = (az + bz) / 2;
   core.yaw = Math.atan2(bx - ax, bz - az);
+  if (a === b) {
+    // solo carry: hugged in front of the carrier
+    const yaw = a.pose.yaw;
+    mx = ax + Math.sin(yaw) * 0.55;
+    mz = az + Math.cos(yaw) * 0.55;
+    core.yaw = yaw + Math.PI / 2;
+  }
+  core.p = [mx, 0.55, mz];
   if (crew.tick % 8 === 0) r.regDirty = true; // keep the Core's E point under the carriers
   if (inVanZone(r, mx, mz) || (inVan(r, ax, az) && inVan(r, bx, bz))) {
     core.state = 'van';
@@ -763,7 +791,12 @@ export function endContract(crew: Crew, reason: ObjContractResult['reason']): Ob
   const hauled = wipe ? 0 : st.hauled;
   // requests
   for (const q of st.requests) {
-    if (q.kind === 'ALL_SURVIVE') { q.done = !wipe && r.deaths.length === 0 && leftBehind.length === 0; q.failed = !q.done; }
+    if (q.kind === 'ALL_SURVIVE') {
+      // everyone who started the shift comes home alive (a revived teammate counts as home)
+      const all = r.playersAtStart.every((pid) => survivors.includes(pid));
+      q.done = !wipe && all && leftBehind.length === 0;
+      q.failed = !q.done;
+    }
     else if (q.kind === 'EXTRACT_ABOVE') { q.done = hauled > Number(q.param ?? 0); q.failed = !q.done; }
     else if (q.kind === 'LURE_IT_WITH_A_LIE') { q.done = r.lureDone; q.failed = !q.done; }
     else if (!q.done) q.failed = true;
@@ -810,12 +843,6 @@ function recordDeath(crew: Crew, r: ContractRt, pid: string, cause: string): voi
   if (r.st.dead.includes(pid)) return;
   r.st.dead.push(pid);
   r.deaths.push({ player: pid, cause });
-  for (const q of r.st.requests) {
-    if (q.kind === 'ALL_SURVIVE' && !q.failed) {
-      q.failed = true;
-      ctx().emit(crew, 'objectives.request', { ...q });
-    }
-  }
   markDirty(r);
 }
 
@@ -958,8 +985,10 @@ function tickDeaths(crew: Crew, r: ContractRt): void {
     if (!r.playersAtStart.includes(p.id) && !p.connected) continue;
     anyone = true;
     const alive = deps.isAlive(crew, p);
-    if (alive) anyAlive = true;
-    else if (!r.st.dead.includes(p.id)) onPlayerDeath(crew, p.id, 'unknown');
+    if (alive) {
+      anyAlive = true;
+      if (r.st.dead.includes(p.id)) { r.st.dead = r.st.dead.filter((x) => x !== p.id); markDirty(r); }
+    } else if (!r.st.dead.includes(p.id)) onPlayerDeath(crew, p.id, 'unknown');
   }
   if (anyone && !anyAlive) endContract(crew, 'wipe');
 }

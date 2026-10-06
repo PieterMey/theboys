@@ -186,6 +186,8 @@ export interface CrewMonsters {
   deaths: Map<string, number>;
   voiceAcc: number;
   sightAcc: number;
+  /** doors a monster just opened: that monster ignores the resulting door noise */
+  selfNoise: { x: number; z: number; until: number; agent: string }[];
   /** callsigns present in the layout */
   callsigns: string[];
   /** space id -> callsign */

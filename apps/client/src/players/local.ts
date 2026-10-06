@@ -9,7 +9,7 @@ import type { DoorOpenFn, EdgeGrid } from '@dead-air/shared/nav/index.ts';
 import type { LevelLayout } from '@dead-air/shared/layout.ts';
 import type { ClientContext } from '../core/context.ts';
 import type { InputCore } from './input.ts';
-import { moveCircleGrid } from './collide.ts';
+import { moveCircle } from '@dead-air/shared/collide/index.ts';
 import type { LevelServiceShape, V3 } from './types.ts';
 import { useLoose } from './types.ts';
 
@@ -124,7 +124,7 @@ export function stepLocal(ctx: ClientContext, me: LocalPlayer, input: InputCore,
   const ox = me.pos.x, oz = me.pos.z;
   const nav = levelNav(ctx);
   if (nav) {
-    const [nx, nz] = moveCircleGrid(nav.grid, me.pos.x, me.pos.z, me.vel.x * dt, me.vel.z * dt, PLAYER.radius, nav.doorOpen);
+    const [nx, nz] = moveCircle(nav.grid, [me.pos.x, me.pos.z], [me.vel.x * dt, me.vel.z * dt], PLAYER.radius, nav.doorOpen);
     me.pos.x = nx;
     me.pos.z = nz;
   } else {

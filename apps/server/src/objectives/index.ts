@@ -108,7 +108,7 @@ export function install(ctx: ServerContext): void {
     for (const p of crew.players.values()) { p.alive = true; p.ready = false; }
     // meta (d) adopts a foreign 'contract' phase and calls startContract itself (setImmediate): let it, with our
     // overrides, so there is exactly one contract (and meta's results/saves see it)
-    C.setNextStartOpts(crew, { realSec: a.realSec });
+    C.setNextStartOpts(crew, { realSec: a.realSec, ...(a.order ? { orderPatch: a.order } : {}) });
     const before = C.rt(crew);
     ctx.setPhase(crew, 'contract', layout);
     await new Promise((r) => setImmediate(r));
