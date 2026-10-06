@@ -5,17 +5,19 @@ import { BAND, BAND_RADIUS_M, CLOCK } from '@dead-air/shared/constants.ts';
 import type { LevelLayout } from '@dead-air/shared/layout.ts';
 import { buildEdgeGrid, fieldAt, soundFlood } from '@dead-air/shared/nav/index.ts';
 import { makeRng } from '@dead-air/shared/rng.ts';
+import { STANCE } from '@dead-air/shared/state.ts';
 import type { MonsterKind, SnapMonster, Snapshot } from '@dead-air/shared/state.ts';
-import type { MonsterCue } from '@dead-air/shared/messages/monsters.ts';
+import type { MonsterCue, MonsterKindX } from '@dead-air/shared/messages/monsters.ts';
 import type { Crew, ServerContext, ServerPlayer } from '../core/types.ts';
 import { extDoorOpen, extKill, extSetDoor, extUnhide, hasDoorApi, isAlive, isHidden } from './ext.ts';
 import { dist, inCab, perceive } from './geo.ts';
 import type { Perceived } from './geo.ts';
 import { bal, num } from './types.ts';
-import type { Agent, Bal, CrewMonsters, HoundAgent, ListenerAgent, MannequinAgent, Noise } from './types.ts';
+import type { Agent, Bal, CrewMonsters, HoundAgent, ListenerAgent, MannequinAgent, Noise, SnatcherAgent } from './types.ts';
 import { houndHear, houndTick, makeHound } from './hound.ts';
 import { makeMannequin, mannequinTick, blinkTick } from './mannequin.ts';
 import { listenerHearNoise, listenerTick, makeListener } from './listener.ts';
+import { makeSnatcher, snatcherTick, snatchVictim } from './snatcher.ts';
 
 /** Runtime services handed to the per-monster modules. */
 export interface Rt {
@@ -25,6 +27,7 @@ export interface Rt {
   hound: Bal;
   mannequin: Bal;
   listener: Bal;
+  snatcher: Bal;
   retreatBal: Bal;
   cue(a: Agent, cue: MonsterCue, radius: number): void;
   kill(a: Agent, p: ServerPlayer, reason: string, detail: string): void;
@@ -49,7 +52,7 @@ export function runtimeStats(): typeof stats {
   return stats;
 }
 
-export function makeAgentBase<K extends MonsterKind>(id: string, kind: K, x: number, z: number, yaw: number): Agent & { kind: K } {
+export function makeAgentBase<K extends MonsterKindX>(id: string, kind: K, x: number, z: number, yaw: number): Agent & { kind: K } {
   return {
     id, kind, x, z, yaw, state: 'idle', anim: ANIM.mIdle, active: true, st: 0,
     path: null, pathI: 0, goalX: x, goalZ: z, doorWait: 0, pendingDoor: -1, speed: 0, stuck: 0, lastX: x, lastZ: z,
@@ -123,6 +126,12 @@ export function startContract(ctx: ServerContext, crew: Crew, o: StartOpts): Cre
     const ms = spawnItems(L, 'spawn_mannequin')[0];
     cm.agents.push(makeMannequin('mannequin0', ms?.x ?? L.van.x, ms?.z ?? L.van.z, ms?.rot ?? 0));
   }
+  // snatcher (v1.1): risk >= 2 or the crew's 2nd contract onward (flag 'snatcher'); max 1; hunts after minStartSec
+  const sb = bal(ctx, 'snatcher');
+  if (ctx.flags.snatcher !== false && (cm.risk >= num(sb, 'minRisk', 2) || cm.contractIndex >= num(sb, 'minContractIndex', 1))) {
+    const sn = makeSnatcher('snatcher0', L, num(sb, 'minStartSec', 120));
+    if (sn) cm.agents.push(sn);
+  }
   crew.slices.monsters = cm;
   return cm;
 }
@@ -152,6 +161,7 @@ export function makeRt(ctx: ServerContext, crew: Crew, cm: CrewMonsters, onDeath
     hound: bal(ctx, 'hound'),
     mannequin: bal(ctx, 'mannequin'),
     listener: bal(ctx, 'listener'),
+    snatcher: bal(ctx, 'snatcher'),
     retreatBal: bal(ctx, 'retreat'),
     cue(a, cue, radius) {
       ctx.emit(crew, 'monsters.cue', { id: a.id, kind: a.kind, cue, p: [round2(a.x), 0, round2(a.z)], radius });
@@ -186,8 +196,8 @@ export function makeRt(ctx: ServerContext, crew: Crew, cm: CrewMonsters, onDeath
       for (const p of crew.players.values()) if (isAlive(crew, p)) out.push(p);
       return out;
     },
-    // hidden in a locker, or inside the sealed van cab (sanctuary): untouchable
-    hidden: (p) => isHidden(crew, p) || inCab(cm.layout, p.pose.p[0], p.pose.p[2]),
+    // hidden in a locker, inside the sealed van cab (sanctuary), or being dragged by the Snatcher: untouchable
+    hidden: (p) => isHidden(crew, p) || inCab(cm.layout, p.pose.p[0], p.pose.p[2]) || snatchVictim(cm) === p.id,
     retreat(a, sec) {
       a.active = false;
       a.state = 'out';
@@ -225,8 +235,9 @@ function voiceNoise(rt: Rt, dt: number): void {
       act.set(p.id, ac);
     }
     const sp = dist(ac.x, ac.z, px, pz) / el;
-    // walking / sprinting (creeping in a crouch does not count); a teleport-sized jump is ignored
-    if (sp < 30 && (sp > 2.0 || (sp > 0.5 && p.pose.stance !== 1))) ac.movedAt = cm.time;
+    // walking / sprinting (creeping in a crouch does not count, even with pose bunching: crouch speed is 1.5 m/s and
+    // two bunched 20 Hz poses read ~2.5 m/s); a teleport-sized jump is ignored
+    if (sp < 30 && (p.pose.stance === STANCE.crouch ? sp > 2.8 : sp > 0.5)) ac.movedAt = cm.time;
     if (p.band > BAND.whisper) ac.loudAt = cm.time;
     ac.x = px;
     ac.z = pz;
@@ -328,6 +339,7 @@ export function tickRuntime(rt: Rt, dt: number): void {
     if (a.kind === 'hound') houndTick(rt, a as HoundAgent, dt);
     else if (a.kind === 'mannequin') mannequinTick(rt, a as MannequinAgent, dt);
     else if (a.kind === 'listener') listenerTick(rt, a as ListenerAgent, dt);
+    else if (a.kind === 'snatcher') snatcherTick(rt, a as SnatcherAgent, dt);
   }
   blinkTick(rt);
 }
@@ -353,6 +365,8 @@ export function afterDeath(rt: Rt, killer: Agent | null, x: number, z: number): 
       rt.cue(h, 'eat', 14);
     } else if (a.kind === 'mannequin' && !(a as MannequinAgent).spawned) {
       continue;
+    } else if (a.kind === 'snatcher' && (a.state === 'dormant' || (a as SnatcherAgent).victim)) {
+      continue; // not out yet / busy with its own victim (its own kill already sent it away)
     } else rt.retreat(a, sec);
   }
 }
@@ -379,7 +393,7 @@ export function setFallbackDoor(cm: CrewMonsters, id: number, open: boolean): vo
   if (i !== undefined) cm.doorState[i] = open ? 1 : 0;
 }
 
-export function agentOf<T extends Agent>(cm: CrewMonsters | null, kind: MonsterKind): T | null {
+export function agentOf<T extends Agent>(cm: CrewMonsters | null, kind: MonsterKindX): T | null {
   return (cm?.agents.find((a) => a.kind === kind) as T | undefined) ?? null;
 }
 

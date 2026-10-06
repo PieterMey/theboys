@@ -289,20 +289,22 @@ export async function install(ctx: ClientContext): Promise<void> {
   });
 
   // ---------------- services.players ----------------
+  /** (b) interaction: tier 2 = the player carries the Pro Flashlight */
+  const ixTier = (id: string): 1 | 2 => (ctx.services.use('interaction')?.flashlightTier?.(id) === 2 ? 2 : 1);
   const flashlights = (): FlashlightInfo[] => {
     const out: FlashlightInfo[] = [];
     const id = meId();
     if (id && joined()) {
       out.push({
         id, pos: [vm.lensPos.x, vm.lensPos.y, vm.lensPos.z], dir: [vm.beamDir.x, vm.beamDir.y, vm.beamDir.z],
-        on: me.light && me.lightEnabled && !me.dead && !me.hidden, local: true, tier: 1,
+        on: me.light && me.lightEnabled && !me.dead && !me.hidden, local: true, tier: ixTier(id), battery: ctx.services.use('interaction')?.battery?.() ?? 1,
       });
     }
     for (const a of avatars.avatars.values()) {
       const cp = Math.cos(a.pitch);
       out.push({
         id: a.id, pos: [a.lampWorld.x, a.lampWorld.y, a.lampWorld.z],
-        dir: [Math.sin(a.yaw) * cp, Math.sin(a.pitch), Math.cos(a.yaw) * cp], on: a.light && a.root.visible, local: false, tier: 1,
+        dir: [Math.sin(a.yaw) * cp, Math.sin(a.pitch), Math.cos(a.yaw) * cp], on: a.light && a.root.visible, local: false, tier: ixTier(a.id),
       });
     }
     return out;
@@ -342,6 +344,11 @@ export async function install(ctx: ClientContext): Promise<void> {
       saveSettings(settings);
     },
     stamina: () => me.stamina,
+    setStaminaFree(ms) {
+      me.staminaFreeUntil = performance.now() + Math.max(0, Number(ms) || 0);
+      me.stamina = 1;
+      me.sprintLock = false;
+    },
     setPreviewAvatar(id, pose, profile) {
       if (!pose || !profile) { avatars.removeDummy(id); return; }
       avatars.setDummy(id, { p: pose.p, yaw: pose.yaw, pitch: 0, stance: pose.stance ?? STANCE.stand, anim: pose.anim ?? ANIM.idle, light: pose.light ?? 0 }, profile);

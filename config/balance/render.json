@@ -151,5 +151,41 @@
    "fixtures": 32,
    "traa": true
   }
+ },
+ "perf": {
+  "_doc": "v1.1 host performance (apps/client/src/render/perf.ts): DPR clamped to 1 when the canvas is >= dprClampWidth CSS px wide; resCap = per-preset internal resolution cap in physical render pixels (the browser upscales); AUTO QUALITY measures windowMs windows after warmupMs of steady in-game frames: median frame > slowP50Ms or long frames (>100 ms) >= longFrames in two windows in a row -> next rung (resolution scales first, then the preset; never pool sizes / castShadow / lights); Ultra only while the typical frame sustains ultraMinFps (or the display caps lower with GPU headroom); one rung up after two windows with p95 < fastP95Ms. telemetrySec = client report period (server logs one line per player per 30 s).",
+  "dprClampWidth": 2560,
+  "resCap": {
+   "low": [
+    1600,
+    900
+   ],
+   "medium": [
+    1920,
+    1080
+   ],
+   "high": [
+    2560,
+    1440
+   ],
+   "ultra": [
+    2560,
+    1440
+   ]
+  },
+  "scales": [
+   1,
+   0.85,
+   0.72,
+   0.6
+  ],
+  "minScale": 0.5,
+  "windowMs": 5000,
+  "warmupMs": 3000,
+  "slowP50Ms": 20,
+  "longFrames": 2,
+  "ultraMinFps": 90,
+  "fastP95Ms": 9,
+  "telemetrySec": 10
  }
 }

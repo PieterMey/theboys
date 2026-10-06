@@ -29,7 +29,8 @@
     "investigateStandoffM": 1.6,
     "bumpRadiusM": 1.8,
     "sniffMinSec": 2,
-    "sniffMaxSec": 3
+    "sniffMaxSec": 3,
+    "warnValidSec": 15
   },
   "mannequin": {
     "speed": 7,
@@ -82,6 +83,37 @@
     "wakeFlickerMs": 1600,
     "searchSec": 4
   },
+  "snatcher": {
+    "minRisk": 2,
+    "minContractIndex": 1,
+    "minStartSec": 120,
+    "aloneM": 10,
+    "aloneSec": 8,
+    "snatchRangeM": 16,
+    "stalkSec": 2.6,
+    "tickLeadSec": 1.4,
+    "dropSec": 0.8,
+    "dragSec": 20,
+    "dragSpeed": 1.25,
+    "headLeadM": 1.05,
+    "struggleStep": 0.12,
+    "struggleDecay": 1.1,
+    "struggleMaxSlow": 0.45,
+    "struggleMinGapMs": 60,
+    "pullSec": 2,
+    "pullRangeM": 2.2,
+    "pullStaleSec": 0.45,
+    "rescueRetreatSec": 60,
+    "killRetreatSec": 90,
+    "abortCooldownSec": 6,
+    "tellMinSec": 9,
+    "tellMaxSec": 16,
+    "tellRadiusM": 15,
+    "moveMinSec": 8,
+    "moveMaxSec": 15,
+    "scratchEverySec": 1.3,
+    "scratchRadiusM": 22
+  },
   "retreat": {
     "afterDeathSec": 20,
     "radiusM": 25
@@ -104,7 +136,8 @@
       "mannequin_relocate": 1,
       "fixture_failure": 1,
       "radio_static": 2,
-      "quiet": 2
+      "quiet": 2,
+      "vent_rattle": 2
     }
   }
 }

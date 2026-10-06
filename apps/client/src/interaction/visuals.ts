@@ -1,5 +1,8 @@
 // Owner: track (b) Interaction. Procedural item meshes (world items, held view model, thrown bottles), lit glowstick
 // markers (emissive only + a floor halo, no lights), revive rings at fresh bodies, and the target glint.
+// v1.1 gear: burning flares (emissive stick + halo + one of FLARE_LIGHTS pooled unshadowed SpotLights, created once at
+// start-up so DynamicLighting's light-type set never changes mid-game), armed motion sensors (blinking LED), pro
+// flashlight, adrenaline syringe, lucky charm and the cursed idol.
 import * as THREE from 'three/webgpu';
 import { itemDef } from '@dead-air/shared/interactables.ts';
 import type { InteractionState, ItemState } from '@dead-air/shared/messages/interaction.ts';
@@ -51,6 +54,16 @@ function halo(): THREE.CanvasTexture {
   haloTex = new THREE.CanvasTexture(c);
   haloTex.colorSpace = THREE.SRGBColorSpace;
   return haloTex;
+}
+
+function spriteMat(color: number, opacity: number): THREE.SpriteNodeMaterial {
+  const key = `sprite:${color}:${opacity}`;
+  let m = mats.get(key) as THREE.SpriteNodeMaterial | undefined;
+  if (!m) {
+    m = new THREE.SpriteNodeMaterial({ color, map: halo(), transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending });
+    mats.set(key, m);
+  }
+  return m;
 }
 
 function haloMat(color: number, opacity: number): THREE.MeshBasicNodeMaterial {
@@ -165,6 +178,125 @@ export function buildItemModel(type: string, opts: { lit?: boolean } = {}): THRE
       grp.add(mesh(g('bd.plate', () => new THREE.BoxGeometry(0.05, 0.0045, 0.03)), std('badgeplate', { color: 0xe8e8e8, rough: 0.5 }), 0, 0.0035, -0.02));
       break;
     }
+    case 'flashlight_pro': {
+      const body = std('proflash', { color: 0x1b1f24, rough: 0.35, metal: 0.7 });
+      const bezel = std('probezel', { color: 0xb9c3cc, rough: 0.25, metal: 1 });
+      const tube = mesh(g('pf.tube', () => new THREE.CylinderGeometry(0.019, 0.019, 0.17, 14)), body, 0, 0.02, -0.02);
+      tube.rotation.x = Math.PI / 2;
+      grp.add(tube);
+      const head = mesh(g('pf.head', () => new THREE.CylinderGeometry(0.03, 0.021, 0.06, 16)), bezel, 0, 0.02, 0.09);
+      head.rotation.x = Math.PI / 2;
+      grp.add(head);
+      const lens = mesh(g('pf.lens', () => new THREE.CircleGeometry(0.026, 16)), std('prolens', { color: 0xdfeeff, emissive: 0xcfe6ff, ei: 3 }), 0, 0.02, 0.1205);
+      lens.castShadow = false;
+      grp.add(lens);
+      grp.add(mesh(g('pf.grip', () => new THREE.BoxGeometry(0.012, 0.006, 0.05)), std('progrip', { color: 0x4fa3ff, emissive: 0x1a5cff, ei: 0.8 }), 0, 0.041, -0.02));
+      break;
+    }
+    case 'flare':
+    case 'flare.lit': {
+      const lit = type === 'flare.lit';
+      const red = std('flare', { color: 0xc8241b, rough: 0.55 });
+      const cap = std('flarecap', { color: 0x222222, rough: 0.6 });
+      const n = lit ? 1 : 3;
+      for (let i = 0; i < n; i++) {
+        const x = (i - (n - 1) / 2) * 0.038;
+        const st = mesh(g('fl.stick', () => new THREE.CylinderGeometry(0.014, 0.014, 0.21, 10)), red, x, 0.015, 0);
+        st.rotation.x = Math.PI / 2;
+        grp.add(st);
+        const c = mesh(g('fl.cap', () => new THREE.CylinderGeometry(0.015, 0.015, 0.03, 10)), cap, x, 0.015, -0.115);
+        c.rotation.x = Math.PI / 2;
+        grp.add(c);
+      }
+      if (lit) {
+        const tip = mesh(g('fl.tip', () => new THREE.SphereGeometry(0.022, 10, 8)), std('flaretip', { color: 0xffd0c0, emissive: 0xff3a1c, ei: 22 }), 0, 0.02, 0.11);
+        tip.castShadow = false;
+        tip.name = 'tip';
+        grp.add(tip);
+        const h = new THREE.Mesh(g('fl.halo', () => new THREE.PlaneGeometry(4.2, 4.2)), haloMat(0xff2a12, 0.42));
+        h.rotation.x = -Math.PI / 2;
+        h.position.set(0, 0.012, 0.1);
+        h.renderOrder = 2;
+        h.name = 'halo';
+        grp.add(h);
+        // upright glow sprite around the burning tip (reads from any angle, flickers)
+        const sp = new THREE.Sprite(spriteMat(0xff4a22, 0.9));
+        sp.scale.setScalar(0.55);
+        sp.position.set(0, 0.06, 0.11);
+        sp.name = 'glow';
+        grp.add(sp);
+      }
+      break;
+    }
+    case 'sensor':
+    case 'sensor.armed': {
+      const armed = type === 'sensor.armed';
+      grp.add(mesh(g('ms.base', () => new THREE.CylinderGeometry(0.07, 0.08, 0.03, 18)), std('msbase', { color: 0x2c3136, rough: 0.5, metal: 0.5 }), 0, 0.015, 0));
+      grp.add(mesh(g('ms.dome', () => new THREE.SphereGeometry(0.05, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2)), std('msdome', { color: 0x9adfd2, rough: 0.15, metal: 0.1, opacity: 0.7 }), 0, 0.03, 0));
+      grp.add(mesh(g('ms.ant', () => new THREE.CylinderGeometry(0.003, 0.003, 0.12, 6)), std('dark', { color: 0x222222, rough: 0.6 }), 0.05, 0.09, 0));
+      const led = mesh(g('ms.led', () => new THREE.SphereGeometry(0.009, 8, 6)), armed ? std('led.teal', { color: 0x62ffe0, emissive: 0x30ffd0, ei: 9 }) : std('led.off', { color: 0x1d3b35, rough: 0.5 }), 0, 0.075, 0);
+      led.castShadow = false;
+      led.name = 'led';
+      grp.add(led);
+      if (armed) {
+        const ring = new THREE.Mesh(g('ms.ring', () => new THREE.PlaneGeometry(0.9, 0.9)), haloMat(0x30ffd0, 0.28));
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.y = 0.006;
+        ring.name = 'ring';
+        grp.add(ring);
+      }
+      break;
+    }
+    case 'syringe': {
+      const barrel = mesh(g('sy.barrel', () => new THREE.CylinderGeometry(0.011, 0.011, 0.11, 12)), std('syglass', { color: 0xdfe8ea, rough: 0.08, opacity: 0.55 }), 0, 0.012, 0);
+      barrel.rotation.x = Math.PI / 2;
+      grp.add(barrel);
+      const fluid = mesh(g('sy.fluid', () => new THREE.CylinderGeometry(0.0085, 0.0085, 0.08, 10)), std('syfluid', { color: 0xffd23f, emissive: 0xffb000, ei: 1.6 }), 0, 0.012, 0.01);
+      fluid.rotation.x = Math.PI / 2;
+      fluid.castShadow = false;
+      grp.add(fluid);
+      const needle = mesh(g('sy.needle', () => new THREE.CylinderGeometry(0.0015, 0.0015, 0.045, 6)), std('steel', { color: 0x8a8f94, rough: 0.35, metal: 0.9 }), 0, 0.012, 0.077);
+      needle.rotation.x = Math.PI / 2;
+      grp.add(needle);
+      const plunger = mesh(g('sy.plunger', () => new THREE.BoxGeometry(0.03, 0.03, 0.006)), std('dark', { color: 0x222222, rough: 0.6 }), 0, 0.012, -0.065);
+      grp.add(plunger);
+      break;
+    }
+    case 'charm': {
+      // a rabbit's foot on a brass ring: fuzzy pale foot + faint green luck glow
+      grp.add(mesh(g('ch.foot', () => new THREE.CapsuleGeometry(0.022, 0.05, 6, 10)), std('chfur', { color: 0xe9e1cf, rough: 1 }), 0, 0.022, 0));
+      grp.children[grp.children.length - 1]!.rotation.x = Math.PI / 2;
+      const ring = mesh(g('ch.ring', () => new THREE.TorusGeometry(0.018, 0.003, 6, 16)), std('brass', { color: 0xb08a3e, rough: 0.3, metal: 1 }), 0, 0.022, 0.06);
+      ring.rotation.y = Math.PI / 2;
+      grp.add(ring);
+      const clover = mesh(g('ch.clover', () => new THREE.CircleGeometry(0.02, 4)), std('chclover', { color: 0x4fd14a, emissive: 0x2fb52a, ei: 1.5 }), 0, 0.046, 0);
+      clover.rotation.x = -Math.PI / 2;
+      clover.castShadow = false;
+      grp.add(clover);
+      break;
+    }
+    case 'loot.idol': {
+      // squat stone figure, too-long neck, cocked head (the Listener's shape) with faint violet eyes
+      const stone = std('idol', { color: 0x3b3346, rough: 0.85, metal: 0.05, emissive: 0x1a0830, ei: 0.4 });
+      grp.add(mesh(g('id.base', () => new THREE.CylinderGeometry(0.075, 0.09, 0.05, 8)), stone, 0, 0.025, 0));
+      grp.add(mesh(g('id.body', () => new THREE.CylinderGeometry(0.035, 0.06, 0.16, 8)), stone, 0, 0.13, 0));
+      grp.add(mesh(g('id.neck', () => new THREE.CylinderGeometry(0.012, 0.016, 0.12, 6)), stone, 0, 0.27, 0));
+      const head = mesh(g('id.head', () => new THREE.SphereGeometry(0.035, 10, 8)), stone, 0.012, 0.345, 0);
+      head.scale.set(0.8, 1.25, 0.9);
+      head.rotation.z = 0.5;
+      grp.add(head);
+      const eyeM = std('idoleye', { color: 0xd6b8ff, emissive: 0xa060ff, ei: 10 });
+      for (const ex of [-0.011, 0.011]) {
+        const e = mesh(g('id.eye', () => new THREE.SphereGeometry(0.005, 6, 4)), eyeM, 0.012 + ex, 0.35 + ex * 0.5, 0.028);
+        e.castShadow = false;
+        grp.add(e);
+      }
+      const h = new THREE.Mesh(g('id.halo', () => new THREE.PlaneGeometry(0.9, 0.9)), haloMat(0x7a3cff, 0.22));
+      h.rotation.x = -Math.PI / 2;
+      h.position.y = 0.008;
+      grp.add(h);
+      break;
+    }
     default: {
       // salvage (only when this track rolls loot; objectives renders its own)
       const tier = type === 'loot.heavy' ? 2 : type === 'loot.medium' ? 1 : 0;
@@ -219,7 +351,24 @@ export function createVisuals(scene: THREE.Scene): Visuals {
   const heldObjs = new Map<string, { type: string; obj: THREE.Group }>();
   const heldTilt: Record<string, [number, number, number]> = {
     crowbar: [-1.2, 0, 0], bottle: [0.2, 0, 0], walkie: [0, 0, 0], medkit: [0, 0, 0], glowstick: [-1.3, 0, 0], airhorn: [0, 0, 0],
+    flashlight_pro: [-0.2, 0, 0], flare: [-1.2, 0, 0], sensor: [0, 0, 0], syringe: [-1.2, 0, 0], charm: [0, 0, 0], 'loot.idol': [0, 0, 0],
   };
+  // burning flares + their pooled red lights (unshadowed SpotLights pointing down: DynamicLighting batches them, and
+  // they exist from the first frame, so lighting a flare never changes the light-type set / recompiles materials)
+  const flares = new Map<string, THREE.Group>();
+  const armedSensors = new Set<THREE.Group>();
+  const FLARE_LIGHTS = 2;
+  const flareLights: THREE.SpotLight[] = [];
+  for (let i = 0; i < FLARE_LIGHTS; i++) {
+    const l = new THREE.SpotLight(0xff2a14, 0, 11, 1.52, 0.55, 1.5);
+    l.castShadow = false;
+    l.name = `flare-light-${i}`;
+    l.position.set(0, -520 - i, 0);
+    l.target.position.set(0, -530 - i, 0);
+    root.add(l, l.target);
+    flareLights.push(l);
+  }
+  const tmpCam = new THREE.Vector3();
   // view model follows the camera (matrix copied each frame; the camera need not be in the scene)
   const vmRoot = new THREE.Group();
   vmRoot.matrixAutoUpdate = false;
@@ -227,6 +376,17 @@ export function createVisuals(scene: THREE.Scene): Visuals {
   const vmHolder = new THREE.Group();
   vmHolder.position.set(-0.25, -0.25, -0.5); // left hand: ⑤'s flashlight view model is on the right
   vmRoot.add(vmHolder);
+  // pre-warm (initial-lag fix): every item model is drawn once, microscopic and right in front of the camera, during the
+  // first frames (join / loading screen), so its pipelines compile there instead of stalling the first time someone
+  // picks up a medkit or throws a flare mid-contract
+  const warm = new THREE.Group();
+  warm.position.set(0, 0, -0.4);
+  warm.scale.setScalar(0.0002);
+  for (const t of ['flare.lit', 'flare', 'sensor', 'sensor.armed', 'syringe', 'charm', 'loot.idol', 'flashlight_pro', 'bottle',
+    'glowstick', 'crowbar', 'medkit', 'walkie', 'airhorn', 'keycard', 'badge', 'loot.small']) warm.add(buildItemModel(t));
+  warm.add(buildItemModel('glowstick', { lit: true }));
+  vmRoot.add(warm);
+  let warmFrames = 90;
   let vmType: string | null = null;
   let vmObj: THREE.Group | null = null;
   let anim: { kind: 'swing' | 'throw' | 'use'; t: number } | null = null;
@@ -251,6 +411,12 @@ export function createVisuals(scene: THREE.Scene): Visuals {
       case 'glowstick': return { pos: [0.03, -0.09, 0.02], rot: [0.9, 0.4, 0.3], scale: 0.75 };
       case 'airhorn': return { pos: [0, -0.09, 0], rot: [0.9, 0, 0], scale: 1 };
       case 'keycard': return { pos: [0, 0, 0], rot: [1.2, 0.1, 0], scale: 1.4 };
+      case 'flashlight_pro': return { pos: [0.02, -0.06, 0], rot: [0.15, 0.25, 0], scale: 1.2 };
+      case 'flare': return { pos: [0.03, -0.08, 0.02], rot: [0.9, 0.4, 0.3], scale: 0.85 };
+      case 'sensor': return { pos: [0, -0.1, 0], rot: [0.6, 0.2, 0], scale: 1.1 };
+      case 'syringe': return { pos: [0.02, -0.07, 0], rot: [0.5, 0.5, 0.2], scale: 1.4 };
+      case 'charm': return { pos: [0, -0.07, 0], rot: [0.8, 0.3, 0], scale: 1.4 };
+      case 'loot.idol': return { pos: [0, -0.2, -0.03], rot: [0.1, 0.4, 0], scale: 0.85 };
       case 'badge': return { pos: [0, 0, 0], rot: [1.2, 0.1, 0], scale: 1.4 };
       default: return { pos: [0, -0.1, 0], rot: [0.2, 0.3, 0], scale: 0.7 };
     }
@@ -261,14 +427,17 @@ export function createVisuals(scene: THREE.Scene): Visuals {
     for (const it of Object.values(st.items)) {
       if (it.where !== 'world' || !it.p) continue;
       seen.add(it.id);
-      const key = `${it.type}:${it.p[0].toFixed(2)}:${it.p[1].toFixed(2)}:${it.p[2].toFixed(2)}`;
+      const mtype = it.type === 'sensor' && it.armed ? 'sensor.armed' : it.type;
+      const key = `${mtype}:${it.p[0].toFixed(2)}:${it.p[1].toFixed(2)}:${it.p[2].toFixed(2)}`;
       let e = items.get(it.id);
-      if (e && e.type !== it.type) {
+      if (e && e.type !== mtype) {
         root.remove(e.obj);
+        armedSensors.delete(e.obj);
         e = undefined;
       }
       if (!e) {
-        const made: { obj: THREE.Group; type: string; key: string } = { obj: buildItemModel(it.type), type: it.type, key: '' };
+        const made: { obj: THREE.Group; type: string; key: string } = { obj: buildItemModel(mtype), type: mtype, key: '' };
+        if (mtype === 'sensor.armed') armedSensors.add(made.obj);
         e = made;
         root.add(made.obj);
         items.set(it.id, made);
@@ -286,7 +455,47 @@ export function createVisuals(scene: THREE.Scene): Visuals {
         placeItem(e.obj, it);
       }
     }
-    for (const [id, e] of items) if (!seen.has(id)) { root.remove(e.obj); items.delete(id); }
+    for (const [id, e] of items) if (!seen.has(id)) { root.remove(e.obj); armedSensors.delete(e.obj); items.delete(id); }
+  };
+
+  const syncFlares = (st: InteractionState, cam: THREE.Camera, now: number) => {
+    const list = st.flares ?? {};
+    for (const [id, fl] of Object.entries(list)) {
+      let gr = flares.get(id);
+      if (!gr) {
+        gr = buildItemModel('flare.lit');
+        gr.rotation.y = (id.length * 2.3 + fl.p[0]) % (Math.PI * 2);
+        root.add(gr);
+        flares.set(id, gr);
+      }
+      gr.position.set(fl.p[0], 0, fl.p[2]);
+      // sputter: the last 8 s the flame dies down
+      const left = Math.max(0, (fl.until - now) / 1000);
+      const fade = Math.min(1, left / 8);
+      const t = performance.now() / 1000;
+      const flick = 0.8 + 0.12 * Math.sin(t * 23 + fl.p[0]) + 0.08 * Math.sin(t * 57 + fl.p[2]);
+      gr.userData.k = fade * flick;
+      const glow = gr.getObjectByName('glow');
+      if (glow) glow.scale.setScalar((0.45 + 0.2 * flick) * (0.3 + 0.7 * fade));
+      const h = gr.getObjectByName('halo');
+      if (h) h.scale.setScalar(0.35 + 0.65 * fade * (0.9 + 0.1 * flick));
+    }
+    for (const [id, gr] of flares) if (!list[id]) { root.remove(gr); flares.delete(id); }
+    // the nearest burning flares to the camera get the pooled lights
+    cam.getWorldPosition(tmpCam);
+    const near = [...flares.values()].sort((a, b) => a.position.distanceToSquared(tmpCam) - b.position.distanceToSquared(tmpCam));
+    for (let i = 0; i < flareLights.length; i++) {
+      const l = flareLights[i]!;
+      const gr = near[i];
+      if (!gr) {
+        if (l.intensity !== 0) { l.intensity = 0; l.position.set(0, -520 - i, 0); l.target.position.set(0, -530 - i, 0); l.target.updateMatrixWorld(); }
+        continue;
+      }
+      l.position.set(gr.position.x, 1.45, gr.position.z);
+      l.target.position.set(gr.position.x, 0, gr.position.z);
+      l.target.updateMatrixWorld();
+      l.intensity = 34 * Number(gr.userData.k ?? 1);
+    }
   };
 
   const placeItem = (obj: THREE.Group, it: ItemState) => {
@@ -339,7 +548,9 @@ export function createVisuals(scene: THREE.Scene): Visuals {
       seen.add(t.id);
       let o = thrown.get(t.id);
       if (!o) {
-        o = buildItemModel('bottle');
+        o = buildItemModel(t.id.includes(':flare:') ? 'flare.lit' : 'bottle');
+        const h = o.getObjectByName('halo');
+        if (h) h.visible = false;
         root.add(o);
         thrown.set(t.id, o);
       }
@@ -390,8 +601,14 @@ export function createVisuals(scene: THREE.Scene): Visuals {
 
   return {
     update(st, o) {
+      if (warmFrames > 0 && --warmFrames === 0) vmRoot.remove(warm);
       syncItems(st);
       syncGlows(st);
+      syncFlares(st, o.camera, o.serverNow);
+      if (armedSensors.size) {
+        const on = Math.floor(performance.now() / 450) % 3 === 0;
+        for (const obj of armedSensors) { const led = obj.getObjectByName('led'); if (led) led.visible = on; }
+      }
       syncRings(st, o.serverNow, o.dt);
       syncThrown(o.thrown);
       syncViewModel(o);

@@ -30,6 +30,11 @@ const median = (a: number[]): number => {
   const s = a.slice().sort((x, y) => x - y);
   return s[s.length >> 1];
 };
+const percentile = (a: number[], q: number): number => {
+  if (!a.length) return NaN;
+  const s = a.slice().sort((x, y) => x - y);
+  return s[Math.min(s.length - 1, Math.max(0, Math.floor((s.length - 1) * q)))];
+};
 
 function collect(mic: Mic, ms: number, step: CalStep, opts: CalOpts): Promise<number[]> {
   return new Promise((resolve, reject) => {
@@ -62,8 +67,14 @@ export async function runCalibration(mic: Mic, g: AudioGraph, opts: CalOpts = {}
   if (!mic.hasMic()) return { ok: false, reason: 'no microphone' };
   try {
     const noiseFrames = await collect(mic, 1500, 'noise', opts);
-    const noiseDb = Math.max(-100, median(noiseFrames));
-    const talk = speechLevel(await collect(mic, 4000, 'talk', opts), noiseDb);
+    const talkFrames = await collect(mic, 4000, 'talk', opts);
+    // noise floor = the quiet end of both windows (the pauses between words hear the same room), not the median of
+    // the "stay quiet" window: a player who keeps talking into it ("is this on?") otherwise sets the floor at speech
+    // level, every talk frame fails the +10 dB test and calibration says "did not hear you talk". In a quiet room
+    // the low percentile and the median differ by about 1 dB.
+    const lows = [percentile(noiseFrames, 0.2), percentile(talkFrames, 0.1)].filter(Number.isFinite);
+    const noiseDb = Math.max(-100, lows.length ? Math.min(...lows) : -100);
+    const talk = speechLevel(talkFrames, noiseDb);
     if (!Number.isFinite(talk.db)) {
       opts.onStep?.('failed', 1, mic.levelDb);
       return { ok: false, reason: 'did not hear you talk: check the mic / device picker' };

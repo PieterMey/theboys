@@ -33,6 +33,18 @@ export interface ItemState {
   tier?: number;
   /** yaw on the floor */
   rot?: number;
+  /** motion sensor lying in the world: armed (the van console shows movement within its range) */
+  armed?: boolean;
+  /** lucky charm bonus (scrip) already added to value at deposit */
+  bonus?: number;
+}
+
+/** a thrown flare burning on the floor (red area light; counts as lit for litAt) */
+export interface FlareState {
+  p: V3;
+  /** server time (ms) when it burns out */
+  until: number;
+  by?: string;
 }
 
 export interface DeathCause {
@@ -77,6 +89,8 @@ export interface InteractionState {
   respawns: Record<string, number>;
   /** player id -> hp (100; 50 after a revive) */
   hp: Record<string, number>;
+  /** burning flares (v1.1 gear; optional so older mirrors stay valid) */
+  flares?: Record<string, FlareState>;
 }
 
 /** Incremental update; null deletes a key. `reset` replaces the whole state (layout rebuild). */
@@ -95,11 +109,14 @@ export interface InteractionPatch {
   bodies?: Record<string, BodyState | null>;
   respawns?: Record<string, number | null>;
   hp?: Record<string, number | null>;
+  flares?: Record<string, FlareState | null>;
 }
 
 export type IxFxKind =
   | 'smash' | 'throw' | 'swing' | 'hit' | 'horn' | 'door' | 'security' | 'pickup' | 'drop' | 'switch' | 'deny'
-  | 'glow' | 'locker' | 'unlock' | 'deposit' | 'revive' | 'medkit' | 'slot';
+  | 'glow' | 'locker' | 'unlock' | 'deposit' | 'revive' | 'medkit' | 'slot'
+  /** v1.1 gear: flare ignites, motion sensor armed, adrenaline injected, cursed idol whisper (open=true: a wail), lucky deposit */
+  | 'flare' | 'sensor' | 'inject' | 'whisper' | 'lucky';
 
 export interface IxResult {
   ok: boolean;

@@ -39,6 +39,12 @@
 .ix-slot-count { position: absolute; top: 18px; left: 6px; font: 700 13px var(--font-mono); color: #f2ecdc; }
 .ix-slot.empty .ix-slot-name { color: #44474a; }
 .ix-hint { text-align: center; font: 500 10.5px var(--font-mono); letter-spacing: 0.1em; color: #b8b2a1; text-shadow: 0 0 6px #000; margin-bottom: 6px; }
+.ix-status { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin-bottom: 6px; }
+.ix-chip { font: 700 9.5px var(--font-mono); letter-spacing: 0.18em; padding: 3px 8px; background: rgba(0, 0, 0, 0.55); border: 1px solid #2f3439; color: #cfc8b4; text-shadow: 0 0 4px #000; white-space: nowrap; }
+.ix-chip.good { color: #9dff9a; border-color: #2c5a2c; box-shadow: 0 0 10px rgba(80, 220, 80, 0.15); }
+.ix-chip.bad { color: #d7b8ff; border-color: #4b2c78; box-shadow: 0 0 12px rgba(150, 80, 255, 0.25); animation: ix-pulse 1.6s ease-in-out infinite; }
+.ix-chip.info { color: #bfe3ff; border-color: #24435e; }
+@keyframes ix-pulse { 50% { opacity: 0.6; } }
 .ix-hp { text-align: center; font: 700 10px var(--font-mono); letter-spacing: 0.25em; color: #ff8d7a; margin-bottom: 4px; text-shadow: 0 0 6px #000; }
 
 .ix-radio {

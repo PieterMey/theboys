@@ -9,7 +9,7 @@ import { WORLD } from '../constants.ts';
 import { ALL_OPEN, buildEdgeGrid } from '../nav/grid.ts';
 import { floodCells } from '../nav/path.ts';
 import { los } from '../nav/los.ts';
-import { DEFAULT_LEVEL_TUNING, footprintFor } from './tuning.ts';
+import { DEFAULT_LEVEL_TUNING, footprintFor, roomRangeFor } from './tuning.ts';
 import type { LevelTuning } from './tuning.ts';
 import { layoutHash } from './hash.ts';
 import { VAN_CARGO_W, VAN_LEN, addVanItems, addVanSpawns, stampVan } from './van.ts';
@@ -123,7 +123,8 @@ function generateOnce(seed: string, attempt: number, players: number, risk: numb
     for (const r of rooms) addSpace(area(r) >= t.hallKindArea ? 'hall' : 'room', r, 'room', b.perimeter);
   }
   const nRooms = S.filter((s) => s.kind === 'room' || s.kind === 'hall').length;
-  if (nRooms < t.roomsMin || nRooms > t.roomsMax) throw new GenFail(`rooms:${nRooms}`);
+  const [roomsLo, roomsHi] = roomRangeFor(players, t);
+  if (nRooms < roomsLo || nRooms > roomsHi) throw new GenFail(`rooms:${nRooms}`);
   const lot = addSpace('outside', { x: 0, y: FH, w: W, h: LD }, 'lot', false, true);
 
   // ---------------- shared edge runs between space pairs ----------------
@@ -355,13 +356,19 @@ function generateOnce(seed: string, attempt: number, players: number, risk: numb
     .sort((p, q) => (bet.get(pairKey(q.a, q.b)) ?? 0) - (bet.get(pairKey(p.a, p.b)) ?? 0) || p.id - q.id);
   const sec: WD[] = [];
   const dcx = (d: WD) => (d.dir === 'v' ? d.x : d.x + d.len / 2), dcy = (d: WD) => (d.dir === 'v' ? d.y + d.len / 2 : d.y);
-  for (const d of secC) {
-    if (sec.length >= nSec) break;
-    if (sec.some((c) => c.a === d.a || c.a === d.b || c.b === d.a || c.b === d.b)) continue;
-    if (sec.some((c) => Math.abs(dcx(c) - dcx(d)) + Math.abs(dcy(c) - dcy(d)) < 8)) continue;
-    d.kind = 'security';
-    sec.push(d);
+  // strict pass (no shared space, >= 8 m apart), then relaxed passes until at least 2 (the rules need 2..4)
+  for (const minSep of [8, 4, 0]) {
+    for (const d of secC) {
+      if (sec.length >= nSec) break;
+      if (d.kind === 'security') continue;
+      if (sec.some((c) => c.a === d.a || c.a === d.b || c.b === d.a || c.b === d.b)) continue;
+      if (sec.some((c) => Math.abs(dcx(c) - dcx(d)) + Math.abs(dcy(c) - dcy(d)) < minSep)) continue;
+      d.kind = 'security';
+      sec.push(d);
+    }
+    if (sec.length >= 2) break;
   }
+  if (sec.length < 2) throw new GenFail('security');
   for (const d of D) {
     if (d.dead || d.kind !== 'open' || !isCor(d.a) || !isCor(d.b)) continue;
     if ((S[d.a].type === 'junction' || S[d.b].type === 'junction') && rS.chance(t.fireDoorChance)) d.kind = 'fire';
@@ -410,7 +417,8 @@ function generateOnce(seed: string, attempt: number, players: number, risk: numb
   const depthOf = (d: number) => (maxDist > 0 ? Math.min(1, d / maxDist) : 0);
 
   // ---------------- callsigns ----------------
-  assignCallsigns(S, makeRng(key, 'names'), t.avoidCallsigns);
+  const rNames = makeRng(key, 'names');
+  assignCallsigns(S, rNames, t.avoidCallsigns, rNames.int(t.landmarks[0], Math.max(t.landmarks[0], t.landmarks[1])));
 
   // ---------------- power zones: vault wing ----------------
   const fromVault = graphDijkstra(S.length, gAdj(), [vault]);
@@ -679,7 +687,7 @@ function generateOnce(seed: string, attempt: number, players: number, risk: numb
     const fx = Math.floor(it.x + nx * 0.9), fz = Math.floor(it.z + nz * 0.9);
     if (fx >= 0 && fz >= 0 && fx < W && fz < H) keep[fz * W + fx] = 1;
   }
-  const nProps = placeDecor(W, H, owner, S, P, items, makeRng(key, 'decor'), keep);
+  const nProps = placeDecor(W, H, owner, S, P, items, makeRng(key, 'decor'), keep, { areaPerProp: t.decorAreaPerProp, maxPerRoom: t.decorMaxPerRoom });
 
   // light fixtures
   addFixtures(S, items, rLt, t, WORLD.wallH, { lot, van: vanId, exitDoor, lotLamps: 3 });

@@ -36,6 +36,10 @@ export interface InteractionService {
   doorOpen(id: number): boolean;
   /** live mirrored state (read-only) */
   state(): InteractionState;
+  /** v1.1: flashlight tier for a player (2 = carries the Pro Flashlight); ⑤ Players feeds it into flashlights() */
+  flashlightTier(id: string): 1 | 2;
+  /** local flashlight battery 0..1 (1 outside contracts) */
+  battery(): number;
 }
 
 declare module '../core/services.ts' {
@@ -57,6 +61,8 @@ interface PlayersLike {
   flashlightOn?(): boolean;
   setFlashlightEnabled?(enabled: boolean): void;
   localPose?(): { p: V3; yaw: number } | null;
+  /** v1.1 adrenaline syringe: sprint without stamina drain for ms */
+  setStaminaFree?(ms: number): void;
 }
 interface SfxLike { play(id: string, pos?: V3, opts?: { volume?: number; rate?: number; ui?: boolean }): unknown }
 
@@ -69,6 +75,7 @@ const FX_SFX: Record<string, string> = {
   security: 'sfx.security_door_slam', pickup: 'sfx.item_pickup', drop: 'sfx.item_drop', switch: 'sfx.switch_click',
   deny: 'sfx.keypad_deny', unlock: 'sfx.keypad_accept', glow: 'sfx.metal_click', locker: 'sfx.door_creak',
   deposit: 'sfx.loot_deposit', medkit: 'sfx.ui_confirm',
+  flare: 'sfx.radio_static_burst', sensor: 'sfx.keypad_beep', inject: 'sfx.breath_scared', whisper: 'sfx.listener_radio_whisper', lucky: 'sfx.ui_confirm',
 };
 
 export function install(ctx: ClientContext): void {
@@ -159,7 +166,8 @@ export function install(ctx: ClientContext): void {
     if (c.kind === 'item') {
       const it = st.items[c.item!];
       if (!it) return null;
-      return { id: c.id, text: `Pick up ${itemLabel(it)}`, key: 'E', enabled: true };
+      if (it.type === 'sensor' && it.armed) return { id: c.id, text: 'Motion sensor (armed)', key: 'E', enabled: true, sub: 'E picks it back up · the van console sees movement within 6 m' };
+      return { id: c.id, text: `Pick up ${itemLabel(it)}`, key: 'E', enabled: true, ...(itemDef(it.type).note ? { sub: itemDef(it.type).note } : {}) };
     }
     const info = c.info!;
     switch (info.kind) {
@@ -286,7 +294,12 @@ export function install(ctx: ClientContext): void {
     } else {
       sfx('sfx.body_fall', d.p);
       // the cause is written to the victim ('heard your SHOUT'): retell it in the third person for teammates
-      const third = String(d.cause.reason ?? '').replace(/\byour\b/gi, `${d.name}'s`).replace(/\byou\b/gi, d.name);
+      // ('took you while you were alone' -> 'took Sam while they were alone')
+      const third = String(d.cause.reason ?? '')
+        .replace(/\byou were\b/gi, 'they were')
+        .replace(/\byour\b/gi, `${d.name}'s`)
+        .replace(/\byou\b/i, d.name)
+        .replace(/\byou\b/gi, 'them');
       ctx.ui.toast(`${d.name} is down: the ${d.cause.killer} ${third}`, 'warn', 4500);
     }
   });
@@ -299,8 +312,10 @@ export function install(ctx: ClientContext): void {
       sfx('sfx.ui_confirm', undefined, { ui: true });
     } else ctx.ui.toast(`${nameOf(d.pid)} is back on their feet`, 'info', 3000);
   });
+  const fxCount: Record<string, number> = {};
   ctx.net.on('interaction.fx', (d) => {
     const mine = d.pid === me();
+    if (ctx.testMode) fxCount[d.kind] = (fxCount[d.kind] ?? 0) + 1;
     if (mine && (d.kind === 'swing' || d.kind === 'throw')) {
       // local view model already animated; play the whoosh softer in 2D
       sfx(FX_SFX[d.kind], undefined, { ui: true, volume: 0.5 });
@@ -308,6 +323,23 @@ export function install(ctx: ClientContext): void {
     }
     if (d.kind === 'door') return sfx(d.open ? 'sfx.door_open' : 'sfx.door_close', d.p);
     if (d.kind === 'horn') return sfx('sfx.van_horn', d.p, { rate: 1.7, volume: 1 });
+    if (d.kind === 'inject') {
+      if (mine) {
+        const ms = Number(ctx.balance.interaction?.adrenalineSec ?? 15) * 1000;
+        adrenUntil = performance.now() + ms;
+        loose<PlayersLike>(ctx, 'players')?.setStaminaFree?.(ms);
+        sfx('sfx.breath_scared', undefined, { ui: true, volume: 0.9 });
+        sfx('sfx.cloth', undefined, { ui: true, volume: 0.5, rate: 1.4 });
+        return;
+      }
+      return sfx('sfx.breath_scared', d.p, { volume: 0.7 });
+    }
+    if (d.kind === 'flare') return sfx('sfx.radio_static_burst', d.p, { rate: 0.45, volume: 0.8 });
+    if (d.kind === 'whisper') return sfx('sfx.listener_radio_whisper', d.p, { volume: d.open ? 1 : 0.75, rate: d.open ? 0.7 : 0.9 });
+    if (d.kind === 'lucky') {
+      if (mine) ctx.ui.toast(`Lucky charm: +${d.item ?? '?'} scrip on that deposit`, 'info', 3200);
+      return sfx('sfx.ui_confirm', d.p, { rate: 1.3, volume: 0.6 });
+    }
     const key = FX_SFX[d.kind];
     if (key) sfx(key, d.p);
   });
@@ -324,6 +356,8 @@ export function install(ctx: ClientContext): void {
     lightOn: (space) => !!st.lights[space],
     doorOpen: (id) => !!st.doors[id]?.open,
     state: () => st,
+    flashlightTier: (id) => (hasType(id, 'flashlight_pro') ? 2 : 1),
+    battery: () => battery,
   };
   ctx.services.provide('interaction', service);
 
@@ -389,7 +423,8 @@ export function install(ctx: ClientContext): void {
       if (batteryDead) { batteryDead = false; pl?.setFlashlightEnabled?.(true); }
     }
     if (!pl || !mine || ctx.world.phase !== 'contract' || !L) { if (ui.battery.value !== null) ui.battery.value = null; return; }
-    const drainSec = Number(ctx.balance.interaction?.flashlightBatterySec ?? 840);
+    const pro = hasType(mine, 'flashlight_pro');
+    const drainSec = Number(ctx.balance.interaction?.flashlightBatterySec ?? 840) * (pro ? Number(ctx.balance.interaction?.proBatteryMult ?? 2) : 1);
     const rechargeSec = Number(ctx.balance.interaction?.flashlightRechargeSec ?? 25);
     const pose = pl.localPose?.();
     const c = L.van?.cab;
@@ -409,6 +444,22 @@ export function install(ctx: ClientContext): void {
     if (ui.battery.value !== pct) ui.battery.value = pct;
   };
   let ixMs = 0;
+  // ---- v1.1 gear status chips (adrenaline countdown, cursed idol, lucky charm, pro flashlight)
+  let adrenUntil = 0;
+  let statusKey = '';
+  const updateStatus = () => {
+    const mine = me();
+    const chips: { id: string; text: string; tone: 'good' | 'bad' | 'info' }[] = [];
+    if (mine && !isDeadId(mine)) {
+      const left = Math.ceil((adrenUntil - performance.now()) / 1000);
+      if (left > 0) chips.push({ id: 'adren', text: `ADRENALINE ${left} S · SPRINT FREELY`, tone: 'good' });
+      if (hasType(mine, 'loot.idol')) chips.push({ id: 'idol', text: 'CURSED IDOL · IT WHISPERS · THEY HEAR YOU', tone: 'bad' });
+      if (hasType(mine, 'charm')) chips.push({ id: 'charm', text: 'LUCKY CHARM · DEPOSITS +10%', tone: 'good' });
+      if (hasType(mine, 'flashlight_pro')) chips.push({ id: 'pro', text: 'PRO FLASHLIGHT · LED II', tone: 'info' });
+    }
+    const key = chips.map((c) => c.text).join('|');
+    if (key !== statusKey) { statusKey = key; ui.status.value = chips; }
+  };
 
   const syncDoorsAndLights = (dt: number) => {
     const L = ctx.world.layout;
@@ -526,6 +577,7 @@ export function install(ctx: ClientContext): void {
       syncDoorsAndLights(dt);
       syncHidden();
       updateUi();
+      updateStatus();
       if (visuals && three) {
         const mine = me();
         const thrown: { id: string; p: V3; yaw: number }[] = [];
@@ -539,7 +591,8 @@ export function install(ctx: ClientContext): void {
         visuals.update(st, {
           camera: three.camera,
           activeType: act?.type ?? null,
-          showViewModel: inGame() && !!mine && !isDeadId(mine) && !st.hidden[mine],
+          // passive Pro Flashlight: the beam is the right-hand flashlight (⑤), no second torch in the left hand
+          showViewModel: inGame() && !!mine && !isDeadId(mine) && !st.hidden[mine] && act?.type !== 'flashlight_pro',
           targetItem: hit?.c.item ?? null,
           targetPos: tp && (hit?.c.kind === 'item' || hit?.c.kind === 'loot') ? tp : null,
           thrown,
@@ -584,6 +637,11 @@ export function install(ctx: ClientContext): void {
       layout: () => ctx.world.layout,
       flashlight: (on: boolean) => loose<{ setFlashlight?(on: boolean): void }>(ctx, 'players')?.setFlashlight?.(on),
       inventory: () => service.inventory(),
+      status: () => ui.status.value.map((c) => c.text),
+      /** interaction.fx events received so far, by kind */
+      fx: () => ({ ...fxCount }),
+      battery: () => battery,
+      tier: (id?: string) => service.flashlightTier(id ?? me() ?? ''),
       ui: () => ({ target: ui.target.value, slots: ui.slots.value.map((s) => s.item?.type ?? null), active: ui.active.value, death: !!ui.death.value, hidden: ui.hidden.value, spec: ui.spec.value }),
     };
     (window as unknown as { __ix: typeof api }).__ix = api;

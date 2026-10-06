@@ -42,5 +42,33 @@
   "companyWalkies": 2,
   "lightsRecomputeTicks": 6,
   "flashlightBatterySec": 840,
-  "flashlightRechargeSec": 25
+  "flashlightRechargeSec": 25,
+  "proBatteryMult": 2,
+  "proRangeMult": 1.3,
+  "proConeMult": 1.25,
+  "flareSpeed": 9,
+  "flareUp": 2.4,
+  "flareBurnSec": 60,
+  "flareLitRadiusM": 5,
+  "flareNoiseM": 3,
+  "sensorRangeM": 6,
+  "adrenalineSec": 15,
+  "charmBonus": 0.1,
+  "idolValue": [
+    350,
+    500
+  ],
+  "idolWhisperSec": [
+    6,
+    9
+  ],
+  "idolWhisperRadiusM": 10,
+  "idolWailRadiusM": 22,
+  "idolWailEvery": 4,
+  "specialFinds": {
+    "syringe": 0.45,
+    "charm": 0.3,
+    "loot.idol": 0.35
+  },
+  "findsMinDistFrac": 0.6
 }

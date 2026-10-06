@@ -365,6 +365,8 @@ export function ConsoleScreen({ ctx }: ScreenProps) {
         g.textAlign = 'left';
         g.fillText(m.kind.toUpperCase(), mx + 10, my + 4);
       }
+      // (b) interaction v1.1: motion sensors placed in the field and what moves near them
+      drawSensors(ctx, g, P, v.s, now, label);
       // SIGNAL SPIKE: the Listener's room or a neighbour (changes every 8 s), never its exact position
       if (listenerSpace >= 0) {
         const nb = new Set<number>([listenerSpace]);
@@ -496,4 +498,68 @@ export function ConsoleScreen({ ctx }: ScreenProps) {
       </div>
     </div>
   );
+}
+
+// ---------------------------------------------------------------- motion sensors (owner: (b) interaction, v1.1 gear)
+// Armed 'sensor' items lying in the world (interaction state). Anything that moved within sensorRangeM of one in the
+// last 0.6 s (a living player or an active monster, the Mannequin included) shows as a teal blip; the sensor's ring lights up.
+const motionSeen = new Map<string, { x: number; z: number; movedAt: number }>();
+function drawSensors(ctx: ClientContext, g: CanvasRenderingContext2D, P: (x: number, z: number) => [number, number], s: number, now: number,
+  label: (t: string, x: number, y: number, col: string) => void): void {
+  const ix = ctx.world.full?.interaction;
+  const sensors = Object.values(ix?.items ?? {}).filter((it) => it.type === 'sensor' && it.armed && it.where === 'world' && !!it.p);
+  if (!sensors.length) return;
+  const range = Number((ctx.balance.interaction as Record<string, unknown> | undefined)?.sensorRangeM ?? 6) || 6;
+  const dead = new Set(ix?.dead ?? []);
+  const movers: { id: string; x: number; z: number }[] = [];
+  for (const pl of ctx.world.crew?.players ?? []) {
+    if (!pl.connected || dead.has(pl.id)) continue;
+    const sp = ctx.world.samplePlayer(pl.id);
+    if (sp && sp.stance !== 4) movers.push({ id: `p:${pl.id}`, x: sp.p[0], z: sp.p[2] });
+  }
+  for (const [id] of ctx.world.monsters) {
+    const m = ctx.world.sampleMonster(id);
+    if (m && m.active) movers.push({ id: `m:${id}`, x: m.p[0], z: m.p[2] });
+  }
+  for (const mv of movers) {
+    const prev = motionSeen.get(mv.id);
+    if (!prev) { motionSeen.set(mv.id, { x: mv.x, z: mv.z, movedAt: 0 }); continue; }
+    if (Math.hypot(mv.x - prev.x, mv.z - prev.z) > 0.12) { prev.x = mv.x; prev.z = mv.z; prev.movedAt = now; }
+  }
+  for (const it of sensors) {
+    const ip = it.p!;
+    const [sx, sy] = P(ip[0], ip[2]);
+    const rr = range * s;
+    let tripped = false;
+    for (const mv of movers) {
+      const seen = motionSeen.get(mv.id);
+      if (!seen || now - seen.movedAt > 600 || Math.hypot(mv.x - ip[0], mv.z - ip[2]) > range) continue;
+      tripped = true;
+      const [bx, by] = P(mv.x, mv.z);
+      const pulse = 0.5 + 0.5 * Math.sin(now / 110);
+      g.fillStyle = 'rgba(98, 255, 214, 0.92)';
+      g.shadowColor = '#30ffd0';
+      g.shadowBlur = 14;
+      g.beginPath();
+      g.arc(bx, by, Math.max(3.5, s * 0.3) + pulse * 1.5, 0, Math.PI * 2);
+      g.fill();
+      g.shadowBlur = 0;
+    }
+    g.strokeStyle = tripped ? 'rgba(98, 255, 214, 0.9)' : 'rgba(98, 255, 214, 0.3)';
+    g.lineWidth = tripped ? 1.8 : 1;
+    g.setLineDash([4, 4]);
+    g.beginPath();
+    g.arc(sx, sy, rr, 0, Math.PI * 2);
+    g.stroke();
+    g.setLineDash([]);
+    const a = (now / 900) % (Math.PI * 2);
+    g.strokeStyle = 'rgba(98, 255, 214, 0.35)';
+    g.beginPath();
+    g.moveTo(sx, sy);
+    g.lineTo(sx + Math.cos(a) * rr, sy + Math.sin(a) * rr);
+    g.stroke();
+    g.fillStyle = '#62ffe0';
+    g.fillRect(sx - 3, sy - 3, 6, 6);
+    label(tripped ? 'MOTION' : 'SENSOR', sx, sy - 9, tripped ? '#62ffe0' : '#3fb59c');
+  }
 }

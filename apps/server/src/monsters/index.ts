@@ -18,7 +18,8 @@ import { litAt, scheduleBlink } from './mannequin.ts';
 import { afterDeath, fillSnapshot, makeRt, runtimeStats, startContract, startHubRuntime, stopRuntime, tickRuntime } from './runtime.ts';
 import type { Rt } from './runtime.ts';
 import { bal, crewM, num } from './types.ts';
-import type { Agent, CrewMonsters, DecisionEntry, HoundAgent, ListenerAgent, MannequinAgent } from './types.ts';
+import type { Agent, CrewMonsters, DecisionEntry, HoundAgent, ListenerAgent, MannequinAgent, SnatcherAgent } from './types.ts';
+import { applyVictimPose, describeSnatcher, pull as snatchPull, rattle as snatchRattle, readyNow, snatcherOf, struggle as snatchStruggle } from './snatcher.ts';
 import { directorDeath, directorState, installDirector, resetDirector, runDirectorEvent } from '../director/index.ts';
 
 export function install(ctx: ServerContext): void | Promise<void> {
@@ -194,6 +195,7 @@ export function install(ctx: ServerContext): void | Promise<void> {
       rt.hound = bal(ctx, 'hound');
       rt.mannequin = bal(ctx, 'mannequin');
       rt.listener = bal(ctx, 'listener');
+      rt.snatcher = bal(ctx, 'snatcher');
       rt.retreatBal = bal(ctx, 'retreat');
       tickRuntime(rt, dt);
     },
@@ -219,6 +221,12 @@ export function install(ctx: ServerContext): void | Promise<void> {
     ps.poses = (ps.poses ?? 0) + 1;
     ps.lastPose = performance.now();
     const rt = rtFor(crew);
+    // the Snatcher's victim follows the drag (and vanishes into the duct)
+    const sn = snatcherOf(rt?.cm ?? null);
+    if (sn && sn.victim === player.id && (sn.state === 'drop' || sn.state === 'drag' || sn.state === 'duct')) {
+      applyVictimPose(sn, pose);
+      return;
+    }
     const L = rt ? listenerOf(rt) : null;
     if (!L || L.state !== 'grab' || L.grabVictim !== player.id) return;
     const [gx, gz] = grabPosition(L);
@@ -261,13 +269,29 @@ export function install(ctx: ServerContext): void | Promise<void> {
 
   ctx.registerReq('monsters.log', (crew) => ({ lines: impl.decisionLog(crew).map((e) => e.line) }));
 
+  // Snatcher: the victim mashes E (struggle), teammates hold E at the rescue spot (heartbeat every <= 250 ms)
+  ctx.registerReq('monsters.struggle', (crew, player) => {
+    const rt = rtFor(crew);
+    const sn = snatcherOf(rt?.cm ?? null);
+    if (!rt || !sn) return { ok: false, struggle: 0 };
+    return { ok: sn.victim === player.id, struggle: snatchStruggle(rt, sn, player) };
+  });
+  ctx.registerReq('monsters.pull', (crew, player, args) => {
+    const rt = rtFor(crew);
+    const sn = snatcherOf(rt?.cm ?? null);
+    if (!rt || !sn || !sn.victim) return { ok: false, pull: 0, inRange: false };
+    const on = (args as { on?: boolean } | null | undefined)?.on !== false;
+    const r = snatchPull(rt, sn, player, on);
+    return { ok: true, ...r };
+  });
+
   // ---- dev-only test controls ----
   ctx.registerDbg('monsters.state', (crew) => {
     const cm = crewM(crew);
     if (!cm) return { mode: 'off', bound: boundApis(), log: (lastLog.get(crew) ?? []).map((e) => e.line) };
     return {
       mode: cm.mode, time: Math.round(cm.time * 100) / 100, risk: cm.risk, contractIndex: cm.contractIndex, frozen: cm.frozen,
-      agents: cm.agents.map((a) => { const d = describe(a); if (a.kind === 'mannequin') { const rt = rtFor(crew); d.lit = rt ? litAt(rt, a.x, a.z) : null; } return d; }),
+      agents: cm.agents.map((a) => { const d = describe(a, cm.time); if (a.kind === 'mannequin') { const rt = rtFor(crew); d.lit = rt ? litAt(rt, a.x, a.z) : null; } return d; }),
       poses: [...crew.players.values()].map((p) => ({ id: p.id, p: p.pose.p.map((v) => Math.round(v * 100) / 100), yaw: Math.round(p.pose.yaw * 100) / 100, light: p.pose.light, alive: isAlive(crew, p) })),
       log: cm.log.map((e) => ({ line: e.line, action: e.action, target: e.target, source: e.source, valid: e.valid, t: Math.round(e.t) })),
       director: directorState(crew),
@@ -367,6 +391,18 @@ export function install(ctx: ServerContext): void | Promise<void> {
     for (const p of rt.alive()) scheduleBlink(rt, p.id, blinkIn + rt.cm.rng.next() * 0.01);
     return { ok: true, agent: describe(m) };
   });
+  ctx.registerDbg('monsters.snatcher', (crew, _p, args) => {
+    const rt = rtFor(crew);
+    const sn = snatcherOf(rt?.cm ?? null);
+    if (!rt || !sn) return { ok: false, reason: 'no snatcher this contract (risk >= 2 or contractIndex >= 1, layout with vents)' };
+    const a = (args ?? {}) as { op?: string; grate?: string };
+    if (a.op === 'ready') readyNow(rt, sn);
+    if (a.op === 'rattle') {
+      const g = sn.grates.find((q) => q.id === a.grate) ?? sn.grate;
+      if (g) snatchRattle(rt, sn, g, true);
+    }
+    return { ok: true, agent: describe(sn, rt.cm.time) };
+  });
   ctx.registerDbg('monsters.director', (crew, _p, args) => {
     const rt = rtFor(crew);
     if (!rt) return { ok: false };
@@ -402,7 +438,7 @@ export function install(ctx: ServerContext): void | Promise<void> {
   void rebind().then(() => log.info(`installed (bound: ${Object.entries(boundApis()).filter(([k, v]) => k !== 'subscribed' && v.length).map(([k]) => k).join(', ') || 'none yet'})`));
 }
 
-function describe(a: Agent): Record<string, unknown> {
+function describe(a: Agent, t = 0): Record<string, unknown> {
   const r2 = (v: number) => Math.round(v * 100) / 100;
   const base: Record<string, unknown> = { id: a.id, kind: a.kind, x: r2(a.x), z: r2(a.z), yaw: r2(a.yaw), state: a.state, anim: a.anim, active: a.active, st: r2(a.st), path: a.path ? a.path.length - a.pathI : 0, goal: [r2(a.goalX), r2(a.goalZ)] };
   if (a.kind === 'hound') {
@@ -417,6 +453,8 @@ function describe(a: Agent): Record<string, unknown> {
   } else if (a.kind === 'mannequin') {
     const m = a as MannequinAgent;
     Object.assign(base, { spawned: m.spawned, observed: m.observed });
+  } else if (a.kind === 'snatcher') {
+    Object.assign(base, describeSnatcher(a as SnatcherAgent, t));
   }
   return base;
 }

@@ -34,6 +34,10 @@ export function makeListener(id: string, x: number, z: number, yaw: number, wake
   };
 }
 
+// (e) AI hook, guarded like ext.ts: the voiced radio lure (apps/server/src/ai/api.ts speakLure). Absent -> garbled clips.
+const aiLure: { speak: typeof import('../ai/api.ts').speakLure | null } = { speak: null };
+void import('../ai/api.ts').then((m) => { if (typeof m.speakLure === 'function') aiLure.speak = m.speakLure; }, () => { /* AI track absent */ });
+
 const canOpen = (rt: Rt) => monsterCanOpen(rt.cm.layout);
 const ALL_ACTIONS: ListenerAction[] = ['investigate_room', 'ambush_room', 'stalk_player', 'radio_lure', 'retreat', 'ignore'];
 
@@ -405,14 +409,26 @@ function execute(rt: Rt, L: ListenerAgent, it: RuleIntent, source: string, valid
       const clips = ['sfx.listener_radio_whisper.1', 'sfx.listener_radio_whisper.2', 'sfx.listener_radio_whisper.3'];
       const clip = clips[Math.floor(cm.rng.next() * clips.length)];
       L.lastLureAt = t;
-      if (victim && hasWalkie(rt.crew, victim)) {
-        rt.ctx.emit(rt.crew, 'monsters.lure', { to: [victim.id], clip, ms: 2600 });
-        rt.ctx.emit(rt.crew, 'monsters.led', { to: [victim.id], ms: 2600 });
-      } else {
+      const viaWalkie = !!victim && hasWalkie(rt.crew, victim);
+      let ic: (typeof cm.layout.items)[number] | undefined;
+      if (!viaWalkie) {
         const room = victim ? (L.known.get(victim.id) ? spaceAtXZ(rt, L.known.get(victim.id)!.x, L.known.get(victim.id)!.z) : it.space) : it.space;
-        const ic = cm.layout.items.find((i) => i.kind === 'intercom' && (i.space === room || Number(i.data?.space) === room)) ?? cm.layout.items.find((i) => i.kind === 'intercom');
-        if (ic) rt.ctx.emit(rt.crew, 'monsters.lure', { to: [], clip, ms: 2600, p: [ic.x, ic.y ?? 1.6, ic.z], intercom: ic.id });
+        ic = cm.layout.items.find((i) => i.kind === 'intercom' && (i.space === room || Number(i.data?.space) === room)) ?? cm.layout.items.find((i) => i.kind === 'intercom');
       }
+      const garbled = () => {
+        if (viaWalkie && victim) {
+          rt.ctx.emit(rt.crew, 'monsters.lure', { to: [victim.id], clip, ms: 2600 });
+          rt.ctx.emit(rt.crew, 'monsters.led', { to: [victim.id], ms: 2600 });
+        } else if (ic) rt.ctx.emit(rt.crew, 'monsters.lure', { to: [], clip, ms: 2600, p: [ic.x, ic.y ?? 1.6, ic.z], intercom: ic.id });
+      };
+      // (e) AI hook: the lure in a generated voice from what it heard (ai/lure.ts). false = not attempted; once it
+      // takes over it plays `garbled` itself on any failure or after its 2.5 s deadline.
+      const voiced = aiLure.speak?.({
+        crew: rt.crew, victim: victim?.id ?? null, viaWalkie, intercom: ic ? { id: ic.id, p: [ic.x, ic.y ?? 1.6, ic.z] } : null,
+        room: csName, knownRooms: [...cm.callsignSpace.keys()],
+        heard: L.memory.map((l) => ({ text: l.text, speaker: l.speakerName, speakerId: l.speaker, room: cm.spaceCallsign.get(l.room) ?? null, agoSec: t - l.t, via: l.via, taunt: l.taunt })),
+      }, garbled);
+      if (!voiced) garbled();
       // then wait where the lured player will come from
       const k = victim ? L.known.get(victim.id) : undefined;
       const room = k ? spaceAtXZ(rt, k.x, k.z) : it.space;

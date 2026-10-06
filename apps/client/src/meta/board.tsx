@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ScreenProps } from '../core/ui/api.ts';
 import type { WorkOrder } from '@dead-air/shared/workorder.ts';
+import { GEAR_PACKS, ITEM_DEFS } from '@dead-air/shared/interactables.ts';
 import { isLeader, mePub, metaOf, ordersOf, sfx, useWorldV } from './state.ts';
 import { closeScreen } from './nav.ts';
 
@@ -162,9 +163,31 @@ const ICONS: Record<string, preact.JSX.Element> = {
   medkit: (
     <svg width="64" height="64" viewBox="0 0 64 64"><rect x="10" y="18" width="44" height="32" rx="3" fill="#ecf0f1" /><rect x="24" y="12" width="16" height="8" fill="none" stroke="#ecf0f1" stroke-width="3" /><rect x="28" y="24" width="8" height="20" fill="#c0392b" /><rect x="22" y="30" width="20" height="8" fill="#c0392b" /></svg>
   ),
+  // v1.1 gear pack (shop ids from config/balance/meta.json)
+  proflashlight: (
+    <svg width="64" height="64" viewBox="0 0 64 64"><path d="M31 25 L61 11 L61 53 L31 39 Z" fill="#bfe3ff" opacity="0.2" /><rect x="5" y="26" width="19" height="12" rx="2" fill="#1d2326" stroke="#bfe3ff" stroke-width="2" /><path d="M24 23 L32 21 L32 43 L24 41 Z" fill="#2a3236" stroke="#bfe3ff" stroke-width="2" /><circle cx="14" cy="32" r="2" fill="#7dfcff" /><text x="7" y="21" font-size="9" fill="#bfe3ff" font-family="monospace">II</text></svg>
+  ),
+  flares: (
+    <svg width="64" height="64" viewBox="0 0 64 64">{[0, 1, 2].map((i) => <g key={i} transform={`rotate(${-20 + i * 20} 32 54)`}><rect x="28" y="20" width="8" height="32" rx="2" fill="#8e1f17" stroke="#ff3b2f" stroke-width="1.5" /><circle cx="32" cy="17" r="4" fill="#ffb199" style={{ filter: 'drop-shadow(0 0 5px #ff3b2f)' }} /></g>)}</svg>
+  ),
+  sensors: (
+    <svg width="64" height="64" viewBox="0 0 64 64"><path d="M12 32 A20 20 0 0 1 52 32" fill="none" stroke="#62e0c4" stroke-width="2" opacity="0.45" /><path d="M20 35 A12 12 0 0 1 44 35" fill="none" stroke="#62e0c4" stroke-width="2" opacity="0.8" /><rect x="20" y="40" width="24" height="13" rx="4" fill="#1d2326" stroke="#62e0c4" stroke-width="2" /><circle cx="32" cy="46.5" r="3" fill="#62e0c4" style={{ filter: 'drop-shadow(0 0 4px #62e0c4)' }} /></svg>
+  ),
 };
 
-const TYPE_NAME: Record<string, string> = { walkie: 'Walkie', crowbar: 'Crowbar', bottle: 'Bottle', glowstick: 'Glowstick', medkit: 'Medkit' };
+const TYPE_NAME: Record<string, string> = { walkie: 'Walkie', crowbar: 'Crowbar', bottle: 'Bottle', glowstick: 'Glowstick', medkit: 'Medkit', flare: 'Flare' };
+
+/** gear pool counts -> "Walkie ×1 · Flare ×3": shop packs ('flares' = 3 flares) shown as their real items */
+function gearUnits(g: Record<string, number>): [string, number][] {
+  const out: Record<string, number> = {};
+  for (const [t, n] of Object.entries(g)) {
+    if (!(n > 0)) continue;
+    const pack = GEAR_PACKS[t];
+    const real = pack?.type ?? t;
+    out[real] = (out[real] ?? 0) + n * (pack?.count ?? 1);
+  }
+  return Object.entries(out);
+}
 
 export function ShopScreen({ ctx }: ScreenProps) {
   useWorldV(ctx);
@@ -180,7 +203,7 @@ export function ShopScreen({ ctx }: ScreenProps) {
       else ctx.ui.toast(r.reason ?? 'purchase failed', 'warn');
     }).catch((e: unknown) => ctx.ui.toast(String(e), 'error')).finally(() => setBusy(''));
   };
-  const gearList = (g: Record<string, number>) => Object.entries(g).filter(([, n]) => n > 0).map(([t, n]) => `${TYPE_NAME[t] ?? t} ×${n}`).join(' · ') || 'nothing yet';
+  const gearList = (g: Record<string, number>) => gearUnits(g).map(([t, n]) => `${TYPE_NAME[t] ?? ITEM_DEFS[t]?.name ?? t} ×${n}`).join(' · ') || 'nothing yet';
   return (
     <div class="m-screen">
       <button class="m-close" onClick={() => closeScreen(ctx)}>CLOSE [ESC]</button>

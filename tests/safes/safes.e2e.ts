@@ -29,7 +29,8 @@ if (L) {
   const maxD = Math.max(...L.spaces.filter((x) => x.kind !== 'corridor' && x.kind !== 'outside').map((x) => x.dist));
   ok(sp && sp.kind !== 'corridor' && sp.dist >= maxD * 0.5, `safe in deep ${sp?.kind} ${sp?.type} (dist ${sp?.dist} / max ${maxD})`);
   const minItem = Math.min(...L.items.map((it) => Math.hypot(it.x - s.x, it.z - s.z)));
-  ok(minItem >= 1.19, `clear of layout items (nearest ${minItem.toFixed(2)} m)`);
+  // 1.2 m on roomy sites; crowded sites fall back to relaxed clearances (>= 0.55 x 1.2 m) rather than no safe at all
+  ok(minItem >= 0.65, `clear of layout items (nearest ${minItem.toFixed(2)} m)`);
 }
 ok(s.combo.length === 3 && s.combo.every((c) => c >= 0 && c < 40), `combo shape ok`);
 const list = await b.req<{ safes: { id: string; combo?: unknown }[] }>('safes.list', {});

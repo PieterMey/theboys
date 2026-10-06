@@ -1,0 +1,26 @@
+{
+ "route": "listener.lure",
+ "key": "default",
+ "provider": "anthropic",
+ "note": "hand-written",
+ "raw": {
+  "id": "msg_fixture",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-haiku-4-5",
+  "content": [
+   {
+    "type": "text",
+    "text": "{\"line\":\"It's me. Come to CHAPEL. I found the Core.\",\"lang\":\"en\"}"
+   }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+   "input_tokens": 720,
+   "output_tokens": 22,
+   "cache_creation_input_tokens": 0,
+   "cache_read_input_tokens": 0
+  }
+ }
+}

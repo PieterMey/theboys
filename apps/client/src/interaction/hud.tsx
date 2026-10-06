@@ -23,6 +23,8 @@ export const ui = {
   hidden: signal(false),
   /** flashlight battery % in contracts (null = hidden) */
   battery: signal<number | null>(null),
+  /** v1.1 gear status chips above the inventory (adrenaline countdown, cursed idol, lucky charm, pro flashlight) */
+  status: signal<{ id: string; text: string; tone: 'good' | 'bad' | 'info' }[]>([]),
 };
 
 let msgId = 0;
@@ -52,6 +54,18 @@ function Icon({ type }: { type: string }) {
       return <svg {...s}><rect x="3" y="6" width="24" height="15" rx="2" fill="#f2c230" style={{ filter: 'drop-shadow(0 0 3px #ffb000)' }} /><rect x="3" y="9" width="24" height="3" fill="#222" /><rect x="6" y="15" width="8" height="3" fill="#7a5c00" /></svg>;
     case 'badge':
       return <svg {...s}><rect x="8" y="3" width="14" height="21" rx="2" fill="#3f7fb3" /><rect x="11" y="13" width="8" height="7" fill="#e8e8e8" /><circle cx="15" cy="9" r="2.5" fill="#cfe6f7" /></svg>;
+    case 'flashlight_pro':
+      return <svg {...s}><path d="M2 13 L9 9 L9 17 Z" fill="#cfe6ff" opacity="0.35" /><rect x="9" y="9" width="7" height="8" rx="1" fill="#b9c3cc" /><rect x="16" y="10.5" width="12" height="5" rx="1.5" fill="#1b1f24" stroke="#4fa3ff" stroke-width="0.9" /><rect x="8.4" y="10" width="1.2" height="6" fill="#e9f4ff" style={{ filter: 'drop-shadow(0 0 3px #bfe3ff)' }} /><text x="22" y="8" fill="#4fa3ff" font-size="6.5" font-family="monospace" font-weight="700" text-anchor="middle">II</text></svg>;
+    case 'flare':
+      return <svg {...s}><g style={{ filter: 'drop-shadow(0 0 3px #ff3b2f)' }}>{[9, 15, 21].map((x, i) => <g key={x}><rect x={x - 2} y={7 + i} width="4" height="15" rx="1" fill="#c8241b" /><rect x={x - 2} y={20 + i} width="4" height="3" fill="#222" /><circle cx={x} cy={6 + i} r="1.8" fill="#ffd0c0" /></g>)}</g></svg>;
+    case 'sensor':
+      return <svg {...s}><path d="M6 21 a9 9 0 0 1 18 0 Z" fill="#9adfd2" opacity="0.8" /><rect x="4" y="20" width="22" height="4" rx="1" fill="#2c3136" /><path d="M21 13 L24 4" stroke="#888" stroke-width="1.2" /><circle cx="15" cy="16" r="1.8" fill="#30ffd0" style={{ filter: 'drop-shadow(0 0 3px #30ffd0)' }} /><path d="M3 9 a14 14 0 0 1 6 -5 M27 9 a14 14 0 0 0 -6 -5" stroke="#30ffd0" stroke-width="1" fill="none" opacity="0.7" /></svg>;
+    case 'syringe':
+      return <svg {...s}><g transform="rotate(-35 15 13)"><rect x="6" y="10" width="15" height="6" rx="1.2" fill="#dfe8ea" opacity="0.6" stroke="#cfd8da" stroke-width="0.6" /><rect x="8" y="11" width="11" height="4" fill="#ffd23f" style={{ filter: 'drop-shadow(0 0 2px #ffb000)' }} /><path d="M21 13 H28" stroke="#9aa0a6" stroke-width="1" /><rect x="3" y="9.5" width="2" height="7" fill="#333" /><path d="M1 13 H4" stroke="#333" stroke-width="1.6" /></g></svg>;
+    case 'charm':
+      return <svg {...s}><circle cx="15" cy="5" r="3" fill="none" stroke="#b08a3e" stroke-width="1.6" /><path d="M15 8 C9 10 9 21 13 23 C15 24 17 24 18 22 C21 18 20 10 15 8 Z" fill="#e9e1cf" /><g fill="#4fd14a" style={{ filter: 'drop-shadow(0 0 2px #2fb52a)' }}><circle cx="23" cy="17" r="2" /><circle cx="26" cy="17" r="2" /><circle cx="24.5" cy="14.5" r="2" /><circle cx="24.5" cy="19.5" r="2" /></g></svg>;
+    case 'loot.idol':
+      return <svg {...s}><rect x="8" y="21" width="14" height="4" rx="1" fill="#3b3346" /><path d="M11 21 L13 11 H17 L19 21 Z" fill="#4a4058" /><rect x="14" y="5" width="2" height="7" fill="#4a4058" /><ellipse cx="16.5" cy="5" rx="3" ry="3.8" transform="rotate(28 16.5 5)" fill="#4a4058" /><g fill="#d6b8ff" style={{ filter: 'drop-shadow(0 0 2px #a060ff)' }}><circle cx="16" cy="4.5" r="0.9" /><circle cx="18" cy="5.6" r="0.9" /></g></svg>;
     default:
       return <svg {...s}><rect x="5" y="8" width="20" height="14" rx="1" fill={c} /><path d="M5 12h20" stroke="#000" stroke-opacity="0.35" /></svg>;
   }
@@ -94,8 +108,14 @@ export function InventoryHud(_p: HudProps) {
   const a = ui.active.value;
   const act = slots[a]?.item;
   const hint = act ? itemDef(act.type).hint : null;
+  const status = ui.status.value;
   return (
     <div data-testid="ix-inventory">
+      {status.length > 0 && (
+        <div class="ix-status" data-testid="ix-status">
+          {status.map((c) => <span key={c.id} class={`ix-chip ${c.tone}`}>{c.text}</span>)}
+        </div>
+      )}
       {ui.hp.value < 100 && <div class="ix-hp">HP {ui.hp.value}%</div>}
       {hint && <div class="ix-hint">{hint}</div>}
       <div class="ix-inv">

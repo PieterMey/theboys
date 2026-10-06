@@ -36,6 +36,9 @@ export function AiStatusHud(_p: HudProps) {
           ))}
           <div>listener: {s.listener.decisions} decisions (jev {s.listener.jev}, haiku {s.listener.haiku}, taunt {s.listener.taunt}, rules {s.listener.none})</div>
           <div>stt: {s.stt.utterances} utterances / {s.stt.segments} segments · dropped {s.stt.dropped} · queue {s.stt.queued}</div>
+          {s.lure && (
+            <div>lure: {s.lure.voiced} voiced (haiku {s.lure.haiku}, template {s.lure.template}, cached {s.lure.cacheHits}) · garbled {s.lure.fallback} · skipped {s.lure.skipped} · tts {s.lure.chars}/{s.lure.charBudget} chars{s.lure.lastMs != null ? ` · last ${ms(s.lure.lastMs)}` : ''}{s.lure.down ? ` · TTS OFF (${s.lure.down})` : ''}{s.lure.lastReason ? ` · ${s.lure.lastReason}` : ''}</div>
+          )}
         </div>
       )}
     </div>

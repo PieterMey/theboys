@@ -40,6 +40,11 @@ export function DriveScreen({ ctx }: ScreenProps) {
   // moving while the main thread is busy building the level
   const [span] = useState(() => (d ? Math.max(1000, d.endsAt - ctx.world.serverNow()) : 6000));
   const per = meta?.shift.contractsPerShift ?? 3;
+  // v1.1: the site is built and warmed behind this screen (apps/client/src/loading); the van waits for slow loaders
+  const dl = ctx.services.use('loading')?.drive.value ?? null;
+  const myName = ctx.world.crew?.players.find((p) => p.id === ctx.world.me)?.name;
+  const others = dl ? dl.waiting.filter((n) => n !== myName) : [];
+  const holding = left <= 0 && others.length > 0;
   return (
     <div class="m-screen m-solid">
       <div class="m-road" />
@@ -61,8 +66,16 @@ export function DriveScreen({ ctx }: ScreenProps) {
           {visible.map((l, i) => <p key={i} class={i === visible.length - 1 ? 'cur' : ''}>{l}</p>)}
         </div>
         <div class="m-progress"><i class="anim" style={{ animationDuration: `${span}ms` }} /></div>
+        {dl && dl.state !== 'idle' && (
+          <div class="ld-drive" data-testid="drive-preload" data-state={dl.state}>
+            <span>SITE DATA</span>
+            <span class="ld-drive-bar"><i style={{ transform: `scaleX(${(Math.min(100, dl.pct) / 100).toFixed(3)})` }} /></span>
+            <span>{dl.label}</span>
+            {others.length > 0 && <span>{holding ? 'HOLDING FOR' : 'STILL LOADING'} <b>{others.join(', ')}</b></span>}
+          </div>
+        )}
         <div class="m-row" style={{ justifyContent: 'space-between', marginTop: '8px' }}>
-          <span class="m-small m-dim">ARRIVING {left > 0 ? `IN ${Math.ceil(left / 1000)} s` : 'NOW'} · 22:00 · THE VAN LEAVES AT 04:00 · READ THE RULES</span>
+          <span class="m-small m-dim">ARRIVING {left > 0 ? `IN ${Math.ceil(left / 1000)} s` : holding ? '· THE VAN WAITS FOR THE CREW' : 'NOW'} · 22:00 · THE VAN LEAVES AT 04:00 · READ THE RULES</span>
           <span class="m-small m-dim">QUOTA {meta?.shift.hauled ?? 0}/{meta?.shift.quota ?? 0}</span>
         </div>
       </div>

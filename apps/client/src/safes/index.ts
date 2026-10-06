@@ -1,9 +1,11 @@
-// Owner: safes feature (flag 'safes', default off; ?safes=1 forces it on for dev tests). Safe-cracking mini-game client:
-// the 'safe' dial screen (dial.tsx), safe props in the scene, and the crew-wide clunk / unlock sounds.
+// Owner: safes feature (flag 'safes'). Safe-cracking mini-game client: the 'safe' dial screen (dial.tsx), safe props in
+// the scene, and the crew-wide clunk / unlock sounds. The SERVER flag decides (it places the safes and answers
+// safes.list): the client always installs, because its flags are bundled at build time and a server-side flag flip
+// without a client rebuild used to leave E on a safe doing nothing (no screen registered). ?safes=0 opts out.
 // Server: apps/server/src/safes/index.ts. Request/event names are cast (no messages/safes.ts: index.ts is integrator-owned).
 import * as THREE from 'three/webgpu';
 import type { ClientContext } from '../core/context.ts';
-import { SafeScreen } from './dial.tsx';
+import { SafeScreen, safeLog } from './dial.tsx';
 
 export interface SafeInfo {
   id: string;
@@ -19,7 +21,7 @@ type AnyOn = (e: string, fn: (d: unknown, t: number) => void) => () => void;
 export const safeReq = (ctx: ClientContext): AnyReq => ctx.net.req as unknown as AnyReq;
 
 export function install(ctx: ClientContext): void {
-  if (ctx.flags.safes !== true && ctx.params.get('safes') !== '1') return;
+  if (ctx.params.get('safes') === '0') return;
   ctx.ui.registerScreen('safe', SafeScreen);
   const on = ctx.net.on as unknown as AnyOn;
   const req = safeReq(ctx);
@@ -39,18 +41,20 @@ export function install(ctx: ClientContext): void {
   });
   on('safes.fx', (d) => {
     const f = d as { id: string; fx: string; p: [number, number, number] };
-    if (f.fx === 'clunk') play('sfx.lever_clunk_heavy', f.p, 1);
+    if (f.fx === 'clunk') { play('sfx.lever_clunk_heavy', f.p, 1); if (ctx.testMode) safeLog.push('clunk'); }
     if (f.fx === 'open') {
       play('sfx.vault_unlock_heavy', f.p, 1);
+      if (ctx.testMode) safeLog.push('open');
       const pr = props.get(f.id);
       if (pr) pr.door.rotation.y = -1.9;
     }
   });
 
   // ---------------------------------------------------------------- props (simple steel safe with a brass dial)
-  const steel = new THREE.MeshStandardNodeMaterial({ color: 0x2a2f33, roughness: 0.45, metalness: 0.85 });
-  const dark = new THREE.MeshStandardNodeMaterial({ color: 0x15181a, roughness: 0.6, metalness: 0.7 });
-  const brass = new THREE.MeshStandardNodeMaterial({ color: 0xb08a3e, roughness: 0.3, metalness: 1 });
+  // painted steel (no env map in the facility: high metalness renders near-black, so keep it a paint) + brass that reads
+  const steel = new THREE.MeshStandardNodeMaterial({ color: 0x46524b, roughness: 0.52, metalness: 0.35 });
+  const dark = new THREE.MeshStandardNodeMaterial({ color: 0x15181a, roughness: 0.6, metalness: 0.4 });
+  const brass = new THREE.MeshStandardNodeMaterial({ color: 0xc9a050, roughness: 0.32, metalness: 0.55, emissive: 0x3a2808, emissiveIntensity: 0.6 });
   const W = 0.7, H = 0.9, D = 0.6;
   const build = (s: SafeInfo) => {
     const root = new THREE.Group();
@@ -110,7 +114,13 @@ export function install(ctx: ClientContext): void {
       props.set(s.id, pr);
     }
   };
-  if (ctx.testMode) (window as unknown as { __safes: unknown }).__safes = { count: () => props.size, inScene: () => !!group?.parent, refresh };
+  if (ctx.testMode) {
+    (window as unknown as { __safes: unknown }).__safes = {
+      count: () => props.size, inScene: () => !!group?.parent, refresh,
+      /** sounds the dial played: 'tick' (turn), 'click' (the server said click), 'ok', 'clunk', 'open' */
+      log: () => safeLog.slice(), clearLog: () => { safeLog.length = 0; },
+    };
+  }
   ctx.bus.on('world:phase', () => void refresh());
   ctx.bus.on('net:welcome', () => void refresh());
   if (ctx.net.status === 'joined') void refresh();

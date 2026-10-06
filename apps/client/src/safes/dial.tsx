@@ -7,6 +7,9 @@ import type { ClientContext } from '../core/context.ts';
 
 type AnyReq = (r: string, a: unknown, timeoutMs?: number) => Promise<unknown>;
 
+/** test hook (?test=1 via window.__safes.log()): which dial sounds played, in order */
+export const safeLog: string[] = [];
+
 const bal = (ctx: ClientContext, k: string, d: number): number => {
   const v = (ctx.balance.safes as Record<string, unknown> | undefined)?.[k];
   return typeof v === 'number' && Number.isFinite(v) ? v : d;
@@ -40,6 +43,7 @@ export function SafeScreen(props: ScreenProps) {
       st.current.pos = (((st.current.pos + d) % n) + n) % n;
       setPos(st.current.pos);
       sfx('sfx.ui_click', bal(ctx, 'tickVolume', 0.05), 1.7);
+      if (ctx.testMode) safeLog.push('tick');
     };
     const confirm = async () => {
       if (st.current.busy || st.current.done) return;
@@ -57,6 +61,7 @@ export function SafeScreen(props: ScreenProps) {
         if (r.ok) {
           setFlash('ok');
           sfx('sfx.keypad_accept', 0.25, 0.8);
+          if (ctx.testMode) safeLog.push('ok');
           setMsg(`Number ${r.stage} holds. Now the next one.`);
         } else {
           setFlash('bad');
@@ -93,7 +98,10 @@ export function SafeScreen(props: ScreenProps) {
         try {
           const r = (await req('safes.dial', { id, pos: p })) as { click?: boolean; closed?: boolean };
           if (r.closed) { close(false); return; }
-          if (r.click) sfx('sfx.metal_click', bal(ctx, 'clickVolume', 0.9), 1.25);
+          if (r.click) {
+            sfx('sfx.metal_click', bal(ctx, 'clickVolume', 0.9), 1.25);
+            if (ctx.testMode) safeLog.push(`click:${p}`);
+          }
         } catch { /* ignore */ }
       }
       timer = window.setTimeout(() => void pump(), bal(ctx, 'dialSendMs', 100));

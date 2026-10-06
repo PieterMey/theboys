@@ -38,6 +38,8 @@ export interface LocalPlayer {
   stride: number;
   speed: number;
   sprintLock: boolean;
+  /** performance.now() until which sprinting costs no stamina (interaction: adrenaline syringe) */
+  staminaFreeUntil?: number;
   /** camera world position (incl. bob) */
   cam: THREE.Vector3;
   camQuat: THREE.Quaternion;
@@ -153,7 +155,7 @@ export function stepLocal(ctx: ClientContext, me: LocalPlayer, input: InputCore,
 
   const moving = Math.hypot(me.vel.x, me.vel.z);
   const sprinting = wantSprint && moving > MOVE.walk * 0.9;
-  if (sprinting) me.stamina = Math.max(0, me.stamina - dt / MOVE.staminaSec);
+  if (sprinting && !((me.staminaFreeUntil ?? 0) > performance.now())) me.stamina = Math.max(0, me.stamina - dt / MOVE.staminaSec);
   else me.stamina = Math.min(1, me.stamina + dt / MOVE.staminaRegenSec * (moving < 0.1 ? 1.25 : 1));
 
   if (!fin(me.vel.x) || !fin(me.vel.z)) me.vel.set(0, 0, 0);

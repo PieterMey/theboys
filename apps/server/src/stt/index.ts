@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { LevelLayout } from '@dead-air/shared/layout.ts';
 import type { PlayerPose, ServerContext } from '../core/types.ts';
 import { SYSTEM_ORDER } from '../core/types.ts';
-import { crewAi, dropPlayer, handleChunk, noteSnapshot, onProxText, recentUtterances, setFakeListener, startHealthPoll, sttStats, tick } from './bridge.ts';
+import { crewAi, dropPlayer, endRun, handleChunk, noteSnapshot, onPhase, onProxText, recentUtterances, setFakeListener, startHealthPoll, sttRun, sttStats, tick } from './bridge.ts';
 import { noiseApi, onDepLoaded } from '../ai/adapters.ts';
 import { forgetCrewQuotes } from '../ai/hub.ts';
 
@@ -16,8 +16,13 @@ export function install(ctx: ServerContext): void {
   ctx.hooks.crewSnapshot.push((crew, snap) => noteSnapshot(crew, snap));
   ctx.hooks.leave.push((crew, player, info) => {
     if (info.final) dropPlayer(crew, player.id);
-    if (info.final && crew.players.size === 0) forgetCrewQuotes(crew.code);
+    if (info.final && crew.players.size === 0) {
+      endRun(ctx, crew);
+      forgetCrewQuotes(crew.code);
+    }
   });
+  // per-contract STT evidence in the (production, info-level) server log: counts only, never transcript text
+  ctx.hooks.phase.push((crew, from, to) => onPhase(ctx, crew, from, to));
   sttStats(ctx, () => ctx.crews.list());
 
   // typed proximity text: quote candidates for the HR memo (the monsters track feeds it to the Listener itself)
@@ -74,6 +79,7 @@ export function install(ctx: ServerContext): void {
     return {
       fakeListener: st.fakeListener,
       listener: st.listener,
+      run: sttRun(crew),
       players: [...st.players.entries()].map(([id, ps]) => ({ id, open: ps.open ? { segId: ps.open.segId, samples: ps.open.samples, hearers: [...ps.open.players], listener: ps.open.listener } : null, queued: ps.queue.length, busy: ps.busy })),
     };
   });

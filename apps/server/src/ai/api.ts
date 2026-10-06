@@ -6,6 +6,9 @@
 //   reviewFor(shift)                async, template-first Company Performance Review (always resolves; also
 //                                   emits 'ai.review' to the crew when ready)
 //   aiStatus()                      budget, latencies, breaker states (host HUD / debug)
+//   speakLure(req, fallback)        the Listener's radio_lure in a generated voice (Haiku line + ElevenLabs TTS);
+//                                   false = not attempted (play the garbled clip now), true = it emits 'ai.lure' or
+//                                   calls fallback itself (failure / 2.5 s deadline). Never throws.
 // Safe to import before the ai track installed (unit tests, other tracks' install order): every function works
 // with defaults (AI_MODE from env, mock by default) and never throws.
 import type { AiStatus, DirectorOption, ListenerInput, ListenerIntent, ShiftReview, ShiftSummary, Utterance } from '@dead-air/shared/messages/ai.ts';
@@ -16,9 +19,12 @@ import { decide } from './listener.ts';
 import { pick } from './director.ts';
 import { brief } from './brief.ts';
 import { review } from './review.ts';
+import { lureStatus, speakLure as speakLureImpl } from './lure.ts';
+import type { LureHeard, LureRequest } from './lure.ts';
 import { getCtx, listenerStats, log, sttStatus, subscribe } from './hub.ts';
 
 export type { AiStatus, DirectorOption, ListenerInput, ListenerIntent, ShiftReview, ShiftSummary, Utterance };
+export type { LureHeard, LureRequest };
 
 const fastModel = () => getCtx()?.env.MODEL_FAST ?? process.env.MODEL_FAST ?? 'claude-haiku-4-5';
 const writerModel = () => getCtx()?.env.MODEL_WRITER ?? process.env.MODEL_WRITER ?? 'claude-opus-5-5';
@@ -59,6 +65,11 @@ export function reviewFor(shift: ShiftSummary): Promise<ShiftReview> {
   });
 }
 
+/** The Listener's radio lure, voiced (see lure.ts). false = not attempted: the caller plays its garbled clip now. */
+export function speakLure(req: LureRequest, fallback: () => void): boolean {
+  return speakLureImpl(req, fallback);
+}
+
 export function aiStatus(): AiStatus {
   const h = gatewayHealth();
   const ctx = getCtx();
@@ -73,5 +84,6 @@ export function aiStatus(): AiStatus {
     jev: { healthy: h.jevHealthy, lastMs: h.jevLastMs },
     stt: sttStatus(),
     listener: { ...listenerStats },
+    lure: lureStatus(),
   };
 }

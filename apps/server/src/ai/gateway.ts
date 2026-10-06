@@ -173,6 +173,42 @@ function logUsage(e: UsageEntry): void {
   }
 }
 
+/** Usage row for a non-Claude provider (ElevenLabs TTS): numbers only (characters, ms), never the text. */
+export function logProviderUsage(e: { route: string; model: string; ms: number; ok: boolean; reason?: string; chars: number }): void {
+  if (G.cfg.mode !== 'live' && G.cfg.mode !== 'record') return;
+  const path = G.cfg.usageLog;
+  if (!path) return;
+  const row = { t: new Date().toISOString(), route: e.route, model: e.model, mode: G.cfg.mode, ms: Math.round(e.ms), ok: e.ok, reason: e.reason ?? null, chars: e.chars, usd: 0 };
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    appendFileSync(path, JSON.stringify(row) + '\n');
+  } catch (err) {
+    G.cfg.log.warn(`usage log write failed (${err instanceof Error ? err.name : 'error'})`);
+  }
+}
+
+/** Rows + characters logged for `route` inside the budget window (restart-safe per-session caps). */
+export function usageSince(route: string): { rows: number; chars: number } {
+  const path = G.cfg.usageLog;
+  if (G.cfg.mode !== 'live' && G.cfg.mode !== 'record') return { rows: 0, chars: 0 };
+  if (!path || !existsSync(path)) return { rows: 0, chars: 0 };
+  const since = Date.now() - num('budgetWindowHours', 12) * 3600_000;
+  let rows = 0;
+  let chars = 0;
+  try {
+    for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
+      if (!line || !line.includes(route)) continue;
+      try {
+        const e = JSON.parse(line) as { t?: string; route?: string; chars?: number };
+        if (e.route !== route || !e.t || Date.parse(e.t) < since) continue;
+        rows++;
+        if (typeof e.chars === 'number' && Number.isFinite(e.chars)) chars += e.chars;
+      } catch { /* skip bad line */ }
+    }
+  } catch { /* unreadable: start at 0 */ }
+  return { rows, chars };
+}
+
 // ---------------------------------------------------------------- route state / breaker
 
 function route(name: string): RouteState {
@@ -237,6 +273,9 @@ function gate(name: string, provider: 'anthropic' | 'jev', estUsd: number, maxIn
   if (provider === 'jev' && G.cfg.flags.jev === false) return 'disabled';
   if (G.providerDown[provider]) return 'disabled';
   const live = G.cfg.mode === 'live' || G.cfg.mode === 'record';
+  // dev cost guard: AI_LIVE_ONLY=listener.lure,... lets only these routes (or prefixes) call a provider
+  const only = process.env.AI_LIVE_ONLY;
+  if (live && only && !only.split(',').some((r) => r.trim() && name.startsWith(r.trim()))) return 'disabled';
   if (live) {
     if (provider === 'anthropic' && !process.env.ANTHROPIC_API_KEY) return 'nokey';
     if (provider === 'jev' && !process.env.JEV_API_KEY) return 'nokey';

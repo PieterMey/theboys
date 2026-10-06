@@ -15,7 +15,7 @@ export type Phase = 'hub' | 'drive' | 'contract' | 'results';
 /** Stance values in Pose.stance */
 export const STANCE = { stand: 0, crouch: 1, sprint: 2, hidden: 3, dead: 4 } as const;
 
-export type MonsterKind = 'hound' | 'mannequin' | 'listener';
+export type MonsterKind = 'hound' | 'mannequin' | 'listener' | 'snatcher';
 
 export interface PlayerPublic {
   id: string;

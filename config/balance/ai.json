@@ -34,6 +34,26 @@
   "briefMaxPerSession": 12,
   "reviewMaxPerSession": 4,
 
+  "lureDeadlineMs": 2500,
+  "lureTtsReserveMs": 480,
+  "lureHaikuTimeoutMs": 2000,
+  "lureHaikuMaxTokens": 80,
+  "lureCooldownMs": 60000,
+  "lureMaxPerSession": 40,
+  "lureTtsCharBudget": 3000,
+  "lureMaxWords": 12,
+  "lureMaxChars": 90,
+  "lureMaxAgeSec": 150,
+  "lureTtsModel": "eleven_flash_v2_5",
+  "lureTtsFormat": "mp3_22050_32",
+  "lureVoices": [
+    { "id": "N2lVS1w4EtoT3dr4eOWO", "name": "Callum (husky trickster)" },
+    { "id": "SAz9YHcvj6GT2YYXdXww", "name": "River (calm, neutral)" },
+    { "id": "pFZP5JQG7iQjIQuC4Bku", "name": "Lily (velvety)" }
+  ],
+  "lureVoiceSettings": { "stability": 0.3, "similarity_boost": 0.8, "style": 0.35, "use_speaker_boost": false, "speed": 0.92 },
+  "warmupLure": true,
+
   "breakerFailures": 2,
   "breakerOpenMs": 60000,
   "budgetWindowHours": 12,

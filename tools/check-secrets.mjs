@@ -10,12 +10,14 @@ import { execSync } from 'node:child_process';
 const root = resolve(import.meta.dirname, '..');
 const envPath = join(root, '.env');
 const secrets = [];
+// .env keys whose values are public by design (they appear in invite links and docs)
+const PUBLIC_KEYS = new Set(['PUBLIC_URL', 'INVITE_BASE']);
 if (existsSync(envPath)) {
   for (const line of readFileSync(envPath, 'utf8').split(/\r?\n/)) {
     const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
     if (!m) continue;
     const v = m[2].trim().replace(/^['"]|['"]$/g, '');
-    if (v.length >= 12) secrets.push({ name: m[1], value: v });
+    if (v.length >= 12 && !PUBLIC_KEYS.has(m[1])) secrets.push({ name: m[1], value: v });
   }
 }
 const prefixRe = /(sk-ant-[A-Za-z0-9_-]{20,}|apikey_[A-Za-z0-9_-]{20,}|sk_[a-f0-9]{40,})/;

@@ -9,9 +9,10 @@
 //  (e) prints the admin URL (host only), the invite link and a paste-ready Discord message.
 // State (pids, admin token, the night's crew code) lives in saves/host.json (gitignored, never commit).
 // Flags: --no-build --no-stt --no-tunnel --restart --no-follow. Env: PORT (3000), CF_METRICS (127.0.0.1:20241).
-// NAMED TUNNEL (permanent link): set CLOUDFLARE_TUNNEL_TOKEN + PUBLIC_URL (e.g. https://play.dead-air.io) in .env.
-//   The token is passed to cloudflared via the TUNNEL_TOKEN env var (never on the command line / in logs).
-//   If the 'Cloudflared' Windows service is installed and running, it is used instead and nothing is started.
+// NAMED TUNNEL (permanent link): set PUBLIC_URL (e.g. https://play.dead-air.io) in .env, plus CLOUDFLARE_TUNNEL_TOKEN.
+//   If the 'Cloudflared' Windows service is installed and running, it is used and nothing is started (the token is
+//   then optional). Otherwise the token is passed to cloudflared via the TUNNEL_TOKEN env var (never on the command
+//   line / in logs). Either way an old quick tunnel is stopped and invites use PUBLIC_URL.
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes, randomInt } from 'node:crypto';
 import { existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, writeFileSync, createReadStream } from 'node:fs';
@@ -41,8 +42,9 @@ export function envFromFile(keys) {
   return out;
 }
 const NAMED = envFromFile(['CLOUDFLARE_TUNNEL_TOKEN', 'PUBLIC_URL']);
-/** permanent public base URL (named tunnel), e.g. https://play.dead-air.io, or null */
-export const PUBLIC_URL = NAMED.CLOUDFLARE_TUNNEL_TOKEN && NAMED.PUBLIC_URL ? NAMED.PUBLIC_URL.replace(/\/+$/, '') : null;
+/** permanent public base URL (named tunnel), e.g. https://play.dead-air.io, or null. Needs the token, or the
+ *  'Cloudflared' Windows service (installed with the token once; then the token is not needed in .env). */
+export const PUBLIC_URL = NAMED.PUBLIC_URL && (NAMED.CLOUDFLARE_TUNNEL_TOKEN || windowsServiceRunning()) ? NAMED.PUBLIC_URL.replace(/\/+$/, '') : null;
 const say = (...a) => console.log('[host]', ...a);
 const warn = (...a) => console.warn('[host] WARN', ...a);
 
@@ -187,17 +189,27 @@ async function ensureStt(state) {
 
 async function ensureNamedTunnel(state) {
   const host = new URL(PUBLIC_URL).host;
-  if (windowsServiceRunning()) { say(`tunnel: Windows service 'Cloudflared' is running -> using it (${PUBLIC_URL})`); return host; }
-  // switching from the old quick tunnel: it holds the metrics port (its /ready would look like ours) -> stop it
+  // switching from the old quick tunnel: it holds the metrics port (its /ready would look like ours) and its
+  // trycloudflare link is dead weight once the permanent one is up -> stop it
   const quick = await getJson(`http://${METRICS}/quicktunnel`, 1200);
   if (quick && typeof quick.hostname === 'string' && quick.hostname.includes('.')) {
     say(`tunnel: stopping the old quick tunnel (https://${quick.hostname}) -> switching to ${PUBLIC_URL}`);
-    if (state.tunnelPid) killTree(state.tunnelPid);
+    if (state.tunnelPid && state.tunnelKind !== 'named') killTree(state.tunnelPid);
     const r = spawnSync('powershell', ['-NoProfile', '-Command', `Get-CimInstance Win32_Process -Filter "Name='cloudflared.exe'" | Where-Object { $_.CommandLine -match 'tunnel --url' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`], { windowsHide: true });
     void r;
     await sleep(1500);
   }
+  if (windowsServiceRunning()) {
+    state.tunnelKind = 'service';
+    writeState(state);
+    say(`tunnel: Windows service 'Cloudflared' is running -> using it (${PUBLIC_URL})`);
+    return host;
+  }
   if (state.tunnelKind === 'named' && (await namedTunnelReady())) { say(`tunnel: re-attached named tunnel (${PUBLIC_URL})`); return host; }
+  if (!NAMED.CLOUDFLARE_TUNNEL_TOKEN) {
+    warn("tunnel: the 'Cloudflared' Windows service is not running and CLOUDFLARE_TUNNEL_TOKEN is not in .env: start the service (services.msc) or add the token");
+    return host;
+  }
   const exe = join(ROOT, 'tools/bin/cloudflared.exe');
   if (!existsSync(exe)) { warn('tunnel: tools/bin/cloudflared.exe missing'); return null; }
   const env = { ...process.env, TUNNEL_TOKEN: NAMED.CLOUDFLARE_TUNNEL_TOKEN };

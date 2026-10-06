@@ -30,6 +30,13 @@ export interface LevelTuning {
   hallKindArea: number;
   roomsMin: number;
   roomsMax: number;
+  /** per crew size [min, max] room/hall count (overrides roomsMin/roomsMax; max is capped by the callsign pool, 28) */
+  roomsByPlayers: Record<string, [number, number]>;
+  /** landmark set-piece rooms per site [min, max] (boiler hall, server farm, morgue, canteen, chapel, stores...) */
+  landmarks: [number, number];
+  /** furniture per room = area / decorAreaPerProp (clamped to [1, decorMaxPerRoom]) */
+  decorAreaPerProp: number;
+  decorMaxPerRoom: number;
   /** non-vault dead-end rooms to aim for [min, max] */
   deadEnds: [number, number];
   roomRoomDoorChance: number;
@@ -73,26 +80,30 @@ export interface LevelTuning {
 }
 
 export const DEFAULT_LEVEL_TUNING: LevelTuning = {
-  footprint: { '1': [30, 22], '2': [32, 24], '3': [36, 27], '4': [40, 30], '5': [45, 33], '6': [50, 36] },
+  footprint: { '1': [36, 27], '2': [40, 30], '3': [46, 34], '4': [54, 40], '5': [58, 44], '6': [64, 48] },
   lotDepth: 12,
   corridorWidth: 2,
   marginMin: 5,
-  marginMax: 8,
-  blockTarget: 14,
+  marginMax: 9,
+  blockTarget: 17,
   blockMin: 6,
   innerAbsent: 0.15,
   innerPartial: 0.3,
   bspMinSide: 5,
-  bspMaxSide: 18,
-  bspMaxAreaBase: 30,
-  bspMaxAreaPerPlayer: 18,
+  bspMaxSide: 20,
+  bspMaxAreaBase: 36,
+  bspMaxAreaPerPlayer: 26,
   bspStopChance: 0.8,
   hallChance: 0.6,
   hallMinArea: 40,
-  hallMaxArea: 260,
+  hallMaxArea: 320,
   hallKindArea: 56,
   roomsMin: 12,
-  roomsMax: 24,
+  roomsMax: 28,
+  roomsByPlayers: { '1': [13, 26], '2': [15, 26], '3': [17, 27], '4': [19, 28], '5': [21, 28], '6': [22, 28] },
+  landmarks: [3, 5],
+  decorAreaPerProp: 4.5,
+  decorMaxPerRoom: 18,
   deadEnds: [2, 3],
   roomRoomDoorChance: 0.08,
   locksByRisk: { '1': 1, '2': 1, '3': 1 },
@@ -104,14 +115,14 @@ export const DEFAULT_LEVEL_TUNING: LevelTuning = {
   leverMinPathM: 18,
   leverIdealPathM: 26,
   hidingCoverageM: 16,
-  hidingRoomChance: 0.5,
+  hidingRoomChance: 0.6,
   notesMin: 4,
   notesMax: 6,
   ventPairs: { '1': 2, '2': 2, '3': 2, '4': 3, '5': 3, '6': 3 },
   intercomsMin: 2,
   intercomsMax: 3,
   lootAreaPerItem: 12,
-  lootMaxPerRoom: 6,
+  lootMaxPerRoom: 8,
   lightOffBase: 0.04,
   lightOffPerRisk: 0.05,
   lightOffDepth: 0.12,
@@ -146,10 +157,17 @@ export function resolveTuning(over?: LevelTuningOverrides | Record<string, unkno
   return out;
 }
 
+/** [min, max] room count for a crew size. */
+export function roomRangeFor(players: number, t: LevelTuning = DEFAULT_LEVEL_TUNING): [number, number] {
+  const p = Math.max(1, Math.min(6, Math.round(players)));
+  const r = t.roomsByPlayers?.[String(p)];
+  return r ? [r[0], Math.min(r[1], t.roomsMax)] : [t.roomsMin, t.roomsMax];
+}
+
 /** Facility footprint for a crew size (1..6). */
 export function footprintFor(players: number, t: LevelTuning = DEFAULT_LEVEL_TUNING): [number, number] {
   const p = Math.max(1, Math.min(6, Math.round(players)));
   const fp = t.footprint[String(p)];
   if (fp) return [fp[0], fp[1]];
-  return [30 + 4 * p, 22 + 3 * p];
+  return [30 + 6 * p, 22 + 4 * p];
 }

@@ -102,7 +102,9 @@ export function shopItems(): MetaShopItem[] {
   ];
 }
 
-const GEAR_TYPES = new Set(['walkie', 'crowbar', 'bottle', 'glowstick', 'medkit']);
+// v1.1 gear: shop packs ('pro-flashlight', 'flares', 'motion-sensors') are handed out as these real item types, so
+// the pool tracks them after a contract (survivors keep them) and across server restarts (CrewSave.shift.gear)
+const GEAR_TYPES = new Set(['walkie', 'crowbar', 'bottle', 'glowstick', 'medkit', 'flashlight_pro', 'flare', 'sensor', 'syringe', 'charm']);
 const VISOR_NAMES = ['CYAN', 'RED', 'ACID', 'AMBER', 'PINK', 'WHITE'];
 
 export function visorUnlockLevel(i: number): number {
@@ -659,7 +661,7 @@ export function startContract(crew: Crew): void {
 }
 
 /** stack sizes of stackable gear (s.gear counts UNITS: 'Bottles x3' = 3 bottles = one stack) */
-const GEAR_STACK: Record<string, number> = { bottle: 3, glowstick: 5 };
+const GEAR_STACK: Record<string, number> = { bottle: 3, glowstick: 5, flare: 3, sensor: 2 };
 
 /** gear units a player already carries (stacks count their items), or null when (b) can't tell */
 function heldUnits(crew: Crew, pid: string): Record<string, number> | null {
@@ -1092,6 +1094,18 @@ export function allReady(crew: Crew): boolean {
   return ps.length > 0 && ps.every((p) => p.ready);
 }
 
+/** v1.1 drive -> contract: true when no connected player is still building the pending facility. Clients ask for it
+ *  with 'net.preload' and report 'net.loaded' (apps/server/src/net/loading.ts writes player.slices.loading); players
+ *  that never asked (bots, old clients) are not waited for. */
+function crewLoaded(crew: Crew, s: MetaCrew): boolean {
+  const hash = s.pendingLayout?.hash;
+  if (!hash) return true;
+  return connected(crew).every((p) => {
+    const l = p.slices.loading as { want?: string | null; loaded?: string | null } | undefined;
+    return !l || l.want !== hash || l.loaded === hash;
+  });
+}
+
 export function tickCrew(crew: Crew): void {
   const s = S(crew);
   const ctx = ctxOf();
@@ -1122,7 +1136,9 @@ export function tickCrew(crew: Crew): void {
     }
     case 'drive':
       if (!s.active) enterHub(crew);
-      else if (now >= s.driveEndsAt) startContract(crew);
+      // v1.1: the van arrives once every client that preloads the site during the drive has built it (the contract
+      // clock starts with the contract), at most driveLoadWaitSec past the drive timer
+      else if (now >= s.driveEndsAt && (crewLoaded(crew, s) || now >= s.driveEndsAt + num(mb().driveLoadWaitSec, 30) * 1000)) startContract(crew);
       break;
     case 'contract': {
       if (!s.active) {

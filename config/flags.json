@@ -15,5 +15,8 @@
   "volumetrics": true,
   "gtao": true,
   "devAllWalkies": false,
-  "safes": false
+  "safes": true,
+  "specialFinds": true,
+  "snatcher": true,
+  "listenerVoice": true
 }

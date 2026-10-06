@@ -1,6 +1,7 @@
 {
   "driveSec": 12,
   "firstDriveSec": 16,
+  "driveLoadWaitSec": 30,
   "resultsSec": 60,
   "shiftEndResultsSec": 150,
   "holdDriveSec": 3,
@@ -11,7 +12,10 @@
     { "id": "crowbar", "name": "Crowbar", "price": 30, "type": "crowbar", "qty": 1, "desc": "LMB to swing. Frees a grabbed teammate, pries jammed doors. Loud." },
     { "id": "bottles", "name": "Bottles x3", "price": 15, "type": "bottle", "qty": 3, "desc": "LMB to throw. A 15 m crash the Hound cannot resist." },
     { "id": "glowsticks", "name": "Glowsticks x5", "price": 10, "type": "glowstick", "qty": 5, "desc": "Drop to mark a path. Keeps a Mannequin lit." },
-    { "id": "medkit", "name": "Medkit", "price": 45, "type": "medkit", "qty": 1, "desc": "Revive a teammate where they fell, within 30 s. Single use." }
+    { "id": "medkit", "name": "Medkit", "price": 45, "type": "medkit", "qty": 1, "desc": "Revive a teammate where they fell, within 30 s. Single use." },
+    { "id": "proflashlight", "name": "Pro Flashlight", "price": 60, "type": "pro-flashlight", "qty": 1, "tier": 2, "desc": "Tier II LED beam: brighter, wider, twice the battery. Works from any slot. Also keeps a Mannequin lit from further away." },
+    { "id": "flares", "name": "Flares x3", "price": 25, "type": "flares", "qty": 1, "tier": 2, "desc": "LMB to throw. Burns bright red for 60 s: lights the room, keeps a Mannequin lit. Hisses softly." },
+    { "id": "sensors", "name": "Motion sensors x2", "price": 35, "type": "motion-sensors", "qty": 1, "tier": 2, "desc": "LMB to place. The van console shows anything that moves within 6 m of it, even what you can't see. E picks it back up." }
   ],
   "xp": {
     "contract": 25,

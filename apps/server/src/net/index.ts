@@ -2,6 +2,7 @@
 // - Snapshot.aud per receiver (aud.ts), pose validation + 'net.correct' (movement.ts)
 // - saves/session.json persistence + restore (session.ts), /api/invite + 'net.invite' (invite.ts)
 // - crew.ready / crew.kick / profile.set / consent.set / admin.createCrew (reqs.ts)
+// - v1.1: 'net.telemetry' / 'net.perf' + socket close codes (telemetry.ts), 'net.preload' / 'net.loaded' (loading.ts)
 // - dev: dbg.net.teleport, dbg.net.validate, dbg.net.stats, dbg.net.aud (also dbg.net.teleport in mode 'test')
 import type { ServerContext } from '../core/types.ts';
 import { audCrewSnapshot, audForReceiver, audStats, noteLoud } from './aud.ts';
@@ -10,6 +11,8 @@ import { createSession } from './session.ts';
 import { installInvite } from './invite.ts';
 import { installReqs } from './reqs.ts';
 import { netBalance } from './balance.ts';
+import { installTelemetry } from './telemetry.ts';
+import { installLoading } from './loading.ts';
 import type { ServerPlayer } from '../core/types.ts';
 
 const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -68,6 +71,9 @@ export function install(ctx: ServerContext): void {
   // ---- invite + requests ----
   installInvite(ctx);
   installReqs(ctx);
+  // ---- v1.1: client perf/error/drop telemetry + drive-time preload of the facility ----
+  installTelemetry(ctx);
+  installLoading(ctx);
 
   // ---- dev / test hooks ----
   const teleport = (_c: unknown, player: Parameters<typeof serverTeleport>[0], args: unknown) => {

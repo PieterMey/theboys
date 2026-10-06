@@ -16,6 +16,8 @@ import type { PipeCfg } from './pipeline.ts';
 import { PRESET_NAMES, gpuName, presetForGpu, presetTable } from './presets.ts';
 import { auditSceneMaterials, makeEmissive, makeSurfaceMaterial } from './materials.ts';
 import { buildTestScene, loadFixtureLayout } from './testscene.ts';
+import { FrameTimes, createAutoQuality, createPerfPanel, pixelRatioFor, readPerfCfg } from './perf.ts';
+import type { AutoState, FrameStats } from './perf.ts';
 import type { TestScene, TestView } from './testscene.ts';
 import { useLoose } from './types.ts';
 import type { FixtureInfo, FlashlightInfo, LevelView, PlayersView, RenderFx, RenderService, RenderStats, V3 } from './types.ts';
@@ -132,12 +134,33 @@ export async function install(ctx: ClientContext): Promise<void> {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.info.autoReset = false;
-  const dpr = () => Math.min(window.devicePixelRatio || 1, 2) * preset.res;
-  renderer.setPixelRatio(dpr());
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  // v1.1 internal resolution: DPR clamped to 1 on wide (>= 2560 CSS px) canvases, a per-preset cap (Ultra <= 2560x1440
+  // physical pixels; the browser upscales the canvas), the preset's res factor and the auto-quality scale.
+  // ?dprclamp=0 / ?rescap=0 restore the old full-DPR behaviour (measurements).
+  const perfCfg = readPerfCfg((ctx.balance.render as Record<string, unknown> | undefined)?.perf);
+  const resOpts = { clamp: ctx.params.get('dprclamp') !== '0', cap: ctx.params.get('rescap') !== '0' };
+  const autoQ: AutoState = {
+    enabled: ctx.params.get('autoq') !== '0' && lsGet('deadair.render.autoq') !== '0',
+    presetFree: !urlPreset && ctx.params.get('autoq') !== 'scale',
+    scale: 1,
+    last: 'warming up',
+    steps: 0,
+  };
+  let internal = { pr: 1, w: 0, h: 0, dpr: 1 };
+  const applySize = () => {
+    internal = pixelRatioFor(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1, preset, perfCfg, autoQ.scale, resOpts);
+    renderer.setPixelRatio(internal.pr);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    ctx.diag.renderRes = `${renderer.domElement.width}x${renderer.domElement.height}`;
+  };
+  applySize();
   container.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
+  // every pass of the RenderPipeline (pre-pass, scene, volumetrics) and every shadow map re-renders the scene, and each
+  // render traversed the whole graph to update world matrices (12 % of the main thread at 4K in the v1.1 profile):
+  // update once per frame in frame() instead
+  scene.matrixWorldAutoUpdate = false;
   const fogIn = new THREE.Color(cfg.fog.color);
   const fogOut = new THREE.Color(cfg.fog.outdoorColor ?? cfg.fog.color);
   const fogCol = fogIn.clone();
@@ -221,21 +244,117 @@ export async function install(ctx: ClientContext): Promise<void> {
   };
   applyFx();
 
+  // ---- v1.1: frame times, auto quality, F3 panel, full warm-up ----
+  const times = new FrameTimes();
+  /** live preset switch without persisting it (auto quality) */
+  const applyPreset = (name: string) => {
+    const p = table[name];
+    if (!p) return;
+    presetName = name;
+    preset = p;
+    ctx.diag.renderPreset = name;
+    applySize();
+    pipe.build(p, dbg);
+    warmFrames = Math.max(warmFrames, 2);
+  };
+  /** in game, visible tab, no loading / full-screen menu over the canvas */
+  const steady = () => !document.hidden && !backdropActive && warmAll <= 0 && ctx.ui.screen.value.name === 'none' && !document.querySelector('[data-loading-active]');
+  const autoCtl = createAutoQuality(perfCfg, times, {
+    preset: () => presetName,
+    presets: PRESET_NAMES,
+    setPreset: (n) => { applyPreset(n); autoCtl.busy(performance.now()); },
+    setScale: () => { applySize(); autoCtl.busy(performance.now()); },
+    gpuMs: () => gpuMs,
+    steady,
+  }, autoQ);
+  const perfLines = (): string[] => {
+    const now = performance.now();
+    const s = times.stats(2000, now);
+    const net = ctx.net;
+    return [
+      `DEAD AIR PERF  [F3]`,
+      `fps ${s.fps.toFixed(0).padStart(4)}   frame p50 ${s.p50.toFixed(1)} p95 ${s.p95.toFixed(1)} max ${s.max.toFixed(0)} ms`,
+      `gpu ${gpuMs !== undefined ? `${gpuMs.toFixed(2)} ms` : 'n/a'}   cpu ${ctx.loop.perf.frameMs.toFixed(2)} ms   draws ${lastDraws}`,
+      `preset ${presetName}   ${backend}   internal ${renderer.domElement.width}x${renderer.domElement.height}`,
+      `css ${window.innerWidth}x${window.innerHeight}  dpr ${(window.devicePixelRatio || 1).toFixed(2)} -> ${internal.pr.toFixed(3)}  scale ${autoQ.scale.toFixed(2)}`,
+      `auto ${autoQ.enabled ? (autoQ.presetFree ? 'on' : 'scale only') : 'off'}: ${autoQ.last}`,
+      `link ${net.status === 'joined' ? `${Math.round(net.rtt)} ms` : net.status}`,
+    ];
+  };
+  const panel = createPerfPanel(perfLines);
+  // scene changes restart the auto-quality warm-up (their compile hitches are not a resolution problem)
+  ctx.bus.on('world:phase', () => autoCtl.busy(performance.now()));
+  ctx.bus.on('net:welcome', () => autoCtl.busy(performance.now()));
+  void ctx.services.wait('level').then((lv) => lv.onRebuild(() => autoCtl.busy(performance.now())));
+  addEventListener('keydown', (e) => {
+    if (e.code !== 'F3' || e.repeat) return;
+    e.preventDefault();
+    panel.toggle();
+  });
+  /** frames left of the full warm-up: one tiny proxy per unique (material, vertex layout, instancing, shadow flags)
+   *  of the whole scene (hidden spaces included) rides in front of the camera, inside every warm flashlight cone, so
+   *  each material's main / pre-pass / shadow pipelines compile now. (Forcing every object visible instead created a
+   *  render object per object per pass: a 20 s frame for a facility.) */
+  let warmAll = 0;
+  /** warm-up frames left that render with the camera spun about the world up axis */
+  let spin = 0;
+  const spinQ = new THREE.Quaternion();
+  const savedQ = new THREE.Quaternion();
+  /** loading screen covers the canvas: skip drawing (except warm-up frames), at most one draw per second */
+  let holdDraw = false;
+  let lastDrawAt = 0;
+  let warmAllWaiters: (() => void)[] = [];
+  let proxies: THREE.Group | null = null;
+  const buildProxies = (): THREE.Group => {
+    const g = new THREE.Group();
+    g.name = 'render-warm-proxies';
+    const seen = new Set<string>();
+    const ident = new THREE.Matrix4();
+    let i = 0;
+    scene.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || (m as unknown as { isSkinnedMesh?: boolean }).isSkinnedMesh || o === volMeshRef || !o.layers.isEnabled(0)) return;
+      if (o.parent === g || o.name === 'render-warm-proxies') return;
+      const mats = Array.isArray(m.material) ? m.material : [m.material];
+      if (!mats.length || mats.some((x) => !x)) return;
+      const geo = m.geometry;
+      const inst = (m as unknown as THREE.InstancedMesh).isInstancedMesh === true;
+      const sig = `${Object.keys(geo.attributes).sort().join(',')}${geo.index ? ':i' : ''}:${Object.keys(geo.morphAttributes).length}`;
+      const key = `${mats.map((x) => x.uuid).join('+')}|${sig}|${inst ? `I${(m as unknown as THREE.InstancedMesh).instanceColor ? 'c' : ''}` : ''}${m.castShadow ? 'C' : ''}${m.receiveShadow ? 'R' : ''}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      let p: THREE.Mesh;
+      if (inst) {
+        const im = new THREE.InstancedMesh(geo, m.material, 1);
+        im.setMatrixAt(0, ident);
+        if ((m as unknown as THREE.InstancedMesh).instanceColor) im.setColorAt(0, new THREE.Color(1, 1, 1));
+        p = im;
+      } else p = new THREE.Mesh(geo, m.material);
+      p.castShadow = m.castShadow;
+      p.receiveShadow = m.receiveShadow;
+      p.frustumCulled = false;
+      p.renderOrder = m.renderOrder;
+      p.position.set(((i % 9) - 4) * 0.03, -0.12 + Math.floor(i / 9) % 6 * 0.03, -1.4);
+      p.scale.setScalar(1e-3);
+      i++;
+      g.add(p);
+    });
+    return g;
+  };
+  const volMeshRef = pipe.volMesh;
+
   const service: RenderService = {
     backend,
     get preset() { return presetName; },
     presets: PRESET_NAMES,
     setPreset(name) {
-      const p = table[name];
-      if (!p) return;
-      presetName = name;
-      preset = p;
+      if (!table[name]) return;
       lsSet('deadair.render.preset', name);
-      ctx.diag.renderPreset = name;
-      renderer.setPixelRatio(dpr());
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      pipe.build(p, dbg);
-      warmFrames = 2;
+      applyPreset(name);
+      // an explicit choice: auto quality restarts from it (it may still lower the resolution scale)
+      autoQ.scale = 1;
+      applySize();
+      autoCtl.busy(performance.now());
     },
     setExposure(v) {
       renderer.toneMappingExposure = Math.max(0.2, Math.min(4, v));
@@ -255,11 +374,44 @@ export async function install(ctx: ClientContext): Promise<void> {
     flickerSpace: (space, ms) => fixtures.flickerSpace(space, ms),
     stats: () => ({ fps: ctx.loop.perf.fps, frameMs: ctx.loop.perf.frameMs, gpuMs, drawCalls: lastDraws }),
     warmup() {
-      warmFrames = Math.max(warmFrames, 2);
+      // four frames, the camera turned 90 degrees further each time (restored after each): everything around the
+      // spawn compiles behind the loading screen, not on the first look around
+      warmFrames = Math.max(warmFrames, 4);
+      spin = 4;
       return new Promise((res) => {
         const check = () => (warmFrames <= 0 ? res() : requestAnimationFrame(check));
         requestAnimationFrame(check);
       });
+    },
+    warmupAll(frames = 3) {
+      if (!proxies) {
+        proxies = buildProxies();
+        camera.add(proxies);
+        ctx.diag.warmProxies = proxies.children.length;
+      }
+      warmAll = Math.max(warmAll, frames);
+      warmFrames = Math.max(warmFrames, frames + 1);
+      autoCtl.busy(performance.now());
+      return new Promise<void>((res) => { warmAllWaiters.push(res); });
+    },
+    frameStats: (spanMs: number) => times.stats(spanMs, performance.now()),
+    perf() {
+      const s = times.stats(perfCfg.telemetrySec * 1000, performance.now());
+      return {
+        fps: +s.fps.toFixed(1), p50: +s.p50.toFixed(1), p95: +s.p95.toFixed(1), long: s.long, gpuMs: gpuMs !== undefined ? +gpuMs.toFixed(2) : null,
+        preset: presetName, res: [renderer.domElement.width, renderer.domElement.height] as [number, number], dpr: +(window.devicePixelRatio || 1).toFixed(3),
+        scale: +internal.pr.toFixed(3), autoScale: autoQ.scale, backend, auto: autoQ.last,
+      };
+    },
+    setAutoQuality(on) {
+      autoQ.enabled = on;
+      lsSet('deadair.render.autoq', on ? '1' : '0');
+      if (!on && autoQ.scale !== 1) { autoQ.scale = 1; applySize(); }
+    },
+    busy: () => autoCtl.busy(performance.now()),
+    hold(on) {
+      holdDraw = on;
+      if (!on) autoCtl.busy(performance.now());
     },
     volumeLayer: VOL_LAYER,
     setFlashlightSource(fn) { flashOverride = fn; },
@@ -273,8 +425,8 @@ export async function install(ctx: ClientContext): Promise<void> {
   addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
-    renderer.setPixelRatio(dpr());
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    applySize();
+    autoCtl.busy(performance.now());
   });
 
   // ---- test scene / idle backdrop (replaced as soon as a real level or players exist) ----
@@ -350,7 +502,10 @@ export async function install(ctx: ClientContext): Promise<void> {
   const frame = (dt: number) => {
     t += dt;
     const nowMs = performance.now();
-    if (lastNow) maxFrameMs = Math.max(maxFrameMs, nowMs - lastNow);
+    if (lastNow) {
+      maxFrameMs = Math.max(maxFrameMs, nowMs - lastNow);
+      times.push(nowMs - lastNow, nowMs);
+    }
     lastNow = nowMs;
     // a real level / players arrived: drop the backdrop (test mode keeps it)
     if (backdropActive && sceneMode !== 'test' && levelPresent() && test) {
@@ -376,6 +531,12 @@ export async function install(ctx: ClientContext): Promise<void> {
       }
     }
     test?.update(t);
+    const spun = spin > 0;
+    if (spun) {
+      savedQ.copy(camera.quaternion);
+      camera.quaternion.premultiply(spinQ.setFromAxisAngle(new THREE.Vector3(0, 1, 0), spin * Math.PI / 2));
+      spin--;
+    }
     camera.updateMatrixWorld();
     // outdoors (lot / van) vs inside the building: moon on/off, thinner bluish fog outside (smooth ~0.6 s blend)
     {
@@ -427,10 +588,26 @@ export async function install(ctx: ClientContext): Promise<void> {
     }
     warmGroup.visible = warmFrames > 0;
 
+    // one world-matrix update per frame (scene.matrixWorldAutoUpdate is off: every pass used to redo it)
+    scene.updateMatrixWorld();
+    if (holdDraw && warmFrames <= 0 && warmAll <= 0 && nowMs - lastDrawAt < 1000) return;
+    lastDrawAt = nowMs;
     renderer.info.reset();
     pipe.render();
+    if (spun) { camera.quaternion.copy(savedQ); camera.updateMatrixWorld(); }
     lastDraws = renderer.info.render.drawCalls;
     if (warmFrames > 0) warmFrames--;
+    if (warmAll > 0 && --warmAll === 0) {
+      proxies?.removeFromParent();
+      proxies = null;
+      const w = warmAllWaiters;
+      warmAllWaiters = [];
+      // resolve on the next frame: the forced frames' pipelines are in flight now
+      requestAnimationFrame(() => { for (const fn of w) fn(); });
+    }
+    autoCtl.tick(nowMs);
+    panel.tick(nowMs);
+    ctx.diag.autoQuality = autoQ.last;
     const r = renderer as unknown as { backend: { trackTimestamp?: boolean }; resolveTimestampsAsync?: (type?: string) => Promise<number | undefined> };
     if (!resolving && r.backend.trackTimestamp && r.resolveTimestampsAsync) {
       resolving = true;
@@ -467,6 +644,7 @@ export async function install(ctx: ClientContext): Promise<void> {
         backend, preset: presetName, gpu, poolShadowed, poolUnshadowed, poolFixtures,
         usedShadowed: flash.usedShadowed(), fixturesLit: fixtures.litCount(), exposure: renderer.toneMappingExposure,
         size: [renderer.domElement.width, renderer.domElement.height], backdrop: backdropActive, frames: ctx.loop.perf.frames,
+        scale: autoQ.scale, pixelRatio: internal.pr, auto: autoQ.last, autoEnabled: autoQ.enabled, presetFree: autoQ.presetFree,
       }),
       hitch() { const m = maxFrameMs; maxFrameMs = 0; return m; },
       stats: () => service.stats(),

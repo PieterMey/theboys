@@ -3,7 +3,8 @@
 //  - installs the STT bridge (apps/server/src/stt) -> onUtterance
 //  - registers the Listener brain + director picker with (c) monsters (guarded import, retried on phase changes)
 //  - 'ai.status' request (host-only HUD line) + dev-only dbg.ai.* helpers
-//  - live mode: free JEV health check + one Haiku warm-up call (compiles the schema grammar) at boot
+//  - live mode: free JEV health check + Haiku warm-up calls (compile the Listener + lure schema grammars) at boot
+//  - the Listener speaks: speakLure (lure.ts) is called by (c) monsters on radio_lure; dbg.ai.lure triggers it
 import { timingSafeEqual } from 'node:crypto';
 import type { ListenerInput, ShiftSummary } from '@dead-air/shared/messages/ai.ts';
 import type { WorkOrder } from '@dead-air/shared/workorder.ts';
@@ -14,6 +15,10 @@ import { aiStatus, briefFor, directorPick, listenerIntent, reviewFor } from './a
 import { depsLoaded, loadDeps, monstersApi, onDepLoaded } from './adapters.ts';
 import { runHaiku, prepare } from './listener.ts';
 import { install as installStt } from '../stt/index.ts';
+import { lureStatus, recentLures, resetLureCooldown, speakLure, warmLure } from './lure.ts';
+import type { LureHeard } from './lure.ts';
+import type { Vec3 } from '@dead-air/shared/state.ts';
+import { CALLSIGN_INFO } from '@dead-air/shared/callsign.ts';
 
 function safeEq(a: string, b: string): boolean {
   const x = Buffer.from(a);
@@ -76,6 +81,30 @@ export async function install(ctx: ServerContext): Promise<void> {
   });
   ctx.registerDbg('ai.brief', (_crew, _p, args) => briefFor((args as { order: WorkOrder }).order));
   ctx.registerDbg('ai.review', (_crew, _p, args) => reviewFor((args as { shift: ShiftSummary }).shift));
+  // voice a radio lure now (no monsters needed): { victim?, heard?: [{text, speaker?, room?, agoSec?}], room?, intercom?: [x,y,z], force? }
+  ctx.registerDbg('ai.lure', (crew, player, args) => {
+    const a = (args ?? {}) as { victim?: string; heard?: LureHeard[]; room?: string; intercom?: Vec3; force?: boolean };
+    if (a.force !== false) resetLureCooldown(crew.code);
+    const victim = a.intercom ? null : (a.victim ?? player.id);
+    const known = (crew.layout?.spaces ?? []).map((sp) => sp.callsign).filter((c): c is string => !!c && c !== 'VAN' && c !== 'LOBBY');
+    // room '*' = this layout's first callsign; '{ROOM}' in heard lines = its spoken form
+    const room = a.room === '*' ? (known[0] ?? null) : (a.room ?? null);
+    const spoken = room ? (CALLSIGN_INFO[room]?.forms[0] ?? room.toLowerCase()) : 'boiler room';
+    const heard = (Array.isArray(a.heard) ? a.heard : []).map((h) => ({ ...h, text: String(h.text ?? '').replace(/\{ROOM\}/g, spoken) }));
+    let garbled = false;
+    const started = speakLure({
+      crew, victim, viaWalkie: !a.intercom, intercom: a.intercom ? { id: 'dbg', p: a.intercom } : null, room,
+      knownRooms: known, heard,
+    }, () => {
+      garbled = true;
+      ctx.emit(crew, 'monsters.lure', a.intercom ? { to: [], clip: 'sfx.listener_radio_whisper.1', ms: 2600, p: a.intercom, intercom: 'dbg' } : { to: [victim ?? player.id], clip: 'sfx.listener_radio_whisper.1', ms: 2600 });
+    });
+    return { started, garbled, room, rooms: known, recent: recentLures().slice(-1) };
+  });
+  ctx.registerDbg('ai.lures', (crew, _p, args) => {
+    if ((args as { reset?: boolean } | null)?.reset) resetLureCooldown(crew.code);
+    return { recent: recentLures(), status: lureStatus() };
+  });
 
   const mode = ctx.env.AI_MODE;
   log.info(`AI gateway mode=${mode} budget=$${Number(ctx.balance.core.aiBudgetUsdPerSession ?? 3)} deps=${JSON.stringify(depsLoaded())}`);
@@ -94,6 +123,10 @@ export async function install(ctx: ServerContext): Promise<void> {
       const t0 = performance.now();
       const r = await runHaiku(input, p, ctx.env.MODEL_FAST, 15_000);
       log.info(`Haiku warm-up ${r ? 'ok' : 'failed'} in ${Math.round(performance.now() - t0)} ms`);
+      if (b.warmupLure === false || ctx.flags.listenerVoice === false) return;
+      const t1 = performance.now();
+      const w = await warmLure(ctx.env.MODEL_FAST);
+      log.info(`lure warm-up ${w ? 'ok' : 'failed'} in ${Math.round(performance.now() - t1)} ms`);
     });
   }
 }

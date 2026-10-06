@@ -2,9 +2,17 @@
 // distance (aud) present, SFX manifest + play, heartbeat, Join-screen mic section screenshot.
 //   node tests/voice/features.e2e.ts   (BASE_URL default http://127.0.0.1:3004, server with --dev)
 import type { Page } from 'playwright-core';
-import { launchPlayer, screenshot } from '../lib/launch.ts';
+import { launchPlayer as launchRaw, screenshot } from '../lib/launch.ts';
+import type { LaunchOpts, Player } from '../lib/launch.ts';
 
 const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:3004';
+/** launch + swallow Vite's HMR socket (other agents edit the shared tree: a full reload mid-test loses state) */
+async function launchPlayer(o: LaunchOpts): Promise<Player> {
+  const p = await launchRaw(o);
+  await p.page.routeWebSocket(/token=/, () => {});
+  await p.page.reload({ waitUntil: 'domcontentloaded' });
+  return p;
+}
 const ALPHA = 'BCDFGHJKLMNPQRSTVWXZ';
 const crew = Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) => ALPHA[b % ALPHA.length]).join('');
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

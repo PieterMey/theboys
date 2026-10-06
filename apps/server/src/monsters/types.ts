@@ -1,5 +1,6 @@
 // Owner: track (c) Monsters. Internal types + balance access for the monster runtime.
 import type { MonsterKind } from '@dead-air/shared/state.ts';
+import type { MonsterKindX } from '@dead-air/shared/messages/monsters.ts';
 import type { LevelLayout } from '@dead-air/shared/layout.ts';
 import type { EdgeGrid, DoorOpenFn } from '@dead-air/shared/nav/index.ts';
 import type { Rng } from '@dead-air/shared/rng.ts';
@@ -21,7 +22,7 @@ export interface Noise {
 
 export interface Agent {
   id: string;
-  kind: MonsterKind;
+  kind: MonsterKindX;
   x: number;
   z: number;
   yaw: number;
@@ -76,6 +77,8 @@ export interface HoundAgent extends Agent {
   causeDist: number;
   /** crew time of the last DISTINCT heard sound (start of the current alert/investigation episode) */
   heardAt?: number;
+  /** player id -> crew time a growl of this hound reached them (no kill without an audible warning first) */
+  warned?: Map<string, number>;
 }
 
 export interface MannequinAgent extends Agent {
@@ -84,6 +87,62 @@ export interface MannequinAgent extends Agent {
   /** crew time it last moved (for client scrape loops) */
   movedAt: number;
   observed: boolean;
+}
+
+/** a vent grate (layout item kind 'vent'): wall mount + inward normal (into its room) */
+export interface Grate {
+  id: string;
+  /** paired grate id (the other end of the duct) */
+  to: string;
+  space: number;
+  x: number;
+  z: number;
+  /** unit normal pointing into the room */
+  nx: number;
+  nz: number;
+  /** walkable point on the floor right in front of the grate (the rescue spot) */
+  fx: number;
+  fz: number;
+}
+
+export interface SnatcherAgent extends Agent {
+  kind: 'snatcher';
+  /** crew time it may first hunt (never in the first 2 minutes) */
+  readyAt: number;
+  grates: Grate[];
+  /** grate it currently lurks behind / drags toward */
+  grate: Grate | null;
+  /** player id -> crew time they last had a living teammate within aloneM (alone since then) */
+  aloneSince: Map<string, number>;
+  victim: string | null;
+  /** seconds the victim had been alone when it committed (death card) */
+  aloneFor: number;
+  /** drag polyline from the snatch point to the grate front (arc-length param), its cumulative lengths */
+  dragPath: [number, number][];
+  dragCum: number[];
+  /** arc position of the Snatcher (head) and the victim along dragPath */
+  sHead: number;
+  sVictim: number;
+  /** 0..1 toward death (base dragSec; struggling slows it) */
+  progress: number;
+  /** victim struggle meter 0..1 (mashing E) */
+  struggle: number;
+  lastStruggleAt: number;
+  /** teammate id -> held seconds + last heartbeat (crew time) of their E hold at the rescue spot */
+  pulls: Map<string, { held: number; lastAt: number }>;
+  /** best pull fraction this tick (HUD) */
+  pull: number;
+  stalkUntil: number;
+  clicked: boolean;
+  nextTellAt: number;
+  nextMoveAt: number;
+  nextScanAt: number;
+  nextTickEvAt: number;
+  nextScratchAt: number;
+  /** crew time of the last snatch end (cooldown) */
+  lastEndAt: number;
+  snatches: number;
+  rescues: number;
 }
 
 export interface HeardLine {

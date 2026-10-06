@@ -1,14 +1,23 @@
-// Track ④ Voice e2e: 3 separate Chrome processes (talk_en.wav, tone440.wav, tone880.wav) in one crew.
+// Track ④ Voice e2e: 3 separate Chrome processes (talk_en.wav, tone440.wav, callsign_boiler.wav) in one crew.
+// (P3 was tone880.wav: Chrome's noise suppressor cuts a steady tone ~20 dB, so since the fix-round band detector
+// (whisper frames never lower the default baseline) it reads WHISPER at the 3 m edge. P3 speaks real words now.)
 //   node tests/voice/mesh.e2e.ts            (BASE_URL default http://127.0.0.1:3004, server started with --dev)
 // Asserts: mesh connects, bytesReceived grows, audible peers RMS > 0.01, HRTF L/R panning >= 6 dB for a speaker
 // on the listener's left, distance gating (< 0.001 beyond the band radius), mic settings (EC on, AGC off),
 // keep-alive control (no <audio> element -> silent = Chrome bug 40094084 still present), relay-only variant
 // (only when CF_TURN_KEY_ID is configured, else SKIP).
-import { launchPlayer, screenshot } from '../lib/launch.ts';
-import type { Player } from '../lib/launch.ts';
+import { launchPlayer as launchRaw, screenshot } from '../lib/launch.ts';
+import type { LaunchOpts, Player } from '../lib/launch.ts';
 import type { Page } from 'playwright-core';
 
 const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:3004';
+/** launch + swallow Vite's HMR socket (other agents edit the shared tree: a full reload mid-test breaks the mesh) */
+async function launchPlayer(o: LaunchOpts): Promise<Player> {
+  const p = await launchRaw(o);
+  await p.page.routeWebSocket(/token=/, () => {});
+  await p.page.reload({ waitUntil: 'domcontentloaded' });
+  return p;
+}
 const ALPHA = 'BCDFGHJKLMNPQRSTVWXZ';
 const code = () => Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) => ALPHA[b % ALPHA.length]).join('');
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -22,7 +31,7 @@ const dB = (x: number) => 20 * Math.log10(Math.max(1e-9, x));
 interface PeerDbg { state: string; candidate: string; bytesReceived: number; rmsL: number; rmsR: number; gain: number; band: number }
 
 async function me(page: Page): Promise<string> {
-  await page.waitForFunction(() => !!window.__game?.me() && !!window.__voiceDebug, undefined, { timeout: 30_000 });
+  await page.waitForFunction(() => !!window.__game?.me() && !!window.__voiceDebug, undefined, { timeout: 120_000 });
   return (await page.evaluate(() => window.__game!.me()))!;
 }
 /** evaluate with retries: Vite HMR (other tracks editing the shared tree) can reload a page mid-test */
@@ -39,7 +48,7 @@ async function ev<T, A>(page: Page, fn: (a: A) => T | Promise<T>, arg: A, tries 
 }
 const peers = (page: Page) => ev(page, () => window.__voiceDebug?.peers() ?? {}, null) as Promise<Record<string, PeerDbg>>;
 
-async function waitConnected(page: Page, ids: string[], timeoutMs = 25_000): Promise<boolean> {
+async function waitConnected(page: Page, ids: string[], timeoutMs = 45_000): Promise<boolean> {
   const t0 = Date.now();
   while (Date.now() - t0 < timeoutMs) {
     const p = await peers(page);
@@ -68,21 +77,21 @@ const pin = (page: Page, x: number, z: number, yaw = 0) => ev(page, ({ x, z, yaw
 
 async function main(): Promise<void> {
   const crew = code();
-  const query = { autojoin: '1', voiceListener: 'server', walkies: '1', voiceAud: 'euclid' };
+  const query = { autojoin: '1', nobright: '1', voiceListener: 'server', walkies: '1', voiceAud: 'euclid' };
   console.log(`crew ${crew} @ ${BASE}`);
   const players: Player[] = [];
   try {
     const [p1, p2, p3] = await Promise.all([
       launchPlayer({ name: 'Talker', wav: 'talk_en.wav', baseUrl: BASE, crew, query }),
       launchPlayer({ name: 'Tone440', wav: 'tone440.wav', baseUrl: BASE, crew, query }),
-      launchPlayer({ name: 'Tone880', wav: 'tone880.wav', baseUrl: BASE, crew, query }),
+      launchPlayer({ name: 'Boiler', wav: 'callsign_boiler.wav', baseUrl: BASE, crew, query }),
     ]);
     players.push(p1, p2, p3);
     const ids = await Promise.all([me(p1.page), me(p2.page), me(p3.page)]);
     const [id1, id2, id3] = ids;
     console.log('ids', ids.join(' '));
     // mic settings (EC on, AGC off)
-    await p2.page.waitForFunction(() => !!window.__voiceDebug?.micSettings(), undefined, { timeout: 15_000 });
+    await p2.page.waitForFunction(() => !!window.__voiceDebug?.micSettings(), undefined, { timeout: 90_000 });
     const ms = (await p2.page.evaluate(() => window.__voiceDebug!.micSettings())) as Record<string, unknown>;
     check('mic settings EC on / AGC off', ms.echoCancellation === true && ms.autoGainControl === false, JSON.stringify({ ec: ms.echoCancellation, agc: ms.autoGainControl, ns: ms.noiseSuppression, ch: ms.channelCount }));
     // mesh connects

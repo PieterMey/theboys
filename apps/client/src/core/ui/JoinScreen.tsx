@@ -80,10 +80,13 @@ export function JoinScreen(props: ScreenProps) {
         history.replaceState(null, '', `${location.pathname}${location.search}#${w.crew.code}`);
         setEntering(true);
         onEntering?.();
-        // capped at 8 s: slow machines enter a slightly stuttery scene instead of a 25 s 'hang'
-        return waitForStableFrames(500, 8000, 12).then(() => ctx.ui.setScreen('none'));
+        // v1.1: the loading screen (apps/client/src/loading) covers the hub build, downloads and shader warm-up and
+        // shows real progress; without it, the old stable-frames wait (capped at 8 s)
+        const loading = ctx.services.use('loading');
+        return (loading ? loading.untilReady() : waitForStableFrames(500, 8000, 12)).then(() => ctx.ui.setScreen('none'));
       })
       .catch((e: unknown) => {
+        ctx.services.use('loading')?.cancel();
         setErr(e instanceof JoinError ? e.message : String(e));
         setReload(e instanceof JoinError && (e.code === 'closed' || e.code === 'server') && /reload/i.test(e.message));
       })
@@ -111,7 +114,7 @@ export function JoinScreen(props: ScreenProps) {
         </div>
         {!embedded && err && <p class="error" data-testid="join-error">{err}</p>}
         {err && reload && <button type="button" class="btn" data-testid="join-reload" onClick={() => location.reload()}>RELOAD</button>}
-        {entering && <p class="fine" data-testid="join-status">Warming up shaders… a few seconds on the first entry.</p>}
+        {entering && !ctx.services.use('loading') && <p class="fine" data-testid="join-status">Warming up shaders… a few seconds on the first entry.</p>}
         {embedded && onBack && <button type="button" class="btn join-back" disabled={busy || entering} onMouseEnter={onHover} onClick={onBack}>BACK [ESC]</button>}
       </div>
       {!embedded && <p class="fine">Chrome or Edge · wired headset · the monsters hear what your friends hear</p>}

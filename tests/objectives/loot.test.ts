@@ -24,9 +24,10 @@ const fixtures = readdirSync(join(ROOT, 'tests/fixtures/layouts')).filter((f) =>
 const load = (f: string) => JSON.parse(readFileSync(join(ROOT, 'tests/fixtures/layouts', f), 'utf8')) as LevelLayout;
 
 test('loot budget = base x risk mult x player mult', () => {
-  assert.equal(lootBudget(core, 1, 4), 650);
-  assert.equal(lootBudget(core, 1, 2), Math.round(650 * 0.75));
-  assert.equal(lootBudget(core, 2, 6), Math.round(650 * 1.4 * 1.25));
+  const base = core.lootBudgetBase as number;
+  assert.equal(lootBudget(core, 1, 4), base);
+  assert.equal(lootBudget(core, 1, 2), Math.round(base * 0.75));
+  assert.equal(lootBudget(core, 2, 6), Math.round(base * 1.4 * 1.25));
 });
 
 test('rolled loot spends roughly the budget, values in class ranges, deterministic', () => {

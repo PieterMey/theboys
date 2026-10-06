@@ -34,7 +34,9 @@ export const INTERACT_RADIUS: Record<string, number> = {
 /** Inventory slots per player */
 export const INV_SLOTS = 4;
 
-export type ItemUse = 'throw' | 'swing' | 'glow' | 'revive' | 'radio' | 'horn' | 'none';
+export type ItemUse = 'throw' | 'swing' | 'glow' | 'revive' | 'radio' | 'horn' | 'none'
+  /** v1.1 gear: LMB throws a burning flare / places a motion sensor / injects adrenaline */
+  | 'flare' | 'sensor' | 'inject';
 
 export interface ItemDef {
   name: string;
@@ -50,6 +52,10 @@ export interface ItemDef {
   loot?: boolean;
   /** HUD hint for the active slot */
   hint?: string;
+  /** short line under the pick-up prompt / passive effect while carried */
+  note?: string;
+  /** gear tier (1 = standard issue, 2 = pro / special) */
+  tier?: 1 | 2;
 }
 
 export const ITEM_DEFS: Record<string, ItemDef> = {
@@ -61,12 +67,30 @@ export const ITEM_DEFS: Record<string, ItemDef> = {
   airhorn: { name: 'Airhorn', short: 'HRN', use: 'horn', color: '#d63b2f', loot: true, hint: 'LMB: HONK (30 m, wakes the Hound)' },
   keycard: { name: 'Keycard', short: 'KEY', use: 'none', color: '#f2c230', hint: 'Opens the locked wing door' },
   badge: { name: 'Badge', short: 'ID', use: 'none', color: '#5dade2', hint: 'Bring it to the van deposit to respawn them' },
+  // v1.1 gear pack (shop) and special finds (rare, deep rooms). Passive items work from any slot.
+  flashlight_pro: { name: 'Pro Flashlight', short: 'PRO', use: 'none', color: '#bfe3ff', tier: 2, hint: 'Passive (any slot): LED beam, brighter + wider, 2x battery', note: 'tier II LED beam: brighter, wider, twice the battery' },
+  flare: { name: 'Flares', short: 'FLR', use: 'flare', stack: 3, color: '#ff3b2f', tier: 2, hint: 'LMB throw a flare (red light for 60 s, keeps things lit)', note: 'throw it: a red light for 60 s' },
+  sensor: { name: 'Motion sensor', short: 'MOT', use: 'sensor', stack: 2, color: '#62e0c4', tier: 2, hint: 'LMB place: the van console shows movement within 6 m', note: 'the van console shows movement within 6 m' },
+  syringe: { name: 'Adrenaline syringe', short: 'ADR', use: 'inject', color: '#ffd23f', tier: 2, hint: 'LMB inject: 15 s of sprint without stamina drain', note: '15 s of sprint without getting tired' },
+  charm: { name: 'Lucky charm', short: 'LCK', use: 'none', color: '#6fdc6a', tier: 2, hint: 'Passive (any slot): loot you deposit counts +10%', note: 'carry it to the van: your deposits count +10%' },
+  'loot.idol': { name: 'Cursed idol', short: 'IDL', use: 'none', color: '#a070ff', loot: true, tier: 2, hint: 'It whispers. Every monster hears where you are. Get it to the van', note: 'worth a fortune. It whispers: every monster will hear where you are' },
   'loot.small': { name: 'Salvage', short: '$', use: 'none', color: '#c9a227', loot: true, hint: 'Deposit in the van' },
   'loot.medium': { name: 'Salvage', short: '$$', use: 'none', color: '#d08c2a', loot: true, hint: 'Deposit in the van' },
   'loot.heavy': { name: 'Heavy salvage', short: '$$$', use: 'none', color: '#e0662b', loot: true, hint: 'Deposit in the van' },
 };
 
 export const LOOT_TIER_TYPES = ['loot.small', 'loot.medium', 'loot.heavy'] as const;
+
+/**
+ * Shop packs (config/balance/meta.json shop entries use these as their 'type'): meta hands out one unit per purchase via
+ * giveItem(pack), and interaction converts it into the real item (stacks merge into one slot). A pack id is never held,
+ * so meta's top-up hand-out can't confuse a new purchase with gear the player still carries.
+ */
+export const GEAR_PACKS: Record<string, { type: string; count?: number }> = {
+  'pro-flashlight': { type: 'flashlight_pro' },
+  flares: { type: 'flare', count: 3 },
+  'motion-sensors': { type: 'sensor', count: 2 },
+};
 
 /** Flavour names per loot tier (picked deterministically per item). */
 export const LOOT_NAMES: readonly (readonly string[])[] = [
@@ -91,7 +115,7 @@ export function itemLabel(it: { type: string; name?: string; count?: number; val
 // ---------------------------------------------------------------- patch application (client mirror + test bots)
 
 export function emptyInteractionState(): InteractionState {
-  return { doors: {}, items: {}, inventories: {}, lights: {}, dead: [], hidden: {}, active: {}, ints: {}, glows: {}, bodies: {}, respawns: {}, hp: {} };
+  return { doors: {}, items: {}, inventories: {}, lights: {}, dead: [], hidden: {}, active: {}, ints: {}, glows: {}, bodies: {}, respawns: {}, hp: {}, flares: {} };
 }
 
 function mergeMap<V>(target: Record<string | number, V>, src: Record<string | number, V | null> | undefined): void {
@@ -110,7 +134,7 @@ export function applyInteractionPatch(st: InteractionState, p: InteractionPatch)
     Object.assign(st, emptyInteractionState(), r, { dead: [...(r.dead ?? [])] });
   }
   st.doors ??= {}; st.items ??= {}; st.inventories ??= {}; st.lights ??= {}; st.hidden ??= {}; st.active ??= {};
-  st.ints ??= {}; st.glows ??= {}; st.bodies ??= {}; st.respawns ??= {}; st.hp ??= {}; st.dead ??= [];
+  st.ints ??= {}; st.glows ??= {}; st.bodies ??= {}; st.respawns ??= {}; st.hp ??= {}; st.dead ??= []; st.flares ??= {};
   mergeMap(st.doors, p.doors);
   mergeMap(st.items, p.items);
   mergeMap(st.inventories, p.inventories);
@@ -122,6 +146,7 @@ export function applyInteractionPatch(st: InteractionState, p: InteractionPatch)
   mergeMap(st.bodies, p.bodies);
   mergeMap(st.respawns, p.respawns);
   mergeMap(st.hp, p.hp);
+  mergeMap(st.flares, p.flares);
   if (p.dead) st.dead = [...p.dead];
   return st;
 }

@@ -4,7 +4,7 @@
 import type { Crew, ServerContext, ServerPlayer } from '../core/types.ts';
 import type { LayoutDoor, LayoutItem, LevelLayout } from '@dead-air/shared/layout.ts';
 import type { InteractableInfo } from '@dead-air/shared/interactables.ts';
-import { INTERACT_RADIUS, INV_SLOTS, ITEM_DEFS, LOOT_NAMES, LOOT_TIER_TYPES, itemDef } from '@dead-air/shared/interactables.ts';
+import { GEAR_PACKS, INTERACT_RADIUS, INV_SLOTS, ITEM_DEFS, LOOT_NAMES, LOOT_TIER_TYPES, itemDef } from '@dead-air/shared/interactables.ts';
 import type {
   BodyState, DeathCause, DoorState, InteractionPatch, InteractionState, IxFxKind, IxResult, ItemState,
 } from '@dead-air/shared/messages/interaction.ts';
@@ -15,6 +15,7 @@ import { STANCE } from '@dead-air/shared/state.ts';
 import { ANIM } from '@dead-air/shared/anim.ts';
 import type { Vec3 } from '@dead-air/shared/state.ts';
 import { makeRng } from '@dead-air/shared/rng.ts';
+import type { Rng } from '@dead-air/shared/rng.ts';
 
 export const TRACK = 'interaction';
 
@@ -58,6 +59,10 @@ export interface IxSlice extends InteractionState {
   extrasPending: number;
   /** layout item lookups */
   layoutItems: Map<string, LayoutItem>;
+  /** v1.1: cursed idol whisper timers (pid -> next server ms), whisper counter, deterministic stream per layout */
+  idolNext: Record<string, number>;
+  idolN: number;
+  rng: Rng | null;
 }
 
 // ---------------------------------------------------------------- module state (bound at install)
@@ -111,7 +116,7 @@ function safe<T>(what: string, fn: () => T): T | undefined {
 // ---------------------------------------------------------------- slice + patches
 
 function emptyState(): InteractionState {
-  return { doors: {}, items: {}, inventories: {}, lights: {}, dead: [], hidden: {}, active: {}, ints: {}, glows: {}, bodies: {}, respawns: {}, hp: {} };
+  return { doors: {}, items: {}, inventories: {}, lights: {}, dead: [], hidden: {}, active: {}, ints: {}, glows: {}, bodies: {}, respawns: {}, hp: {}, flares: {} };
 }
 
 export function slice(crew: Crew): IxSlice {
@@ -120,7 +125,7 @@ export function slice(crew: Crew): IxSlice {
     s = {
       ...emptyState(), layoutKey: null, grid: null, doorGeom: new Map(), switches: {}, broken: new Set(), powerPush: {},
       blackoutPush: null, thrown: [], patch: {}, nextId: 1, deaths: [], lastAct: {}, lastHand: {}, tickN: 0,
-      walkiesGiven: false, extrasPending: 0, layoutItems: new Map(),
+      walkiesGiven: false, extrasPending: 0, layoutItems: new Map(), idolNext: {}, idolN: 0, rng: null,
     };
     crew.slices[TRACK] = s;
   }
@@ -131,7 +136,7 @@ export function slice(crew: Crew): IxSlice {
 export function publicState(s: IxSlice): InteractionState {
   return {
     doors: s.doors, items: s.items, inventories: s.inventories, lights: s.lights, dead: s.dead, hidden: s.hidden,
-    active: s.active, ints: s.ints, glows: s.glows, bodies: s.bodies, respawns: s.respawns, hp: s.hp,
+    active: s.active, ints: s.ints, glows: s.glows, bodies: s.bodies, respawns: s.respawns, hp: s.hp, flares: s.flares,
   };
 }
 
@@ -146,6 +151,8 @@ function markInv(s: IxSlice, pid: string): void {
 function markInt(s: IxSlice, id: string): void { (s.patch.ints ??= {})[id] = s.ints[id] ? { ...s.ints[id] } : null; }
 function markHidden(s: IxSlice, pid: string): void { (s.patch.hidden ??= {})[pid] = s.hidden[pid] ?? null; }
 function markGlow(s: IxSlice, id: string): void { (s.patch.glows ??= {})[id] = s.glows[id] ?? null; }
+function flaresOf(s: IxSlice): NonNullable<InteractionState['flares']> { return (s.flares ??= {}); }
+function markFlare(s: IxSlice, id: string): void { (s.patch.flares ??= {})[id] = flaresOf(s)[id] ? { ...flaresOf(s)[id]! } : null; }
 function markBody(s: IxSlice, pid: string): void { (s.patch.bodies ??= {})[pid] = s.bodies[pid] ? { ...s.bodies[pid] } : null; }
 function markRespawn(s: IxSlice, pid: string): void { (s.patch.respawns ??= {})[pid] = s.respawns[pid] ?? null; }
 function markHp(s: IxSlice, pid: string): void { (s.patch.hp ??= {})[pid] = s.hp[pid] ?? null; }
@@ -218,6 +225,10 @@ function rebuild(crew: Crew, s: IxSlice): void {
   clearObj(s.lights);
   clearObj(s.switches);
   clearObj(s.glows);
+  clearObj(flaresOf(s));
+  clearObj(s.idolNext);
+  s.idolN = 0;
+  s.rng = L ? makeRng(`${L.seed}:${L.hash}`, 'interaction.gear') : null;
   s.broken.clear();
   s.thrown.length = 0;
   for (const [id, it] of Object.entries(s.items)) if (it.where !== 'held') delete s.items[id];
@@ -325,7 +336,10 @@ function spawnExtras(crew: Crew, s: IxSlice): void {
   }
   for (const it of Object.values(s.items)) if (it.p) taken.push([it.p[0], it.p[2]]);
   const rng = makeRng(`${L.seed}:${L.hash}`, 'interaction.extras');
-  const free = rng.shuffle(L.items.filter((i) => i.kind === 'loot' && !taken.some(([x, z]) => Math.hypot(x - i.x, z - i.z) < 0.6)));
+  const shuffled = rng.shuffle(L.items.filter((i) => i.kind === 'loot' && !taken.some(([x, z]) => Math.hypot(x - i.x, z - i.z) < 0.6)));
+  // special finds get the first pick of the deep slots, the tool extras take what is left
+  const usedByFinds = spawnFinds(s, L, shuffled);
+  const free = shuffled.filter((sl) => !usedByFinds.has(sl.id));
   const extras = (bal().worldExtras as Record<string, number> | undefined) ?? {};
   let k = 0;
   for (const [type, n] of Object.entries(extras)) {
@@ -339,6 +353,32 @@ function spawnExtras(crew: Crew, s: IxSlice): void {
       markItem(s, it.id);
     }
   }
+}
+
+/** v1.1 special finds: rare, only in the deepest rooms (adrenaline syringe, lucky charm, cursed idol) */
+function spawnFinds(s: IxSlice, L: LevelLayout, free: LayoutItem[]): Set<string> {
+  const used = new Set<string>();
+  if (ctx?.flags.specialFinds === false) return used;
+  const finds = (bal().specialFinds as Record<string, number> | undefined) ?? { syringe: 0.45, charm: 0.3, 'loot.idol': 0.35 };
+  const maxD = Math.max(0, ...L.spaces.map((sp) => sp.dist ?? 0));
+  const minD = maxD * num('findsMinDistFrac', 0.6);
+  const deep = free.filter((sl) => (L.spaces[sl.space]?.dist ?? 0) >= minD && L.spaces[sl.space]?.kind !== 'corridor').slice();
+  const rng = makeRng(`${L.seed}:${L.hash}`, 'interaction.finds');
+  rng.shuffle(deep);
+  for (const [type, chance] of Object.entries(finds)) {
+    if (!ITEM_DEFS[type] || !deep.length) continue;
+    if (!rng.chance(Math.max(0, Math.min(1, Number(chance) || 0)))) continue;
+    const sl = deep.shift()!;
+    used.add(sl.id);
+    const extra: Partial<ItemState> = { p: [sl.x, 0, sl.z], rot: sl.rot ?? 0 };
+    if (type === 'loot.idol') {
+      const [lo, hi] = (bal().idolValue as [number, number] | undefined) ?? [350, 500];
+      Object.assign(extra, { value: rng.int(lo, hi), tier: 2, name: 'Cursed idol' });
+    }
+    const it = newItem(s, type, extra);
+    markItem(s, it.id);
+  }
+  return used;
 }
 
 // ---------------------------------------------------------------- lights / power
@@ -408,10 +448,21 @@ export function litAtXZ(crew: Crew, x: number, z: number): boolean {
   if (sp >= 0 && s.lights[sp]) return true;
   const gr = num('glowRadiusM', 2);
   for (const g of Object.values(s.glows)) if ((g[0] - x) ** 2 + (g[2] - z) ** 2 <= gr * gr) return true;
-  const range = num('flashlightRangeM', 12);
-  const cosCone = Math.cos((num('flashlightConeDeg', 25) * Math.PI) / 180);
+  // burning flares: a red area light (walls block it)
+  const fr = num('flareLitRadiusM', 5);
+  const tNow = now();
+  for (const f of Object.values(flaresOf(s))) {
+    if (f.until < tNow || (f.p[0] - x) ** 2 + (f.p[2] - z) ** 2 > fr * fr) continue;
+    if (losClear(s, f.p[0], f.p[2], x, z)) return true;
+  }
+  const range0 = num('flashlightRangeM', 12);
+  const cone0 = num('flashlightConeDeg', 25);
   for (const pl of crew.players.values()) {
     if (!pl.connected || !pl.alive || !pl.pose.light || s.hidden[pl.id]) continue;
+    // Pro Flashlight (tier II): a longer, wider beam
+    const pro = hasType(s, pl.id, 'flashlight_pro');
+    const range = range0 * (pro ? num('proRangeMult', 1.3) : 1);
+    const cosCone = Math.cos(((cone0 * (pro ? num('proConeMult', 1.25) : 1)) * Math.PI) / 180);
     const dx = x - pl.pose.p[0], dz = z - pl.pose.p[2];
     const d = Math.hypot(dx, dz);
     if (d > range) continue;
@@ -553,6 +604,21 @@ export function giveItemTo(crew: Crew, pid: string, type: string, extra: Partial
   const s = slice(crew);
   const pl = crew.players.get(pid);
   if (!pl) return null;
+  const pack = GEAR_PACKS[type];
+  if (pack) {
+    // a shop pack (meta hands out one unit per purchase): the real item, merged into a stack the player already has
+    type = pack.type;
+    if (pack.count && itemDef(type).stack) {
+      const n = pack.count * Math.max(1, Math.round(Number(extra.count ?? 1)) || 1);
+      const have = itemsOfPid(s, pid).find((x) => x.type === type);
+      if (have) {
+        have.count = (have.count ?? 1) + n;
+        markItem(s, have.id);
+        return have;
+      }
+      extra = { ...extra, count: n };
+    }
+  }
   const it = newItem(s, type, extra);
   if (!putInInv(s, pid, it)) {
     it.where = 'world';
@@ -713,8 +779,22 @@ export function setSwitch(crew: Crew, space: number | 'all', on: boolean): void 
 
 // ---------------------------------------------------------------- items: pickup / drop / act
 
+/** stackable v1.1 gear merges into the stack you already carry when picked up */
+const MERGE_ON_PICKUP = new Set(['flare', 'sensor']);
+
 function pickup(crew: Crew, s: IxSlice, pl: ServerPlayer, it: ItemState): IxResult {
   if (it.where !== 'world') return { ok: false, msg: 'Gone' };
+  if (MERGE_ON_PICKUP.has(it.type)) {
+    const have = itemsOfPid(s, pl.id).find((x) => x.type === it.type);
+    if (have) {
+      have.count = (have.count ?? 1) + (it.count ?? 1);
+      markItem(s, have.id);
+      deleteItem(s, it.id);
+      fx(crew, 'pickup', { p: [pl.pose.p[0], 1, pl.pose.p[2]], pid: pl.id, item: it.type, id: have.id });
+      return { ok: true };
+    }
+  }
+  if (it.armed) delete it.armed;
   if (!putInInv(s, pl.id, it)) return { ok: false, msg: 'Hands full (G to drop)' };
   fx(crew, 'pickup', { p: [pl.pose.p[0], 1, pl.pose.p[2]], pid: pl.id, item: it.type, id: it.id });
   return { ok: true };
@@ -824,6 +904,35 @@ export function act(crew: Crew, pl: ServerPlayer, dirIn: Vec3, eyeIn?: Vec3): Ix
       noise(crew, pl.pose.p[0], pl.pose.p[2], NOISE_M.airhorn, 'airhorn', pl.id);
       return { ok: true };
     }
+    case 'flare': {
+      if (t - (s.lastAct[pl.id] ?? 0) < 500) return { ok: false };
+      s.lastAct[pl.id] = t;
+      const sp = num('flareSpeed', 9), up = num('flareUp', 2.4);
+      const p: Vec3 = [eye[0] + dir[0] * 0.35, eye[1] - 0.1, eye[2] + dir[2] * 0.35];
+      if (!losClear(s, eye[0], eye[2], p[0], p[2])) { p[0] = eye[0]; p[2] = eye[2]; }
+      s.thrown.push({ id: `thrown:flare:${s.nextId++}`, p, v: [dir[0] * sp, dir[1] * sp + up, dir[2] * sp], t: 0, by: pl.id, item: 'flare' });
+      consumeOne(s, it);
+      fx(crew, 'throw', { p: eye, pid: pl.id, item: 'flare' });
+      return { ok: true };
+    }
+    case 'sensor': {
+      if (t - (s.lastAct[pl.id] ?? 0) < 400) return { ok: false };
+      s.lastAct[pl.id] = t;
+      const p = dropPoint(s, pl, 0.7);
+      const placed = newItem(s, 'sensor', { p: [p[0], 0, p[2]], rot: pl.pose.yaw, count: 1, armed: true });
+      markItem(s, placed.id);
+      consumeOne(s, it);
+      fx(crew, 'sensor', { p, pid: pl.id, id: placed.id });
+      return { ok: true, msg: `Motion sensor armed: the van console sees movement within ${num('sensorRangeM', 6)} m` };
+    }
+    case 'inject': {
+      if (t - (s.lastAct[pl.id] ?? 0) < 400) return { ok: false };
+      s.lastAct[pl.id] = t;
+      consumeOne(s, it);
+      // stamina is client-side: the injector's client turns stamina drain off for adrenalineSec (fx 'inject')
+      fx(crew, 'inject', { p: eye, pid: pl.id, id: it.id });
+      return { ok: true, msg: `ADRENALINE: ${num('adrenalineSec', 15)} s of sprint without getting tired` };
+    }
     case 'radio':
       return { ok: false, msg: 'Hold Q to talk on the walkie' };
     default:
@@ -854,7 +963,20 @@ function tickThrown(crew: Crew, s: IxSlice, dt: number): void {
       th.p = n;
       if (th.t >= maxT) impact = [n[0], Math.max(0.05, n[1]), n[2]];
     }
-    if (impact) {
+    if (impact && th.item === 'flare') {
+      // a flare lands and burns: red area light for flareBurnSec (litAt), a faint hiss. Off a wall it drops back
+      // 0.35 m towards the thrower (never inside the wall's thickness, where neither the light nor the glow would show)
+      const hv = Math.hypot(th.v[0], th.v[2]);
+      if (impact[1] > 0.05 && hv > 0.01) {
+        const bx = impact[0] - (th.v[0] / hv) * 0.35, bz = impact[2] - (th.v[2] / hv) * 0.35;
+        if (losClear(s, impact[0], impact[2], bx, bz)) { impact[0] = bx; impact[2] = bz; }
+      }
+      const id = `flare${s.nextId++}`;
+      flaresOf(s)[id] = { p: [impact[0], 0.04, impact[2]], until: now() + num('flareBurnSec', 60) * 1000, by: th.by };
+      markFlare(s, id);
+      fx(crew, 'flare', { p: [impact[0], 0.1, impact[2]], pid: th.by, id });
+      noise(crew, impact[0], impact[2], num('flareNoiseM', 3), 'flare', th.by);
+    } else if (impact) {
       fx(crew, 'smash', { p: impact, pid: th.by, item: th.item, id: th.id });
       noise(crew, impact[0], impact[2], NOISE_M.bottle, 'bottle', th.by);
     } else keep.push(th);
@@ -984,8 +1106,17 @@ export function reviveSelf(crew: Crew, pid: string, at?: Vec3 | null, opts: { by
 export function depositLootOf(crew: Crew, pid: string): ItemState[] {
   const s = slice(crew);
   const out: ItemState[] = [];
+  // Lucky charm: loot deposited by the charm's carrier counts +charmBonus (once per item)
+  const lucky = hasType(s, pid, 'charm');
+  let bonus = 0;
   for (const it of itemsOfPid(s, pid)) {
     if (!itemDef(it.type).loot) continue;
+    if (lucky && !it.bonus && (it.value ?? 0) > 0) {
+      const b = Math.max(1, Math.round(it.value * num('charmBonus', 0.1)));
+      it.bonus = b;
+      it.value += b;
+      bonus += b;
+    }
     removeFromInv(s, it.id);
     it.where = 'van';
     delete it.p;
@@ -995,6 +1126,7 @@ export function depositLootOf(crew: Crew, pid: string): ItemState[] {
   if (out.length) {
     const pl = crew.players.get(pid);
     fx(crew, 'deposit', { p: pl ? [pl.pose.p[0], 1, pl.pose.p[2]] : undefined, pid });
+    if (bonus > 0) fx(crew, 'lucky', { p: pl ? [pl.pose.p[0], 1.2, pl.pose.p[2]] : undefined, pid, item: String(bonus) });
     for (const fn of depositFns) safe('onDeposit', () => fn(crew, pid, out));
   }
   return out;
@@ -1114,7 +1246,7 @@ export function dropInteractable(crew: Crew, id: string): void {
 // ---------------------------------------------------------------- lifecycle hooks
 
 /** held item types that survive the end of a contract (bought / company gear; matches meta's GEAR_TYPES) */
-const CARRY_OVER_TYPES = new Set(['walkie', 'crowbar', 'bottle', 'glowstick', 'medkit']);
+const CARRY_OVER_TYPES = new Set(['walkie', 'crowbar', 'bottle', 'glowstick', 'medkit', 'flashlight_pro', 'flare', 'sensor', 'syringe', 'charm']);
 
 /** contract ended / phase left 'contract': everyone alive again, bodies/badges/respawns/glows gone, loot left behind */
 export function endContract(crew: Crew, s: IxSlice): void {
@@ -1219,7 +1351,31 @@ export function tick(crew: Crew, dt: number): void {
     }
   }
   if (s.tickN % Math.max(1, num('lightsRecomputeTicks', 6)) === 0) recomputeLights(crew, s);
+  for (const [id, f] of Object.entries(flaresOf(s))) if (t >= f.until) { delete flaresOf(s)[id]; markFlare(s, id); }
+  if (s.tickN % 5 === 0) tickIdol(crew, s, t);
   flush(crew);
+}
+
+/** Cursed idol: while a living player carries it in a contract it whispers every few seconds (a noise at the carrier:
+ *  the Hound comes to investigate, the Listener learns where they are); every Nth whisper is a wail heard much further. */
+function tickIdol(crew: Crew, s: IxSlice, t: number): void {
+  if (crew.phase !== 'contract' || crew.layout?.kind !== 'facility') return;
+  const rng = (s.rng ??= makeRng('idol', 'interaction.gear'));
+  const [lo, hi] = (bal().idolWhisperSec as [number, number] | undefined) ?? [6, 9];
+  const delay = () => (lo + rng.next() * Math.max(0, hi - lo)) * 1000;
+  for (const pl of crew.players.values()) {
+    const carrying = pl.connected && pl.alive && !s.dead.includes(pl.id) && hasType(s, pl.id, 'loot.idol');
+    if (!carrying) { delete s.idolNext[pl.id]; continue; }
+    const next = s.idolNext[pl.id];
+    if (next === undefined) { s.idolNext[pl.id] = t + Math.min(2500, delay()); continue; }
+    if (t < next) continue;
+    s.idolN++;
+    const wail = s.idolN % Math.max(1, Math.round(num('idolWailEvery', 4))) === 0;
+    const r = wail ? num('idolWailRadiusM', 22) : num('idolWhisperRadiusM', 10);
+    noise(crew, pl.pose.p[0], pl.pose.p[2], r, wail ? 'idolWail' : 'idolWhisper', pl.id);
+    fx(crew, 'whisper', { p: [pl.pose.p[0], 1.3, pl.pose.p[2]], pid: pl.id, open: wail });
+    s.idolNext[pl.id] = t + delay();
+  }
 }
 
 export function thrownDyn(crew: Crew): { id: string; p: Vec3; yaw: number }[] {

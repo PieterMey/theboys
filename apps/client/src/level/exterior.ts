@@ -152,7 +152,20 @@ export function buildExterior(L: LevelLayout, fences: FenceRun[], lm: LevelMater
       out.push(Object.assign(new THREE.Mesh(mergeGeometries(frameParts), lm.get('wall_concrete_dark')), { name: 'facade.frames' }));
       out.push(Object.assign(new THREE.Mesh(mergeGeometries(barParts.map((g) => g.toNonIndexed())), lm.get('metal_rusty')), { name: 'facade.bars' }));
     }
-    const plinth = new THREE.Mesh(box(L.W + 2 * ext, 0.45, 0.1, L.W / 2, 0.225, zf + 0.04), lm.get('wall_concrete_dark'));
+    // plinth band along the facade foot, cut at every doorway: it used to run straight across the entrance, so the
+    // outward-swinging front doors cut through it ("the ground rail goes through the door") and it read as a rail
+    // across the threshold. Gaps = the opening plus the frame casing on both sides.
+    const gaps: [number, number][] = [];
+    for (const d of L.doors) if (d.dir === 'h' && d.y === fz && d.kind !== 'open') gaps.push([d.x + HALF_T - 0.12, d.x + d.len - HALF_T + 0.12]);
+    for (const it of L.items) if (it.kind === 'prop' && it.data?.prop === 'entrance_door') { const w = Number(it.data.w ?? 2); gaps.push([it.x - w / 2 - 0.14, it.x + w / 2 + 0.14]); }
+    gaps.sort((a, b) => a[0] - b[0]);
+    const plinthParts: THREE.BufferGeometry[] = [];
+    let px0 = -ext;
+    for (const [g0, g1] of [...gaps, [L.W + ext, L.W + ext] as [number, number]]) {
+      if (g0 - px0 > 0.02) plinthParts.push(box(g0 - px0, 0.45, 0.1, (px0 + g0) / 2, 0.225, zf + 0.04));
+      px0 = Math.max(px0, g1);
+    }
+    const plinth = new THREE.Mesh(mergeGeometries(plinthParts), lm.get('wall_concrete_dark'));
     plinth.name = 'facade.plinth';
     out.push(plinth);
     const det: THREE.BufferGeometry[] = [];

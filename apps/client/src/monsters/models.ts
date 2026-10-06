@@ -2,6 +2,9 @@
 // Mannequin (UAL mannequin, pale cracked glossy plaster) and the Listener (UAL mannequin with elongated bones: long neck
 // and limbs, faceless cocked head, wet dark skin). GLTFLoader + meshopt; clips from anim.ual1/ual2 + the hound file,
 // chosen via anim.clipmap. Missing assets -> null (index.ts keeps procedural placeholders).
+// v1.1 THE SNATCHER: the same UAL mannequin rig, extreme thin/long-armed bone variant (arms ~2x, long fingers, small
+// head, flattened body) in a dark, wet, mottled skin, posed procedurally into a hunched crawl (no crawl clips in the
+// clipmap: crouch-walk legs + a world-space spine/neck bend, see poseSnatcher).
 import * as THREE from 'three/webgpu';
 import {
   color, float, luminance, materialColor, mix, mx_fractal_noise_float, mx_noise_float, mx_worley_noise_vec2, positionGeometry, smoothstep, uniform, vec3,
@@ -12,7 +15,7 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { assetUrl, getAssetManifest, loadAssetManifest } from '@dead-air/shared/assets.ts';
 import type { ClipMap, ClipRef } from '@dead-air/shared/assets.ts';
 import { ANIM } from '@dead-air/shared/anim.ts';
-import type { MonsterKind } from '@dead-air/shared/state.ts';
+import type { MonsterKindX as MonsterKind } from '@dead-air/shared/messages/monsters.ts';
 
 export interface MonsterClip {
   clip: THREE.AnimationClip;
@@ -43,6 +46,7 @@ const NATURAL: Record<string, Record<number, number>> = {
   hound: { [ANIM.mWalk]: 1.35, [ANIM.mRun]: 5.2 },
   mannequin: { [ANIM.mWalk]: 1.5, [ANIM.mRun]: 5.6 },
   listener: { [ANIM.mWalk]: 1.0, [ANIM.mRun]: 2.6 },
+  snatcher: { [ANIM.mWalk]: 0.9, [ANIM.mRun]: 2.4 },
 };
 
 let libPromise: Promise<MonsterLib | null> | null = null;
@@ -89,9 +93,9 @@ async function doLoad(log: (m: string) => void): Promise<MonsterLib | null> {
     for (const c of g.animations) m.set(c.name, k === 'mon.hound' ? c : cleanClip(c));
     files.set(k, m);
   }
-  const clipsFor = (kind: 'hound' | 'mannequin' | 'listener', fallback: Record<number, [string, string, boolean, number?]>) => {
+  const clipsFor = (kind: 'hound' | 'mannequin' | 'listener' | 'snatcher', fallback: Record<number, [string, string, boolean, number?]>) => {
     const out = new Map<number, MonsterClip>();
-    const sect = (clipmap?.[kind] ?? {}) as Record<string, unknown>;
+    const sect = ((clipmap as Record<string, unknown> | null)?.[kind] ?? {}) as Record<string, unknown>;
     for (const [name, id] of MONSTER_ANIMS) {
       const ref = sect[name] as ClipRef | undefined;
       let clip: THREE.AnimationClip | null = null, loop = true, ts = 1;
@@ -146,6 +150,18 @@ async function doLoad(log: (m: string) => void): Promise<MonsterLib | null> {
         [ANIM.mRun]: ['anim.ual2', 'Zombie_Walk_Fwd_Loop', true, 2.2], [ANIM.mAttack]: ['anim.ual2', 'Zombie_Scratch', false],
         [ANIM.mAlert]: ['anim.ual2', 'Idle_No_Loop', false], [ANIM.mEat]: ['anim.ual1', 'Fixing_Kneeling', true],
         [ANIM.mFrozen]: ['anim.ual2', 'Zombie_Idle_Loop', true, 0],
+      }),
+    };
+    const thin = SkeletonUtils.clone(man.scene);
+    const sScale = fitScale(thin, 'height', 2.05);
+    prepSnatcher(thin);
+    lib.templates.snatcher = {
+      kind: 'snatcher', scene: thin, scale: sScale,
+      clips: clipsFor('snatcher', {
+        [ANIM.mIdle]: ['anim.ual1', 'Crouch_Idle_Loop', true], [ANIM.mWalk]: ['anim.ual1', 'Crouch_Fwd_Loop', true],
+        [ANIM.mRun]: ['anim.ual1', 'Crouch_Fwd_Loop', true, 1.8], [ANIM.mAttack]: ['anim.ual2', 'Zombie_Scratch', false],
+        [ANIM.mAlert]: ['anim.ual1', 'Crouch_Idle_Loop', true], [ANIM.mEat]: ['anim.ual1', 'Fixing_Kneeling', true],
+        [ANIM.mFrozen]: ['anim.ual1', 'Crouch_Idle_Loop', true, 0],
       }),
     };
   }
@@ -268,7 +284,89 @@ function prepListener(scene: THREE.Object3D): void {
   });
 }
 
+/** thin, long-armed: arm chain ~2x, long fingers, long neck + shins, small head (child offsets scaled = bone lengths) */
+const SNATCH_STRETCH: Record<string, number> = {
+  upperarm_l: 1.3, upperarm_r: 1.3, lowerarm_l: 2.0, lowerarm_r: 2.0, hand_l: 1.75, hand_r: 1.75,
+  neck_01: 1.3, Head: 1.6, spine_02: 1.08, spine_03: 1.08, calf_l: 1.25, calf_r: 1.25, foot_l: 1.2, foot_r: 1.2,
+};
+
+function prepSnatcher(scene: THREE.Object3D): void {
+  scene.traverse((o) => {
+    const b = o as THREE.Bone;
+    if (!b.isBone) return;
+    const k = SNATCH_STRETCH[b.name] ?? (/^(index|middle|ring|pinky)_0[1-3]_[lr]$/.test(b.name) ? 1.8 : /^thumb_0[1-3]_[lr]$/.test(b.name) ? 1.4 : 0);
+    if (k) b.position.multiplyScalar(k);
+    if (b.name === 'Head') b.scale.setScalar(0.78);
+    if (b.name === 'hand_l' || b.name === 'hand_r') b.scale.setScalar(1.25);
+  });
+  eachMesh(scene, (m) => {
+    const mat = new THREE.MeshPhysicalNodeMaterial();
+    const k = uniform(1 / geoSize(m));
+    const p = positionGeometry.mul(k);
+    // dark, wet, mottled skin: grey-olive bruising over near-black, dark vein cells, a glossy film with drier patches
+    const n = mx_fractal_noise_float(p.mul(7.0), 4, 2, 0.55).mul(0.5).add(0.5);
+    const cells = mx_worley_noise_vec2(p.mul(18.0), 1);
+    const vein = smoothstep(float(0.0), float(0.06), cells.y.sub(cells.x)).oneMinus();
+    const base = mix(color(0x050505), color(0x1c1d16), n.pow(1.6));
+    mat.colorNode = mix(base, color(0x0a0303), vein.mul(0.8));
+    mat.roughnessNode = mix(float(0.05), float(0.5), n.mul(n).add(vein.mul(0.3)));
+    mat.metalness = 0.04;
+    mat.clearcoat = 1;
+    mat.clearcoatRoughness = 0.08;
+    mat.specularIntensity = 1;
+    m.material = mat;
+  });
+}
+
+const _q = new THREE.Quaternion(), _pw = new THREE.Quaternion(), _pwi = new THREE.Quaternion(), _ax = new THREE.Vector3();
+
+/** rotate `bone` by `angle` about a WORLD axis (keeps the clip's motion, adds a bend independent of bone axes) */
+function bendWorld(bone: THREE.Object3D, axis: THREE.Vector3, angle: number): void {
+  if (!bone.parent || angle === 0) return;
+  bone.parent.updateWorldMatrix(true, false);
+  bone.parent.getWorldQuaternion(_pw);
+  _pwi.copy(_pw).invert();
+  _q.setFromAxisAngle(axis, angle);
+  // local' = parent^-1 * q * parent * local
+  bone.quaternion.premultiply(_pwi.multiply(_q).multiply(_pw));
+}
+
+/** tunable crawl pose (radians) for the Snatcher; `?snpose=spine,neck,arms` overrides for look-dev */
+export const SNATCH_POSE = (() => {
+  const q = new URLSearchParams(location.search).get('snpose');
+  const v = q ? q.split(',').map(Number) : [];
+  return { spine: Number.isFinite(v[0]) ? v[0] : 1.05, neck: Number.isFinite(v[1]) ? v[1] : -0.95, arms: Number.isFinite(v[2]) ? v[2] : 0.55, drop: 0 };
+})();
+
+/** hunched, on-all-fours crawl on top of the crouch clip: torso pitched forward, head up, long arms reaching down/ahead */
+export function poseSnatcher(m: MonsterModel, state: string, time: number): void {
+  const b = (m.bones ??= collectBones(m.root));
+  const root = m.root;
+  root.updateWorldMatrix(true, false);
+  // the character's right axis in world space (model faces +Z locally)
+  _ax.set(1, 0, 0).applyQuaternion(root.getWorldQuaternion(new THREE.Quaternion())).normalize();
+  const dragging = state === 'drag';
+  const twitch = Math.sin(time * 23.0) * 0.04 + Math.sin(time * 7.3) * 0.03;
+  if (b.spine_01) bendWorld(b.spine_01, _ax, SNATCH_POSE.spine * 0.55);
+  if (b.spine_02) bendWorld(b.spine_02, _ax, SNATCH_POSE.spine * 0.3);
+  if (b.spine_03) bendWorld(b.spine_03, _ax, SNATCH_POSE.spine * 0.15 + (dragging ? 0.1 : 0));
+  if (b.neck_01) bendWorld(b.neck_01, _ax, SNATCH_POSE.neck * 0.6 + twitch);
+  if (b.Head) bendWorld(b.Head, _ax, SNATCH_POSE.neck * 0.4 - twitch);
+  for (const side of ['l', 'r'] as const) {
+    const ua = b[`upperarm_${side}`];
+    const swing = Math.sin(time * (dragging ? 5.5 : 4.2) + (side === 'l' ? 0 : Math.PI)) * 0.35;
+    if (ua) bendWorld(ua, _ax, -SNATCH_POSE.arms + swing * (dragging ? 0.6 : 1));
+  }
+}
+
+function collectBones(root: THREE.Object3D): Record<string, THREE.Object3D> {
+  const out: Record<string, THREE.Object3D> = {};
+  root.traverse((o) => { if ((o as THREE.Bone).isBone) out[o.name] = o; });
+  return out;
+}
+
 export interface MonsterModel {
+  bones?: Record<string, THREE.Object3D>;
   root: THREE.Group;
   mixer: THREE.AnimationMixer;
   actions: Map<number, THREE.AnimationAction>;
@@ -280,6 +378,8 @@ export interface MonsterModel {
 export function instantiate(t: MonsterTemplate): MonsterModel {
   const inner = SkeletonUtils.clone(t.scene);
   inner.scale.multiplyScalar(t.scale);
+  // the Snatcher is flattened (thin enough for a duct): narrower and shallower than it is long
+  if (t.kind === 'snatcher') inner.scale.multiply(new THREE.Vector3(0.7, 1, 0.62));
   const root = new THREE.Group();
   root.add(inner);
   const mixer = new THREE.AnimationMixer(inner);

@@ -16,7 +16,13 @@ import type { DoorVisual } from './doors.ts';
 import { buildItem } from './props.ts';
 import { buildStencils } from './stencils.ts';
 import { buildExterior } from './exterior.ts';
-import { propsPending, setPropRenderer } from './assets.ts';
+import { loadPropModel, propsPending, setPropRenderer } from './assets.ts';
+import { PROP_DEFS } from '@dead-air/shared/procgen/decor.ts';
+import { clutterFor } from '@dead-air/shared/procgen/clutter.ts';
+import { makeRng } from '@dead-air/shared/rng.ts';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { clutterParts, fillParts, procParts, setMaterial, waterSheet } from './setpieces.ts';
+import type { Part } from './setpieces.ts';
 
 export type V3 = [number, number, number];
 export type FixtureState = 'on' | 'off' | 'flicker' | 'broken';
@@ -54,6 +60,9 @@ export interface LevelService {
   onRebuild(fn: (layout: LevelLayout) => void): () => void;
   /** true once surface textures finished loading (or none are available) */
   texturesReady(): boolean;
+  /** true once the current layout is fully dressed: textures + every furniture / clutter model loaded (loading screens
+   *  can wait for this instead of guessing with frame timing) */
+  contentReady(): boolean;
 }
 
 declare module '../core/services.ts' {
@@ -92,6 +101,9 @@ export function install(ctx: ClientContext): void {
   let cacheSet = new Set<number>();
   let lastFull: unknown = null;
   const disposable: THREE.BufferGeometry[] = [];
+  /** instanced asset props of the current layout (instance buffers freed on rebuild; template geometry is shared) */
+  const instanced: THREE.InstancedMesh[] = [];
+  let propStats = { furniture: 0, clutter: 0, staticMeshes: 0, instancedMeshes: 0, glbPlacements: 0 };
 
   const roomAt = (x: number, z: number) => {
     if (!layout) return -1;
@@ -133,6 +145,8 @@ export function install(ctx: ClientContext): void {
   const clear = () => {
     for (const g of disposable) g.dispose();
     disposable.length = 0;
+    for (const im of instanced) im.dispose();
+    instanced.length = 0;
     root.clear();
     groups = [];
     doorVis = [];
@@ -185,8 +199,11 @@ export function install(ctx: ClientContext): void {
       }
       return v;
     });
+    // furniture + clutter: static per-space batches (procedural set pieces merged per material, asset models instanced)
+    const statics = buildStatics(L);
     // items
     for (const it of L.items) {
+      if (it.kind === 'prop' && PROP_DEFS[String(it.data?.prop ?? '')]) continue; // batched above
       const o = buildItem(it, L, mats);
       if (!o) continue;
       const sub: THREE.Object3D[] = [];
@@ -219,11 +236,133 @@ export function install(ctx: ClientContext): void {
     const ms = performance.now() - t0;
     ctx.diag.level = {
       kind: L.kind, seed: L.seed, hash: L.hash, W: L.W, H: L.H, spaces: L.spaces.length, doors: L.doors.length,
-      items: items.size, tris: geo.stats.tris, buildMs: +ms.toFixed(1), fixtures: fixtures.length,
+      items: items.size, tris: geo.stats.tris, buildMs: +ms.toFixed(1), fixtures: fixtures.length, props: statics,
     };
     for (const fn of listeners) {
       try { fn(L); } catch (e) { ctx.reportError(`level onRebuild: ${e instanceof Error ? e.message : e}`); }
     }
+  };
+
+  /** furniture + clutter of a layout into per-space static meshes; asset models as InstancedMesh per space + key */
+  const buildStatics = (L: LevelLayout) => {
+    const ver = version;
+    const buckets = new Map<string, THREE.BufferGeometry[]>(); // space|mat|cast
+    const glb = new Map<string, { space: number; key: string; m: THREE.Matrix4[] }>();
+    const tmp = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), one = new THREE.Vector3(1, 1, 1), pos = new THREE.Vector3();
+    let furniture = 0, clutter = 0, placements = 0;
+    const push = (space: number, cast: boolean, parts: Part[], m: THREE.Matrix4 | null) => {
+      for (const p of parts) {
+        const k = `${space}|${p.mat}|${cast ? 1 : 0}`;
+        let list = buckets.get(k);
+        if (!list) { list = []; buckets.set(k, list); }
+        const g = p.geo.index ? p.geo.toNonIndexed() : p.geo;
+        if (g !== p.geo) p.geo.dispose();
+        if (m) g.applyMatrix4(m);
+        for (const name of Object.keys(g.attributes)) if (name !== 'position' && name !== 'normal' && name !== 'uv') g.deleteAttribute(name);
+        if (!g.getAttribute('uv')) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.getAttribute('position').count * 2), 2));
+        list.push(g);
+      }
+    };
+    const addGlb = (space: number, key: string, m: THREE.Matrix4) => {
+      const k = `${space}|${key}`;
+      let e2 = glb.get(k);
+      if (!e2) { e2 = { space, key, m: [] }; glb.set(k, e2); }
+      e2.m.push(m);
+      placements++;
+    };
+    for (const it of L.items) {
+      if (it.kind !== 'prop') continue;
+      const key = String(it.data?.prop ?? '');
+      const def = PROP_DEFS[key];
+      if (!def) continue;
+      furniture++;
+      const rot = it.rot ?? 0;
+      if (def.proc) {
+        const parts = procParts(it, makeRng(`${L.seed}:${it.id}`, 'decor:set'));
+        if (!parts) continue;
+        tmp.makeRotationY(rot).setPosition(it.x, it.y ?? 0, it.z);
+        push(it.space, def.solid || def.h > 1, parts, tmp);
+      } else {
+        const n = Math.max(1, Number(it.data?.n ?? 1));
+        const yy = (it.y ?? 0) - (def.mount === 'wall' ? def.h / 2 : 0);
+        // rows of asset models (library stacks): n copies along the item's local x, back to back when deep enough
+        const w = Number(it.data?.w ?? def.w), d = Number(it.data?.d ?? def.d);
+        const per = n > 1 ? Math.max(1, Math.floor((w + 0.05) / def.w)) : 1;
+        const doubled = d >= def.d * 1.75;
+        for (let i = 0; i < per; i++) for (const side of doubled ? [1, -1] : [1]) {
+          const lx = per > 1 ? -w / 2 + (w / per) * (i + 0.5) : 0;
+          const lz = doubled ? side * (def.d / 2 + 0.01) : 0;
+          const yaw = rot + (side < 0 ? Math.PI : 0);
+          const cx = Math.cos(rot), sx = Math.sin(rot);
+          pos.set(it.x + lx * cx + lz * sx, yy, it.z - lx * sx + lz * cx);
+          q.setFromEuler(e.set(0, yaw, 0));
+          const mm = new THREE.Matrix4().compose(pos, q, one);
+          addGlb(it.space, key, mm);
+          if (key === 'shelves' || key === 'desk') push(it.space, false, fillParts(key, makeRng(`${L.seed}:${it.id}:${i}:${side}`, 'decor:fill'), L.spaces[it.space]?.type ?? ''), mm);
+        }
+      }
+    }
+    // cosmetic clutter (derived from the layout, deterministic)
+    const crng = makeRng(`${L.seed}:${L.hash}`, 'decor:clutter-mesh');
+    for (const ci of clutterFor(L)) {
+      clutter++;
+      if (ci.kind === 'glb' && ci.key) {
+        pos.set(ci.x, ci.y, ci.z);
+        q.setFromEuler(e.set(ci.tip ? Math.PI / 2 : 0, ci.rot, 0, 'YXZ'));
+        const m = new THREE.Matrix4().compose(pos, q, one);
+        if (ci.tip) m.premultiply(new THREE.Matrix4().makeTranslation(0, 0.28, 0));
+        addGlb(ci.space, ci.key, m);
+        continue;
+      }
+      push(ci.space, ci.kind === 'pipe', clutterParts(ci, crng), null);
+    }
+    // flooded boiler halls: one dark water sheet over the floor
+    for (const s of L.spaces) {
+      if (s.type !== 'boiler' || s.rect.w * s.rect.h < 40) continue;
+      push(s.id, false, [{ mat: 'water', geo: waterSheet(s.rect.x, s.rect.y, s.rect.w, s.rect.h) }], null);
+    }
+    let staticMeshes = 0;
+    for (const [k, list] of buckets) {
+      const [sid, mat, cast] = k.split('|');
+      const merged = list.length === 1 ? list[0] : mergeGeometries(list);
+      if (list.length > 1) for (const g of list) g.dispose();
+      if (!merged) continue;
+      merged.computeBoundingSphere();
+      const mesh = new THREE.Mesh(merged, setMaterial(mats, mat));
+      mesh.name = `set:${sid}:${mat}`;
+      mesh.castShadow = cast === '1';
+      mesh.receiveShadow = true;
+      mesh.matrixAutoUpdate = false;
+      mesh.updateMatrix();
+      groups[Number(sid)]?.add(mesh);
+      disposable.push(merged);
+      staticMeshes++;
+    }
+    for (const { space, key, m } of glb.values()) {
+      const def = PROP_DEFS[key];
+      const castShadow = !def || def.solid || def.h > 0.9;
+      void loadPropModel(key).then((tpl) => {
+        if (version !== ver || !tpl) return;
+        tpl.updateMatrixWorld(true);
+        tpl.traverse((o) => {
+          const src = o as THREE.Mesh;
+          if (!src.isMesh || Array.isArray(src.material)) return;
+          const im = new THREE.InstancedMesh(src.geometry, src.material, m.length);
+          im.name = `glb:${space}:${key}`;
+          for (let i = 0; i < m.length; i++) im.setMatrixAt(i, tmp.multiplyMatrices(m[i], src.matrixWorld));
+          im.instanceMatrix.needsUpdate = true;
+          im.computeBoundingSphere();
+          im.castShadow = castShadow;
+          im.receiveShadow = true;
+          if (debugFlat) (im.material as THREE.Material & { fog?: boolean }).fog = false;
+          groups[space]?.add(im);
+          instanced.push(im);
+          propStats.instancedMeshes++;
+        });
+      });
+    }
+    propStats = { furniture, clutter, staticMeshes, instancedMeshes: 0, glbPlacements: placements };
+    return propStats;
   };
 
   const setDoorOpen = (id: number, open: boolean, instant = false) => {
@@ -275,6 +414,7 @@ export function install(ctx: ClientContext): void {
     spaceGroup: (s) => groups[s] ?? null,
     onRebuild(fn) { listeners.add(fn); return () => listeners.delete(fn); },
     texturesReady: () => mats.texturesDone,
+    contentReady: () => !!layout && mats.texturesDone && propsPending() === 0,
   };
   ctx.services.provide('level', service);
 
@@ -294,6 +434,17 @@ export function install(ctx: ClientContext): void {
       door: (id: number) => ({ open: doorState[id] === 1, t: doorVis[id]?.t, kind: layout?.doors[id]?.kind, ix: (ctx.world.full as { interaction?: { doors?: Record<number, unknown> } } | null)?.interaction?.doors?.[id] ?? null }),
       /** debug: disable adjacency culling */
       cull(on: boolean) { cullOn = on; },
+      /** debug: freeze a door mesh at openness t (0..1) without changing its logical state */
+      doorPose(id: number, t: number) { const v = doorVis[id]; if (!v) return false; v.t = t; v.open = t >= 0.5; v.apply(t); return true; },
+      /** debug: renderer counters of the last frame + furniture/clutter batch stats */
+      renderInfo() {
+        const r = ctx.services.use('three')?.renderer as unknown as { info?: { render?: Record<string, number> } } | undefined;
+        const ri = r?.info?.render ?? {};
+        let meshes = 0, visible = 0;
+        root.traverse((o) => { if ((o as THREE.Mesh).isMesh) meshes++; });
+        root.traverseVisible((o) => { if ((o as THREE.Mesh).isMesh) visible++; });
+        return { drawCalls: ri.drawCalls, calls: ri.calls, triangles: ri.triangles, levelMeshes: meshes, levelMeshesVisible: visible, props: propStats };
+      },
     };
   }
 

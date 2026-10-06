@@ -12,7 +12,8 @@ import type { Rt } from '../monsters/runtime.ts';
 import { registry } from '../monsters/registry.ts';
 import type { DirectorPickState } from '../monsters/registry.ts';
 import { bal, num } from '../monsters/types.ts';
-import type { HoundAgent, ListenerAgent, MannequinAgent } from '../monsters/types.ts';
+import type { HoundAgent, ListenerAgent, MannequinAgent, SnatcherAgent } from '../monsters/types.ts';
+import { rattle as snatchRattle, snatcherOf } from '../monsters/snatcher.ts';
 import { dist, doorCenter, inCab, monsterCanOpen, randomReachable } from '../monsters/geo.ts';
 import { extLightsOn, extSetDoor, extSetLights, hasWalkie, isAlive } from '../monsters/ext.ts';
 import { clockMin, relocateMannequin } from '../monsters/mannequin.ts';
@@ -31,10 +32,12 @@ export interface DirectorSlice {
   /** agent id -> last seen chase state (chase-start detection) */
   chase: Record<string, string>;
   grabbed: Record<string, boolean>;
+  /** current Snatcher victim (one tension bump per snatch) */
+  snatched?: string;
   t: number;
 }
 
-const CHASE = new Set(['charge', 'windup', 'hunt', 'grab', 'move']);
+const CHASE = new Set(['charge', 'windup', 'hunt', 'grab', 'move', 'drop', 'drag']);
 
 function slice(crew: Crew): DirectorSlice {
   let d = crew.slices.director as DirectorSlice | undefined;
@@ -93,6 +96,16 @@ function updateTension(rt: Rt, d: DirectorSlice, dt: number): void {
       if (v && !d.grabbed[v]) { d.grabbed[v] = true; d.tension[v] = Math.min(1, (d.tension[v] ?? 0) + 0.5); }
       if (!v) d.grabbed = {};
     }
+    if (a.kind === 'snatcher') {
+      // a snatch is a peak for the victim and everyone who hears it (+0.35 within 20 m)
+      const sn = a as SnatcherAgent;
+      const v = sn.victim && (sn.state === 'drop' || sn.state === 'drag' || sn.state === 'duct') ? sn.victim : null;
+      if (v && d.snatched !== v) {
+        d.tension[v] = Math.min(1, (d.tension[v] ?? 0) + 0.6);
+        for (const p of players) if (p.id !== v && dist(p.pose.p[0], p.pose.p[2], a.x, a.z) <= 20) d.tension[p.id] = Math.min(1, (d.tension[p.id] ?? 0) + 0.35);
+      }
+      d.snatched = v ?? undefined;
+    }
   }
   for (const p of players) {
     let t = d.tension[p.id] ?? 0;
@@ -130,7 +143,22 @@ function allowedEvents(rt: Rt, d: DirectorSlice): DirectorEventKind[] {
   const man = rt.cm.agents.find((a) => a.kind === 'mannequin') as MannequinAgent | undefined;
   if (man && man.spawned && man.active && !man.observed) out.push('mannequin_relocate');
   out.push('fixture_failure');
+  // v1.1: the Snatcher's ducts rattle near someone (a tell, sometimes a false alarm) while it lurks
+  const sn = snatcherOf(rt.cm);
+  if (sn && sn.state === 'lurk' && ventNear(rt, sn, players)) out.push('vent_rattle');
   return out;
+}
+
+function ventNear(rt: Rt, sn: SnatcherAgent, players: ServerPlayer[]): SnatcherAgent['grates'][number] | null {
+  let best: SnatcherAgent['grates'][number] | null = null, bd = 20;
+  for (const g of sn.grates) {
+    for (const p of players) {
+      if (inCab(rt.cm.layout, p.pose.p[0], p.pose.p[2])) continue;
+      const dd = dist(p.pose.p[0], p.pose.p[2], g.x, g.z);
+      if (dd < bd) { bd = dd; best = g; }
+    }
+  }
+  return best;
 }
 
 function weightedPick(rt: Rt, allowed: DirectorEventKind[]): DirectorEventKind {
@@ -227,6 +255,15 @@ export function runDirectorEvent(rt: Rt, kind: DirectorEventKind, source = 'dire
       const light = L.items.find((i) => i.kind === 'light' && i.space === s);
       extSetLights(crew, s, false);
       ctx.emit(crew, 'monsters.director', { kind, space: s, p: light ? [light.x, light.y ?? 2.9, light.z] : [p.pose.p[0], 2.9, p.pose.p[2]], ms: 900 });
+      ok = true;
+      break;
+    }
+    case 'vent_rattle': {
+      const sn = snatcherOf(cm);
+      const g = sn ? ventNear(rt, sn, players) : null;
+      if (!sn || !g) break;
+      snatchRattle(rt, sn, g, false);
+      ctx.emit(crew, 'monsters.director', { kind, p: [g.x, 0.35, g.z] });
       ok = true;
       break;
     }

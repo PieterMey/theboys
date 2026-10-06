@@ -57,6 +57,27 @@ export interface Net {
   onServerError(fn: (code: ErrCode, msg: string) => void): () => void;
   /** last raw RTT sample (ms) and the time it was measured (performance.now()) */
   readonly rttSample: { ms: number; at: number };
+  // --- additive (v1.1 telemetry) ---
+  /** the last unexpected socket drop of this page (close code/reason as the browser saw it), until consumed */
+  readonly lastDrop: DropInfo | null;
+  /** returns the pending drop report once it reconnected (null otherwise) and clears it */
+  consumeDrop(): DropInfo | null;
+}
+
+/** browser-side view of a dropped game socket (sent to the server by core/telemetry.ts after the reconnect) */
+export interface DropInfo {
+  code: number;
+  reason: string;
+  wasClean: boolean;
+  /** seconds the socket had been open */
+  openSec: number;
+  hidden: boolean;
+  online: boolean;
+  /** performance.now() of the close */
+  at: number;
+  /** seconds until the next welcome (0 while still down) */
+  downSec: number;
+  phase: string;
 }
 
 /** no welcome within this long -> the join rejects (JoinScreen shows the error + RELOAD) */
@@ -103,6 +124,8 @@ export function createNet(world: World, bus: Bus, onError: (msg: string) => void
   const errSubs = new Set<(code: ErrCode, msg: string) => void>();
   let lastError: { code: ErrCode; msg: string } | null = null;
   const rttSample = { ms: 0, at: 0 };
+  let lastDrop: DropInfo | null = null;
+  let openedAt = 0;
 
   const setStatus = (s: NetStatus) => {
     if (status === s) return;
@@ -167,6 +190,7 @@ export function createNet(world: World, bus: Bus, onError: (msg: string) => void
         backoff = 250;
         world.me = m.you;
         world.crew = m.crew;
+        if (lastDrop && !lastDrop.downSec) lastDrop.downSec = Math.max(0.001, (performance.now() - lastDrop.at) / 1000);
         world.observeServerTime(m.serverTime);
         const fromPhase = world.phase;
         world.applyFull(m.state);
@@ -248,6 +272,7 @@ export function createNet(world: World, bus: Bus, onError: (msg: string) => void
     sock.binaryType = 'arraybuffer';
     ws = sock;
     sock.onopen = () => {
+      openedAt = performance.now();
       setStatus('open');
       send({
         op: 'hello', v: PROTOCOL_VERSION, build: __BUILD_ID__, crew: crewCode ?? '', playerKey: id.playerKey,
@@ -266,9 +291,17 @@ export function createNet(world: World, bus: Bus, onError: (msg: string) => void
         }
       }
     };
-    sock.onclose = () => {
+    sock.onclose = (ev: CloseEvent) => {
       if (ws !== sock) return;
       ws = null;
+      // remember why it dropped (an unexpected close of a joined socket): telemetry reports it after the reconnect
+      if (wantOnline && me) {
+        lastDrop = {
+          code: ev.code, reason: String(ev.reason ?? '').slice(0, 120), wasClean: ev.wasClean, openSec: openedAt ? (performance.now() - openedAt) / 1000 : 0,
+          hidden: document.hidden, online: navigator.onLine !== false, at: performance.now(), downSec: 0, phase: world.phase,
+        };
+        console.warn(`[net] game socket closed: code ${ev.code}${ev.reason ? ` '${ev.reason}'` : ''} clean=${ev.wasClean} after ${lastDrop.openSec.toFixed(0)} s (tab ${document.hidden ? 'hidden' : 'visible'}, ${navigator.onLine === false ? 'offline' : 'online'}); reconnecting`);
+      }
       for (const [, p] of pending) {
         clearTimeout(p.timer);
         p.reject(new Error('disconnected'));
@@ -370,6 +403,13 @@ export function createNet(world: World, bus: Bus, onError: (msg: string) => void
       return () => errSubs.delete(fn);
     },
     rttSample,
+    get lastDrop() { return lastDrop; },
+    consumeDrop() {
+      if (!lastDrop || !lastDrop.downSec) return null;
+      const d = lastDrop;
+      lastDrop = null;
+      return d;
+    },
   };
   return net;
 }

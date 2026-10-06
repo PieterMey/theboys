@@ -54,6 +54,22 @@ export interface RenderStats {
   drawCalls?: number;
 }
 
+export interface RenderPerf {
+  fps: number;
+  p50: number;
+  p95: number;
+  long: number;
+  gpuMs: number | null;
+  preset: string;
+  res: [number, number];
+  dpr: number;
+  /** renderer pixel ratio actually used (DPR x cap x preset res x auto scale) */
+  scale: number;
+  autoScale: number;
+  backend: 'webgpu' | 'webgl2';
+  auto: string;
+}
+
 export interface RenderService {
   backend: 'webgpu' | 'webgl2';
   /** active preset name ('low' | 'medium' | 'high' | 'ultra') */
@@ -74,6 +90,19 @@ export interface RenderService {
   stats(): RenderStats;
   /** render 2 real frames now (call after adding many new meshes/materials, behind a loading screen) */
   warmup(): Promise<void>;
+  /** v1.1 loading screen: render `frames` frames with EVERY level space visible and no frustum culling (all six
+   *  flashlight slots on), so every material / shadow / volume pipeline compiles now; resolves after them */
+  warmupAll(frames?: number): Promise<void>;
+  /** frame-interval statistics over the last `spanMs` */
+  frameStats(spanMs: number): { n: number; fps: number; p50: number; p95: number; max: number; long: number };
+  /** telemetry snapshot (last telemetrySec seconds) */
+  perf(): RenderPerf;
+  /** auto quality on/off (persisted per browser) */
+  setAutoQuality(on: boolean): void;
+  /** the scene just changed (level rebuild, loading): auto quality restarts its warm-up */
+  busy(): void;
+  /** pause drawing (an opaque loading screen covers the canvas): GPU free for uploads; warm-up frames still draw */
+  hold(on: boolean): void;
   /** layer used by the volumetric pass (lights that should make beams enable it) */
   volumeLayer: number;
   /** test/scene override for flashlights when no players service exists */

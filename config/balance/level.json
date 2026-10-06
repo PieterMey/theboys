@@ -1,49 +1,81 @@
 {
   "footprint": {
     "1": [
-      30,
-      22
-    ],
-    "2": [
-      32,
-      24
-    ],
-    "3": [
       36,
       27
     ],
-    "4": [
+    "2": [
       40,
       30
     ],
+    "3": [
+      46,
+      34
+    ],
+    "4": [
+      54,
+      40
+    ],
     "5": [
-      45,
-      33
+      58,
+      44
     ],
     "6": [
-      50,
-      36
+      64,
+      48
     ]
   },
   "lotDepth": 12,
   "corridorWidth": 2,
   "marginMin": 5,
-  "marginMax": 8,
-  "blockTarget": 14,
+  "marginMax": 9,
+  "blockTarget": 17,
   "blockMin": 6,
   "innerAbsent": 0.15,
   "innerPartial": 0.3,
   "bspMinSide": 5,
-  "bspMaxSide": 18,
-  "bspMaxAreaBase": 30,
-  "bspMaxAreaPerPlayer": 18,
+  "bspMaxSide": 20,
+  "bspMaxAreaBase": 36,
+  "bspMaxAreaPerPlayer": 26,
   "bspStopChance": 0.8,
   "hallChance": 0.6,
   "hallMinArea": 40,
-  "hallMaxArea": 260,
+  "hallMaxArea": 320,
   "hallKindArea": 56,
   "roomsMin": 12,
-  "roomsMax": 24,
+  "roomsMax": 28,
+  "roomsByPlayers": {
+    "1": [
+      13,
+      26
+    ],
+    "2": [
+      15,
+      26
+    ],
+    "3": [
+      17,
+      27
+    ],
+    "4": [
+      19,
+      28
+    ],
+    "5": [
+      21,
+      28
+    ],
+    "6": [
+      22,
+      28
+    ]
+  },
+  "landmarks": [
+    3,
+    5
+  ],
+  "decorAreaPerProp": 4.5,
+  "decorMaxPerRoom": 18,
   "deadEnds": [
     2,
     3
@@ -69,7 +101,7 @@
   "leverMinPathM": 18,
   "leverIdealPathM": 26,
   "hidingCoverageM": 16,
-  "hidingRoomChance": 0.5,
+  "hidingRoomChance": 0.6,
   "notesMin": 4,
   "notesMax": 6,
   "ventPairs": {
@@ -83,7 +115,7 @@
   "intercomsMin": 2,
   "intercomsMax": 3,
   "lootAreaPerItem": 12,
-  "lootMaxPerRoom": 6,
+  "lootMaxPerRoom": 8,
   "lightOffBase": 0.04,
   "lightOffPerRisk": 0.05,
   "lightOffDepth": 0.12,

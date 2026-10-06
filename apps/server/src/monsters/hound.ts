@@ -3,6 +3,9 @@
 // came through at 4 m/s -> CHARGE (7.5 m/s after a 300-600 ms wind-up, kills on contact) only if a second noise comes
 // within 6 s and within 12 m. Loses interest after 10 s of quiet. Bottles override everything.
 // Chained kennel variant (hub): whisper ignored, talk -> turns + growls, shout -> lunges at the fence. Never kills.
+// v1.1 fairness: it never winds up on / kills a player its growl has not reached first (>= alertGraceSec earlier,
+// <= warnValidSec ago): a noise or bump from an unwarned player re-alerts it with a growl that reaches them instead
+// (tonight's 'heard your FOOTSTEPS (1 m)' came out of an investigation started by someone else's noise).
 import { ANIM } from '@dead-air/shared/anim.ts';
 import { BAND } from '@dead-air/shared/constants.ts';
 import type { ServerPlayer } from '../core/types.ts';
@@ -51,10 +54,44 @@ function canOpenFor(rt: Rt) {
   return monsterCanOpen(rt.cm.layout);
 }
 
-function growl(rt: Rt, h: HoundAgent): void {
-  if (rt.cm.time - h.lastGrowlAt < 2.2) return;
+function growl(rt: Rt, h: HoundAgent, force = false, reach = 0): void {
+  if (!force && rt.cm.time - h.lastGrowlAt < 2.2) return;
   h.lastGrowlAt = rt.cm.time;
-  rt.cue(h, 'growl', num(rt.hound, 'growlRadiusM', 10));
+  const r = Math.min(30, Math.max(num(rt.hound, 'growlRadiusM', 10), reach));
+  rt.cue(h, 'growl', Math.round(r * 10) / 10);
+  // everyone the growl reaches (clients play it within the same straight-line radius) has been warned
+  const w = (h.warned ??= new Map());
+  for (const p of rt.alive()) if (dist(p.pose.p[0], p.pose.p[2], h.x, h.z) <= r) w.set(p.id, rt.cm.time);
+}
+
+/** 'ok': warned >= grace ago (fair game); 'fresh': warned < grace ago (give them a moment); 'no': never / stale */
+function warnState(rt: Rt, h: HoundAgent, pid: string): 'ok' | 'fresh' | 'no' {
+  const at = h.warned?.get(pid);
+  if (at === undefined) return 'no';
+  const ago = rt.cm.time - at;
+  if (ago > num(rt.hound, 'warnValidSec', 15)) return 'no';
+  return ago >= num(rt.hound, 'alertGraceSec', 1.0) ? 'ok' : 'fresh';
+}
+
+/** an unwarned player made the "second" noise / bumped it: alert again (growl reaching them) instead of charging */
+function reAlert(rt: Rt, h: HoundAgent, x: number, z: number, door: number, pid: string): void {
+  h.heardAt = rt.cm.time;
+  h.tx = x;
+  h.tz = z;
+  h.tdoor = door;
+  setState(h, 'alert', num(rt.hound, 'alertSec', 1.5));
+  h.path = null;
+  const p = rt.crew.players.get(pid);
+  growl(rt, h, true, p ? dist(p.pose.p[0], p.pose.p[2], h.x, h.z) + 1.5 : 0);
+}
+
+/** gate before any wind-up caused by player `pid`: true = go ahead */
+function mayCharge(rt: Rt, h: HoundAgent, pid: string, x: number, z: number, door: number): boolean {
+  if (!pid || !rt.crew.players.has(pid)) return true;
+  const w = warnState(rt, h, pid);
+  if (w === 'ok') return true;
+  if (w === 'no') reAlert(rt, h, x, z, door, pid);
+  return false;
 }
 
 function startWindup(rt: Rt, h: HoundAgent, x: number, z: number, n: Noise, d: number): void {
@@ -66,6 +103,8 @@ function startWindup(rt: Rt, h: HoundAgent, x: number, z: number, n: Noise, d: n
   h.causeDist = d;
   // the growl -> charge gap is always readable (>= minChargeAfterGrowlSec), the bark comes first
   const minGap = num(rt.hound, 'minChargeAfterGrowlSec', 1.6);
+  // no growl lately (e.g. a door with no player behind it): growl now, loud enough to reach the noise
+  if (rt.cm.time - h.lastGrowlAt > 3) growl(rt, h, true, dist(h.x, h.z, x, z) + 1.5);
   const w = Math.max((lo + rt.cm.rng.next() * (hi - lo)) / 1000, h.lastGrowlAt + minGap - rt.cm.time);
   setState(h, 'windup', Math.min(2.5, w));
   h.path = null;
@@ -122,11 +161,13 @@ export function houndHear(rt: Rt, h: HoundAgent, n: Noise, d: number, per: Perce
       h.tdoor = per.door;
       setState(h, 'alert', num(rt.hound, 'alertSec', 1.5));
       h.path = null;
-      growl(rt, h);
+      const src = n.source ? rt.crew.players.get(n.source) : undefined;
+      growl(rt, h, false, src ? dist(src.pose.p[0], src.pose.p[2], h.x, h.z) + 1.5 : 0);
       return;
     }
     case 'alert': {
-      if (second && h.st >= grace) return startWindup(rt, h, n.x, n.z, n, d);
+      if (second && h.st >= grace && mayCharge(rt, h, n.source, n.x, n.z, per.door)) return startWindup(rt, h, n.x, n.z, n, d);
+      if (h.state !== 'alert' || h.st === 0) return; // re-alerted on an unwarned player
       const [tx, tz] = investigateTarget(rt, h, per);
       h.tx = tx;
       h.tz = tz;
@@ -135,7 +176,10 @@ export function houndHear(rt: Rt, h: HoundAgent, n: Noise, d: number, per: Perce
     }
     case 'investigate':
     case 'search': {
-      if (second) return startWindup(rt, h, n.x, n.z, n, d);
+      if (second) {
+        if (mayCharge(rt, h, n.source, n.x, n.z, per.door)) return startWindup(rt, h, n.x, n.z, n, d);
+        if ((h.state as string) === 'alert') return;
+      }
       const [tx, tz] = investigateTarget(rt, h, per);
       if (dist(tx, tz, h.tx, h.tz) > 1.5) {
         h.tx = tx;
@@ -205,7 +249,10 @@ function kennelHear(rt: Rt, h: HoundAgent, n: Noise): void {
 function contactKill(rt: Rt, h: HoundAgent, radius: number): ServerPlayer | null {
   for (const p of rt.alive()) {
     if (rt.hidden(p)) continue;
-    if (dist(p.pose.p[0], p.pose.p[2], h.x, h.z) <= radius) return p;
+    if (dist(p.pose.p[0], p.pose.p[2], h.x, h.z) > radius) continue;
+    // a bystander its growl never reached is knocked aside (and warned), not killed
+    if (warnState(rt, h, p.id) === 'no') { growl(rt, h, true, radius + 2); continue; }
+    return p;
   }
   return null;
 }
@@ -221,6 +268,7 @@ function activeContact(rt: Rt, h: HoundAgent, radius: number): ServerPlayer | nu
 }
 
 function presenceWindup(rt: Rt, h: HoundAgent, p: ServerPlayer): void {
+  if (!mayCharge(rt, h, p.id, p.pose.p[0], p.pose.p[2], -1)) return;
   const loud = rt.cm.activity ? rt.cm.time - (rt.cm.activity.get(p.id)?.loudAt ?? -100) <= 0.6 : false;
   startWindup(rt, h, p.pose.p[0], p.pose.p[2], { x: p.pose.p[0], z: p.pose.p[2], radiusM: 1, kind: 'bump', source: p.id }, 1);
   h.causeKind = `${p.id}|${loud ? 'VOICE' : 'MOVEMENT'}`;

@@ -16,6 +16,8 @@ export interface FlashlightInfo {
   on: boolean;
   local: boolean;
   tier: 1 | 2;
+  /** optional 0..1 flashlight battery (interaction track); render flickers the beam below 0.15 */
+  battery?: number;
 }
 
 /** services.players (provided by ⑤ Players) */
@@ -59,6 +61,8 @@ export interface PlayersService {
   setPreviewAvatar(id: string, pose: { p: V3; yaw: number; anim?: number; stance?: number; light?: 0 | 1 } | null, profile?: Profile): void;
   /** current stamina 0..1 */
   stamina(): number;
+  /** interaction track (adrenaline syringe): sprint without stamina drain for ms (stamina refilled) */
+  setStaminaFree?(ms: number): void;
   /** pointer lock active */
   locked(): boolean;
 }

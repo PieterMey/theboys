@@ -101,7 +101,9 @@ try {
     check('perceives the correct doorway (door id)', alert?.tdoor === want, `got ${alert?.tdoor}, want ${want} (${door.kind})`);
     check('investigate target is at that doorway (< 1.2 m)', off < 1.2, `${off.toFixed(2)} m`);
     const growl = a.eventsOf('monsters.cue').find((e) => (e.d as { cue: string }).cue === 'growl' && e.at >= t0);
-    check('growl cue emitted (audible 10 m)', !!growl && (growl.d as { radius: number }).radius === 10);
+    // v1.1: the alert growl reaches the noise maker too (>= 10 m, >= their distance): no kill without hearing it first
+    const gr = (growl?.d as { radius: number; p: number[] } | undefined);
+    check('growl cue emitted (audible >= 10 m, reaches the shouter)', !!gr && gr.radius >= 10 && gr.radius >= Math.hypot((src ?? [0, 0])[0] - gr.p[0], (src ?? [0, 0])[1] - gr.p[2]), `radius ${gr?.radius}`);
     const inv = await waitFor(async () => { const h = await hound(); return h.state === 'investigate' ? h : null; }, 2500, 'investigate').catch(() => null);
     check('then INVESTIGATE toward the doorway', !!inv && Math.hypot((inv.goal?.[0] ?? 0) - (alert?.tx ?? 0), (inv.goal?.[1] ?? 0) - (alert?.tz ?? 0)) < 0.5, inv ? `goal ${inv.goal}` : 'no');
     const snapM = a.monster('hound0');

@@ -3,6 +3,7 @@
 // The types below are shared by the server tracks that consume apps/server/src/ai/api.ts ((c) monsters,
 // (d) meta, (a) objectives). Transcripts never go to clients except the HR-memo quote (by design, consented).
 import type { WorkOrder } from '../workorder.ts';
+import type { Vec3 } from '../state.ts';
 
 // ---------------------------------------------------------------- utterances (STT bridge -> onUtterance)
 
@@ -223,6 +224,29 @@ export interface AiStatus {
     dropped: number;
   };
   listener: { decisions: number; jev: number; haiku: number; taunt: number; none: number };
+  /** the Listener's voiced radio lures (absent on servers without the lure route) */
+  lure?: AiLureStatus;
+}
+
+/** Voiced lure counters (no text: lines are derived from transcripts). */
+export interface AiLureStatus {
+  requests: number;
+  voiced: number;
+  haiku: number;
+  template: number;
+  cacheHits: number;
+  /** garbled clip instead (failure or deadline) */
+  fallback: number;
+  /** not attempted (flags, budgets, cooldown) */
+  skipped: number;
+  lastMs: number | null;
+  lastReason: string | null;
+  /** TTS characters used / budget in the budget window */
+  chars: number;
+  charBudget: number;
+  maxPerSession: number;
+  /** TTS kill switch reason (bad key, quota, rate limit) */
+  down: string | null;
 }
 
 // ---------------------------------------------------------------- wire
@@ -230,6 +254,12 @@ export interface AiStatus {
 export interface AiEvents {
   /** the shift review is ready (AI text where it succeeded, template text elsewhere); swaps the template memo */
   'ai.review': ShiftReview;
+  /**
+   * The Listener speaks: a generated radio line (audio only, never its text) for the walkie of `to[0]` (that player
+   * hears it from their own walkie, teammates nearby hear that walkie squawk) or, with `p`, from a room intercom.
+   * Replaces the garbled 'monsters.lure' clip for this lure.
+   */
+  'ai.lure': { to: string[]; url: string; ms: number; voice?: number; p?: Vec3; intercom?: string };
 }
 
 export interface AiReqs {

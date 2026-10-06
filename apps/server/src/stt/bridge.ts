@@ -52,6 +52,35 @@ interface PState { open: Seg | null; ignoreSegId: number; queue: Seg[]; busy: bo
 
 export interface ListenerPos { x: number; z: number; active: boolean; at: number }
 
+/** per-player pipeline counters for one transcribed phase (contract): evidence in the server log, counts only */
+export interface PlayerSttRun {
+  name: string;
+  /** voice chunks received while the phase allowed STT (consenting or not) */
+  chunks: number;
+  /** of those, ignored because the player opted out of transcription */
+  consentChunks: number;
+  segments: number;
+  /** segments shorter than sttMinSegmentMs, or dropped stale / by the per-player queue cap */
+  dropped: number;
+  utterances: number;
+  empty: number;
+  failed: number;
+  /** utterances whose hearers include the Listener */
+  heard: number;
+  /** loudest band the server saw from this player's 'loud' messages during the run */
+  maxBand: number;
+}
+
+export interface SttRun {
+  phase: string;
+  startedPerf: number;
+  players: Map<string, PlayerSttRun>;
+  firstUtteranceLogged: boolean;
+  firstFailureLogged: boolean;
+  /** nearest Listener path distance (m) of any segment, heard or not (Infinity = never within the max radius) */
+  listenerNearestM: number;
+}
+
 interface CrewAi {
   players: Map<string, PState>;
   hearing: Hearing | null;
@@ -60,14 +89,27 @@ interface CrewAi {
   fakeListener: { x: number; z: number } | null;
   recent: Utterance[];
   textSeq: number;
+  run: SttRun | null;
 }
 
 const stats = { segments: 0, utterances: 0, dropped: 0, empty: 0, failed: 0, consentDrops: 0, lastMs: null as number | null, recentMs: [] as number[], inFlight: 0, healthy: null as boolean | null };
 
 export function crewAi(crew: Crew): CrewAi {
   const s = crew.slices as { ai?: CrewAi };
-  s.ai ??= { players: new Map(), hearing: null, hearingFor: null, listener: null, fakeListener: null, recent: [], textSeq: 0 };
+  s.ai ??= { players: new Map(), hearing: null, hearingFor: null, listener: null, fakeListener: null, recent: [], textSeq: 0, run: null };
+  s.ai.run ??= null;
   return s.ai;
+}
+
+function runPlayer(crew: Crew, pid: string): PlayerSttRun | null {
+  const run = crewAi(crew).run;
+  if (!run) return null;
+  let p = run.players.get(pid);
+  if (!p) {
+    const name = crew.players.get(pid)?.name ?? pid;
+    run.players.set(pid, (p = { name, chunks: 0, consentChunks: 0, segments: 0, dropped: 0, utterances: 0, empty: 0, failed: 0, heard: 0, maxBand: 0 }));
+  }
+  return p;
 }
 
 function pstate(crew: Crew, pid: string): PState {
@@ -168,6 +210,8 @@ function accumulate(ctx: ServerContext, crew: Crew, seg: Seg, speaker: ServerPla
   const L = listenerPosition(crew);
   if (L) {
     const d = dist(sx, sz, L.x, L.z);
+    const run = crewAi(crew).run;
+    if (run && d < run.listenerNearestM) run.listenerNearestM = d;
     if (d <= radius) {
       seg.listener = true;
       seg.listenerDist = Math.min(seg.listenerDist, d);
@@ -213,8 +257,16 @@ function openSeg(ctx: ServerContext, crew: Crew, player: ServerPlayer, h: VoiceC
     players: new Set(), walkies: new Set(), listener: false, listenerDist: Infinity, speakerAlive: isAlive(crew, player), closed: false,
   };
   stats.segments++;
+  const rp = runPlayer(crew, player.id);
+  if (rp) rp.segments++;
   accumulate(ctx, crew, seg, player);
   return seg;
+}
+
+function noteDrop(crew: Crew, pid: string): void {
+  stats.dropped++;
+  const rp = runPlayer(crew, pid);
+  if (rp) rp.dropped++;
 }
 
 function closeSeg(ctx: ServerContext, crew: Crew, player: ServerPlayer | undefined, seg: Seg): void {
@@ -227,14 +279,14 @@ function closeSeg(ctx: ServerContext, crew: Crew, player: ServerPlayer | undefin
   if (ps.open === seg) ps.open = null;
   const minSamples = (balNum('sttMinSegmentMs', 250) / 1000) * SAMPLE_RATE;
   if (seg.samples < minSamples) {
-    stats.dropped++;
+    noteDrop(crew, seg.pid);
     return;
   }
   ps.queue.push(seg);
   const max = Math.max(0, balNum('sttQueueMax', 2));
   while (ps.queue.length > max) {
     ps.queue.shift();
-    stats.dropped++;
+    noteDrop(crew, seg.pid);
   }
   pump(ctx, crew, seg.pid);
 }
@@ -246,7 +298,7 @@ function pump(ctx: ServerContext, crew: Crew, pid: string): void {
   const stale = balNum('sttStaleMs', 5000);
   while ((seg = ps.queue.shift())) {
     if (performance.now() - seg.endedPerf <= stale) break;
-    stats.dropped++;
+    noteDrop(crew, pid);
   }
   if (!seg) return;
   ps.busy = true;
@@ -267,14 +319,26 @@ function pump(ctx: ServerContext, crew: Crew, pid: string): void {
       if (stats.recentMs.length > 30) stats.recentMs.shift();
       if (!out.ok) {
         stats.failed++;
+        const rp = runPlayer(crew, pid);
+        if (rp) rp.failed++;
         if (out.reason === 'network') stats.healthy = false;
-        ctx.log('stt').debug(`transcribe failed: ${out.reason}${out.status ? ` HTTP ${out.status}` : ''}`);
+        const why = `${out.reason}${out.status ? ` HTTP ${out.status}` : ''}`;
+        const run = crewAi(crew).run;
+        if (run && !run.firstFailureLogged) {
+          // production logs info+: the first failure per contract must be visible (later ones stay debug)
+          run.firstFailureLogged = true;
+          ctx.log('stt').warn(`crew ${crew.code}: transcription request failed (${why}, ${Math.round(out.ms)} ms) at ${ctx.env.STT_URL}`);
+        } else ctx.log('stt').debug(`transcribe failed: ${why}`);
         return;
       }
       stats.healthy = true;
       deliver(ctx, crew, s, out.res.text, out.res.lang ?? null, out.ms);
     })
-    .catch(() => { stats.failed++; })
+    .catch(() => {
+      stats.failed++;
+      const rp = runPlayer(crew, pid);
+      if (rp) rp.failed++;
+    })
     .finally(() => {
       ps.busy = false;
       stats.inFlight--;
@@ -286,6 +350,8 @@ function deliver(ctx: ServerContext, crew: Crew, seg: Seg, rawText: string, lang
   const text = (rawText ?? '').trim();
   if (!text) {
     stats.empty++;
+    const rp = runPlayer(crew, seg.pid);
+    if (rp) rp.empty++;
     return;
   }
   const speaker = crew.players.get(seg.pid);
@@ -327,6 +393,17 @@ function publish(ctx: ServerContext, crew: Crew, u: Utterance): void {
   const keep = balNum('recentUtterances', 50);
   if (st.recent.length > keep) st.recent.splice(0, st.recent.length - keep);
   addQuote(crew.code, u.speaker, { text: u.text, at: u.endedAt, heardByListener: u.hearers.listener, meaningful: u.meaningful, band: u.band }, balNum('quotesPerPlayer', 40));
+  const rp = runPlayer(crew, u.speaker);
+  if (rp) {
+    rp.utterances++;
+    if (u.hearers.listener) rp.heard++;
+  }
+  const run = st.run;
+  if (run && !run.firstUtteranceLogged) {
+    // one info line per contract proves the whole chain worked (counts only: transcripts never reach the log)
+    run.firstUtteranceLogged = true;
+    ctx.log('stt').info(`crew ${crew.code}: first transcript this ${run.phase} (${u.speakerName}, ${u.text.length} chars, ${u.sttMs} ms STT, Listener ${u.hearers.listener ? `heard it at ${u.hearers.listenerDistM ?? '?'} m` : 'out of earshot'})`);
+  }
   if (process.env.STT_LOG_TEXT === '1') ctx.log('stt').info(`${u.speakerName}: ${u.text}`);
   else ctx.log('stt').debug(`utterance seg ${u.segId}: ${u.text.length} chars, ${u.callsigns.length} callsigns, hearers ${u.hearers.players.length} listener=${u.hearers.listener}`);
   emitUtterance(crew, u);
@@ -375,12 +452,17 @@ export function recoverPcm(h: VoiceChunkHeader, pcm: Int16Array): Int16Array {
 export function handleChunk(ctx: ServerContext, crew: Crew, player: ServerPlayer, h: VoiceChunkHeader, rawPcm: Int16Array): void {
   if (!flagOn('stt') || ctx.flags.stt === false) return;
   const ps = pstate(crew, player.id);
+  const allowed = phaseAllowed(ctx, crew);
+  if (allowed && !crewAi(crew).run) startRun(ctx, crew, crew.phase); // e.g. a server restart mid-contract
+  const rp = allowed ? runPlayer(crew, player.id) : null;
+  if (rp) rp.chunks++;
   if (!player.consent.transcribe) {
     if (ps.open) ps.open = null;
     stats.consentDrops++;
+    if (rp) rp.consentChunks++;
     return;
   }
-  if (!phaseAllowed(ctx, crew)) return;
+  if (!allowed) return;
   let seg = ps.open;
   if (seg && seg.segId !== h.segId) {
     closeSeg(ctx, crew, player, seg);
@@ -416,6 +498,13 @@ export function handleChunk(ctx: ServerContext, crew: Crew, player: ServerPlayer
 export function tick(ctx: ServerContext, crew: Crew): void {
   const st = crew.slices.ai as CrewAi | undefined;
   if (!st) return;
+  if (st.run) {
+    for (const p of crew.players.values()) {
+      if (!p.connected || (p.band | 0) <= 0) continue;
+      const rp = runPlayer(crew, p.id);
+      if (rp && (p.band | 0) > rp.maxBand) rp.maxBand = p.band | 0;
+    }
+  }
   const idle = balNum('sttIdleCloseMs', 1500);
   const now = performance.now();
   for (const [pid, ps] of st.players) {
@@ -428,6 +517,60 @@ export function tick(ctx: ServerContext, crew: Crew): void {
     }
     accumulate(ctx, crew, seg, speaker);
   }
+}
+
+// ---------------------------------------------------------------- per-contract evidence (server log, counts only)
+
+const BAND_NAME = ['SILENT', 'WHISPER', 'TALK', 'SHOUT', 'SCREAM'];
+
+function runPhases(): string[] {
+  const ph = aiBal().sttPhases;
+  return Array.isArray(ph) ? ph.map(String) : ['contract'];
+}
+
+function startRun(ctx: ServerContext, crew: Crew, phase: string): SttRun {
+  const st = crewAi(crew);
+  st.run = { phase, startedPerf: performance.now(), players: new Map(), firstUtteranceLogged: false, firstFailureLogged: false, listenerNearestM: Infinity };
+  for (const p of crew.players.values()) if (p.connected) runPlayer(crew, p.id);
+  const off = [...crew.players.values()].filter((p) => p.connected && !p.consent.transcribe).map((p) => p.name);
+  if (off.length) ctx.log('stt').info(`crew ${crew.code}: transcription OFF for ${off.join(', ')} (loudness only this ${phase})`);
+  return st.run;
+}
+
+/** one summary per transcribed phase: which players streamed voice, how much became text, what the Listener heard */
+export function endRun(ctx: ServerContext, crew: Crew): void {
+  const st = crew.slices.ai as CrewAi | undefined;
+  const run = st?.run;
+  if (!st || !run) return;
+  st.run = null;
+  const log = ctx.log('stt');
+  const secs = Math.round((performance.now() - run.startedPerf) / 1000);
+  const t = { segments: 0, utterances: 0, empty: 0, failed: 0, dropped: 0, heard: 0 };
+  for (const p of run.players.values()) {
+    t.segments += p.segments; t.utterances += p.utterances; t.empty += p.empty; t.failed += p.failed; t.dropped += p.dropped; t.heard += p.heard;
+  }
+  const near = Number.isFinite(run.listenerNearestM) ? `${run.listenerNearestM.toFixed(1)} m` : 'never within 40 m';
+  log.info(`crew ${crew.code}: STT ${run.phase} summary (${secs} s, sidecar ${ctx.env.STT_URL} ${stats.healthy === false ? 'DOWN' : 'up'}): ${t.segments} segments -> ${t.utterances} transcripts (${t.empty} empty, ${t.failed} failed, ${t.dropped} dropped); Listener heard ${t.heard}, closest speaker ${near}`);
+  for (const p of run.players.values()) {
+    let note = '';
+    if (p.chunks === 0) note = p.maxBand > 0 ? ' | NO voice chunks although its band rose above SILENT (client not streaming PCM)' : ' | no voice chunks: never above SILENT (muted, push-to-talk, or a very quiet mic)';
+    else if (p.consentChunks >= p.chunks) note = ' | transcription OFF (loudness only)';
+    log.info(`  ${p.name}: ${p.chunks} chunks, ${p.segments} segments, ${p.utterances} transcripts (${p.empty} empty, ${p.failed} failed, ${p.dropped} dropped), Listener heard ${p.heard}, loudest band ${BAND_NAME[p.maxBand] ?? p.maxBand}${note}`);
+  }
+}
+
+/** phase hook: entering a transcribed phase starts a run, leaving it logs the run's summary */
+export function onPhase(ctx: ServerContext, crew: Crew, _from: string, to: string): void {
+  const phases = runPhases();
+  const st = crewAi(crew);
+  if (st.run && !phases.includes(to)) endRun(ctx, crew);
+  if (!st.run && phases.includes(to)) startRun(ctx, crew, to);
+}
+
+export function sttRun(crew: Crew): { phase: string; listenerNearestM: number | null; players: Record<string, PlayerSttRun> } | null {
+  const run = crewAi(crew).run;
+  if (!run) return null;
+  return { phase: run.phase, listenerNearestM: Number.isFinite(run.listenerNearestM) ? Math.round(run.listenerNearestM * 10) / 10 : null, players: Object.fromEntries([...run.players].map(([id, p]) => [id, { ...p }])) };
 }
 
 export function dropPlayer(crew: Crew, pid: string): void {

@@ -228,29 +228,39 @@ export function placeSafes(layout: LevelLayout, num: (k: string) => number, n: n
     && s.id !== layout.entrance && s.rect.w >= 3 && s.rect.h >= 3);
   if (!rooms.length) return [];
   const maxD = Math.max(...rooms.map((r) => r.dist));
-  const pool = rooms.filter((r) => r.dist >= maxD * num('minDistFrac')).sort((a, b) => b.dist - a.dist || a.id - b.id)
-    .slice(0, Math.max(1, Math.round(num('poolSize'))));
   const want = rng.int(Math.round(num('countMin')), Math.round(num('countMax')));
   const out: Safe[] = [];
   const taken: { x: number; z: number }[] = [];
-  while (out.length < want && pool.length) {
-    const sp = pool.splice(rng.int(0, pool.length - 1), 1)[0]!;
-    const spot = wallSpot(layout, sp, rng, num, taken);
-    if (!spot) continue;
-    taken.push(spot);
-    const combo: number[] = [];
-    let prev = 0;
-    for (let i = 0; i < 3; i++) {
-      let c = rng.int(0, n - 1);
-      for (let t = 0; t < 32 && circ(c, prev, n) < num('minStep'); t++) c = rng.int(0, n - 1);
-      combo.push(c);
-      prev = c;
+  // pass 1 = the deepest rooms with full clearances; crowded sites (v1.1 layouts carry more props) used to end up with
+  // no safe at all, so later passes relax the door/item clearances and widen the pool until at least one fits
+  const passes: [relax: number, frac: number, pool: number][] = [
+    [1, num('minDistFrac'), num('poolSize')], [0.7, num('minDistFrac'), num('poolSize') * 2], [0.55, Math.min(0.3, num('minDistFrac')), rooms.length],
+  ];
+  for (const [relax, frac, size] of passes) {
+    // relaxed passes only make sure the site gets one safe
+    const enough = () => out.length >= want || (relax < 1 && out.length >= 1);
+    if (enough()) break;
+    const pool = rooms.filter((r) => r.dist >= maxD * frac && !out.some((s) => s.space === r.id))
+      .sort((a, b) => b.dist - a.dist || a.id - b.id).slice(0, Math.max(1, Math.round(size)));
+    while (!enough() && pool.length) {
+      const sp = pool.splice(rng.int(0, pool.length - 1), 1)[0]!;
+      const spot = wallSpot(layout, sp, rng, num, taken, relax);
+      if (!spot) continue;
+      taken.push(spot);
+      const combo: number[] = [];
+      let prev = 0;
+      for (let i = 0; i < 3; i++) {
+        let c = rng.int(0, n - 1);
+        for (let t = 0; t < 32 && circ(c, prev, n) < num('minStep'); t++) c = rng.int(0, n - 1);
+        combo.push(c);
+        prev = c;
+      }
+      out.push({
+        id: `safe:${out.length}`, x: spot.x, z: spot.z, face: spot.face, space: sp.id, combo,
+        value: rng.int(Math.round(num('rewardMin')), Math.round(num('rewardMax'))),
+        open: false, cracker: null, stage: 0, pos: 0, winAt: 0, winN: 0,
+      });
     }
-    out.push({
-      id: `safe:${out.length}`, x: spot.x, z: spot.z, face: spot.face, space: sp.id, combo,
-      value: rng.int(Math.round(num('rewardMin')), Math.round(num('rewardMax'))),
-      open: false, cracker: null, stage: 0, pos: 0, winAt: 0, winN: 0,
-    });
   }
   return out;
 }
@@ -261,7 +271,7 @@ function circ(a: number, b: number, n: number): number {
 }
 
 function wallSpot(layout: LevelLayout, sp: LayoutSpace, rng: { next(): number; int(lo: number, hi: number): number },
-  num: (k: string) => number, taken: { x: number; z: number }[]): { x: number; z: number; face: [number, number] } | null {
+  num: (k: string) => number, taken: { x: number; z: number }[], relax = 1): { x: number; z: number; face: [number, number] } | null {
   const r = sp.rect, ins = num('wallInsetM');
   const cands: { x: number; z: number; face: [number, number] }[] = [];
   for (const f of [0.5, 0.3, 0.7, 0.2, 0.8]) {
@@ -275,7 +285,7 @@ function wallSpot(layout: LevelLayout, sp: LayoutSpace, rng: { next(): number; i
     const j = rng.int(0, i);
     [cands[i], cands[j]] = [cands[j]!, cands[i]!];
   }
-  const doorClear = num('doorClearM'), itemClear = num('itemClearM');
+  const doorClear = num('doorClearM') * relax, itemClear = num('itemClearM') * relax;
   for (const c of cands) {
     const cx = Math.floor(c.x), cz = Math.floor(c.z);
     if (cx < 0 || cz < 0 || cx >= layout.W || cz >= layout.H || layout.owner[cz * layout.W + cx] !== sp.id) continue;

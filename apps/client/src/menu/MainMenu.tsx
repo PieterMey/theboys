@@ -200,7 +200,7 @@ export function MainMenu({ ctx, view: viewProp }: ScreenProps) {
         <span class="mm-foot-r">CHROME + WIRED HEADSET RECOMMENDED</span>
       </footer>
 
-      {entering && (
+      {entering && !ctx.services.use('loading') && (
         <div class="mm-entering" data-testid="menu-entering">
           <div class="mm-entering-box">
             <div class="mm-entering-k">CREW {ctx.world.crew?.code ?? ''} · SIGNAL ACQUIRED</div>
