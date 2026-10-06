@@ -89,6 +89,8 @@ export function decodeVoiceChunk(buf: Uint8Array): { h: VoiceChunkHeader; pcm: I
     end: (buf[7] & 2) !== 0,
     maxBand: buf[8],
   };
-  const bytes = buf.slice(VOICE_CHUNK_HEADER_BYTES); // copy => aligned
+  // Copy into a fresh, aligned ArrayBuffer. Note: Node's Buffer.slice() returns a VIEW into a shared pool slab,
+  // so `buf.slice(...).buffer` would point at unrelated bytes; `new Uint8Array(view)` always copies.
+  const bytes = new Uint8Array(buf.subarray(VOICE_CHUNK_HEADER_BYTES));
   return { h, pcm: new Int16Array(bytes.buffer, 0, bytes.byteLength >> 1) };
 }

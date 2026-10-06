@@ -332,7 +332,7 @@ export function install(ctx: ClientContext): void {
     if (gs.victim === me) return h('div', { class: 'hud-chip', style: 'color:#ff6b5b;font-weight:700;letter-spacing:0.12em' }, 'IT HAS YOU — SCREAM FOR HELP');
     return nearGrab() ? h('div', { class: 'hud-chip', style: 'color:#ffd27a;font-weight:700;letter-spacing:0.1em' }, '[E] SHOVE IT OFF') : null;
   }, { id: 'monsters-grab', order: 5 });
-  ctx.ui.registerHud('top-right', () => (ledUntil.value > performance.now()
+  ctx.ui.registerHud('top-right', () => (ledUntil.value > performance.now() && !use<unknown>('interaction')
     ? h('div', { class: 'hud-chip', title: 'walkie', style: 'color:#ff3030' }, h('span', { style: 'display:inline-block;width:9px;height:9px;border-radius:50%;background:#ff2a2a;box-shadow:0 0 8px #ff2a2a;margin-right:6px' }), 'RX')
     : null), { id: 'monsters-led', order: 60 });
 
@@ -504,6 +504,9 @@ export function install(ctx: ClientContext): void {
       views: () => [...views.values()].map((v) => ({ id: v.id, kind: v.kind, model: !!v.model, visible: v.root.visible, anim: v.current, state: v.state, loop: v.loopKey })),
       loaded: () => !!lib,
       layout: () => ctx.world.layout,
+      tint: (id: string, hex: number) => { const v = views.get(id); let n = 0; v?.root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && (m.material as THREE.MeshStandardNodeMaterial).color) { (m.material as THREE.MeshStandardNodeMaterial).color.setHex(hex); n++; } }); return n; },
+      basic: (id: string) => { const v = views.get(id); let n = 0; v?.root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.material = new THREE.MeshBasicNodeMaterial({ color: 0x000000 }); n++; } }); return n; },
+      mat: (id: string, kind: string) => { const v = views.get(id); v?.root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && !(m.material as THREE.Material).name.startsWith('eye')) { const old = m.material as THREE.MeshStandardMaterial; m.material = kind === 'std' ? new THREE.MeshStandardNodeMaterial({ color: 0x000000, roughness: 1, metalness: 0 }) : kind === 'stdmap' ? new THREE.MeshStandardNodeMaterial({ color: 0x050505, roughness: 1, metalness: 0, map: old.map ?? null }) : kind === 'lambert' ? new THREE.MeshLambertNodeMaterial({ color: 0x000000 }) : new THREE.MeshStandardNodeMaterial({ color: 0x000000, roughness: 1, metalness: 0, flatShading: true }); } }); return true; },
       see: () => { try { reportSightings(1); return { ...seeStats, acc: seeAcc }; } catch (e) { return { error: String(e instanceof Error ? e.stack : e) }; } },
       debug: (id: string) => {
         const v = views.get(id);

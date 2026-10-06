@@ -102,7 +102,8 @@ export function ensureHostSecrets(state) {
 
 /** start the prod game server detached; resolves once /healthz answers */
 export async function startGameServer(state, port = PORT) {
-  const env = { ...process.env, PORT: String(port), NODE_ENV: 'production', ADMIN_TOKEN: state.adminToken, HOST_CREW: state.crew };
+  // AI_MODE defaults to 'live' for the real session (dev/tests default to mock); override with AI_MODE=mock
+  const env = { ...process.env, AI_MODE: process.env.AI_MODE ?? 'live', PORT: String(port), NODE_ENV: 'production', ADMIN_TOKEN: state.adminToken, HOST_CREW: state.crew };
   const args = existsSync(ENV_FILE) ? [`--env-file=${ENV_FILE}`, 'apps/server/src/index.ts', '--prod'] : ['apps/server/src/index.ts', '--prod'];
   const pid = detached(process.execPath, args, 'server.log', env);
   state.serverPid = pid;

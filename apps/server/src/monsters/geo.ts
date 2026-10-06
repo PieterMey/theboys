@@ -109,6 +109,12 @@ export function monsterCanOpen(L: LevelLayout): CanOpen {
 
 export function planTo(cm: CrewMonsters, a: Agent, tx: number, tz: number, canOpen?: CanOpen, maxCost = 400): boolean {
   const g = cm.grid;
+  // the van is a sanctuary: monsters never path into the cab
+  if (inCab(cm.layout, tx, tz)) {
+    a.path = null;
+    a.planAt = cm.time;
+    return false;
+  }
   const r = astar(g, a.x, a.z, tx, tz, { mode: 'walk', doorOpen: cm.doorOpen, canOpen, maxCost });
   a.planAt = cm.time;
   a.goalX = tx;

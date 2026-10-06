@@ -186,7 +186,8 @@ export function makeRt(ctx: ServerContext, crew: Crew, cm: CrewMonsters, onDeath
       for (const p of crew.players.values()) if (isAlive(crew, p)) out.push(p);
       return out;
     },
-    hidden: (p) => isHidden(crew, p),
+    // hidden in a locker, or inside the sealed van cab (sanctuary): untouchable
+    hidden: (p) => isHidden(crew, p) || inCab(cm.layout, p.pose.p[0], p.pose.p[2]),
     retreat(a, sec) {
       a.active = false;
       a.state = 'out';

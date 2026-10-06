@@ -4,7 +4,7 @@
 // chosen via anim.clipmap. Missing assets -> null (index.ts keeps procedural placeholders).
 import * as THREE from 'three/webgpu';
 import {
-  color, float, mix, mx_fractal_noise_float, mx_noise_float, mx_worley_noise_vec2, positionGeometry, smoothstep, uniform, vec3,
+  color, float, luminance, materialColor, mix, mx_fractal_noise_float, mx_noise_float, mx_worley_noise_vec2, positionGeometry, smoothstep, uniform, vec3,
 } from 'three/tsl';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
@@ -184,12 +184,14 @@ function geoSize(m: THREE.Mesh): number {
 function prepHound(scene: THREE.Object3D): void {
   eachMesh(scene, (m) => {
     const src = m.material as THREE.MeshStandardMaterial;
-    const mat = new THREE.MeshStandardNodeMaterial();
-    // the friendly tan coat must go: the atlas multiplied down to a near-black, slightly brown mangy hide
+    // Lambert on purpose: PBR (Standard/Physical) node materials render this skinned GLB as a flat pale fill under
+    // the render pipeline (verified tonight: even with a black albedo), Lambert shades it correctly.
+    // The friendly tan coat must go: the atlas multiplied down to a near-black, slightly brown mangy hide.
+    const mat = new THREE.MeshLambertNodeMaterial();
     if (src.map) mat.map = src.map;
-    mat.color = new THREE.Color(0.016, 0.0145, 0.0135);
-    mat.roughness = 0.82;
-    mat.metalness = 0;
+    // desaturated + crushed: a grey-black hide where the tan was, the white patches stay a dirty grey
+    const lum = luminance(materialColor.rgb);
+    mat.colorNode = mix(vec3(0.004, 0.0037, 0.0035), vec3(0.03, 0.028, 0.026), smoothstep(float(0.05), float(0.9), lum));
     m.material = mat;
   });
 }
@@ -279,10 +281,41 @@ export function instantiate(t: MonsterTemplate): MonsterModel {
     a.clampWhenFinished = !c.loop;
     actions.set(id, a);
   }
-  let head: THREE.Object3D | null = null, neck: THREE.Object3D | null = null;
+  let head: THREE.Object3D | null = null, neck: THREE.Object3D | null = null, body: THREE.Object3D | null = null;
   inner.traverse((o) => {
     if (o.name === 'Head') head = o;
     if (o.name === 'neck_01' || o.name === 'Neck3') neck = o;
+    if (o.name === 'Body' || o.name === 'Torso') body ??= o;
   });
+  if (t.kind === 'hound' && head && body && EYES) addBlindEyes(root, head, body);
   return { root, mixer, actions, clips: t.clips, head, neck };
+}
+
+const EYES = new URLSearchParams(location.search).get('houndeyes') !== '0';
+const EYE_MAT = (() => {
+  const m = new THREE.MeshBasicNodeMaterial();
+  m.colorNode = vec3(0.78, 0.84, 0.88).mul(1.6);
+  return m;
+})();
+const EYE_GEO = new THREE.SphereGeometry(1, 10, 8);
+
+/** milky, faintly glowing blind eyes parented to the head bone (they catch the dark first) */
+function addBlindEyes(root: THREE.Object3D, head: THREE.Object3D, body: THREE.Object3D): void {
+  root.updateMatrixWorld(true);
+  const hp = head.getWorldPosition(new THREE.Vector3());
+  const bp = body.getWorldPosition(new THREE.Vector3());
+  const fwd = new THREE.Vector3(hp.x - bp.x, 0, hp.z - bp.z);
+  if (fwd.lengthSq() < 1e-8) return;
+  fwd.normalize();
+  const side = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
+  const ws = head.getWorldScale(new THREE.Vector3());
+  for (const sgn of [1, -1]) {
+    const w = hp.clone().addScaledVector(fwd, 0.085).add(new THREE.Vector3(0, 0.045, 0)).addScaledVector(side, 0.034 * sgn);
+    const eye = new THREE.Mesh(EYE_GEO, EYE_MAT);
+    eye.position.copy(head.worldToLocal(w));
+    eye.scale.set(0.013 / ws.x, 0.011 / ws.y, 0.013 / ws.z);
+    eye.castShadow = false;
+    eye.frustumCulled = false;
+    head.add(eye);
+  }
 }
