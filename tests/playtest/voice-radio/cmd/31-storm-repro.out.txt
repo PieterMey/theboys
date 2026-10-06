@@ -1,0 +1,22 @@
+{
+ "pre": "connected",
+ "tl": [
+  "t+3s Quiet->Talker connected | Talker->Quiet connected | rebuilds Q 0 T 2",
+  "t+6s Quiet->Talker connected | Talker->Quiet connected | rebuilds Q 0 T 2",
+  "t+9s Quiet->Talker connected | Talker->Quiet connected | rebuilds Q 0 T 2",
+  "t+12s Quiet->Talker connected | Talker->Quiet connected | rebuilds Q 0 T 2",
+  "t+15s Quiet->Talker connected | Talker->Quiet connected | rebuilds Q 0 T 2",
+  "t+18s Quiet->Talker connected | Talker->Quiet connected | rebuilds Q 0 T 2"
+ ],
+ "lastQuietLogs": [
+  "17:45:12 peer pJQy1hLErLR: ICE disconnected >5s -> restartIce",
+  "17:46:12 peer p17v-qARqY6: ICE disconnected >5s -> restartIce",
+  "17:46:17 peer p17v-qARqY6: ICE disconnected >5s -> restartIce",
+  "17:46:57 peer pkJGcpQNply: ICE disconnected >5s -> restartIce",
+  "17:47:11 peer p777JwwzSvx: got answer sid=074e21417f5b state=have-local-offer collision=false polite=false",
+  "17:47:11 remote stream from p777JwwzSvx",
+  "17:50:27 peer pI02_7VSqTt: got answer sid=f2495d019524 state=have-local-offer collision=false polite=false",
+  "17:50:27 remote stream from pI02_7VSqTt"
+ ]
+}
+-- 20.9 s

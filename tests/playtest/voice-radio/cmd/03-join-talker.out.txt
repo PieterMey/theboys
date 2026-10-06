@@ -1,0 +1,20 @@
+{
+ "t": 34.49,
+ "net": "joined",
+ "screen": "none",
+ "phase": "hub",
+ "me": "pI02_7VSqTt",
+ "crew": "VRAD",
+ "voice": {
+  "peers": 0,
+  "voices": 0,
+  "band": 2,
+  "mic": true,
+  "listener": "camera"
+ },
+ "errors": [
+  "59.9 info: [voice] mic live: {\"autoGainControl\":false,\"channelCount\":1,\"deviceId\":\"default\",\"echoCancellation\":true,\"groupId\":\"b7e8acbcb67c2744770a2d3db2024c33ba9db03b0bdfcc325edb6d01a1875578\",\"latency\":0.01,\"noiseSuppression\":true,\"sampleRate\":48000,\"sampleSize\":16,\"voiceIsolation\":false,\"label\":\"Fake Default Audio Input\"}",
+  "78.8 warning: THREE.KTX2Loader: Multiple active KTX2 loaders may cause performance issues. Use a single KTX2Loader instance, or call .dispose() on old instances."
+ ]
+}
+-- 34.5 s

@@ -246,6 +246,26 @@ export function buildVan(L: LevelLayout, lm: LevelMaterials): THREE.Group {
   const innerMesh = new THREE.Mesh(mergeGeometries(inner), dark);
   innerMesh.name = 'van.interior';
   g.add(innerMesh);
+  // cargo liner (the bare body skin is near-white and blew the cargo light out to a white box): plywood kick panels,
+  // grey-green painted upper walls + partition, dark roof liner. Thin panels just inside the skin, behind the ribs.
+  const ply: THREE.BufferGeometry[] = [];
+  const upper: THREE.BufferGeometry[] = [];
+  const zl0 = c.y + 0.02, zl1 = zp - 0.05, zlc = (zl0 + zl1) / 2, zlen = zl1 - zl0;
+  const yTop = roof - 0.11, yMid = 1.15;
+  for (const xs of [c.x + 0.026, c.x + c.w - 0.026]) {
+    ply.push(box(0.01, yMid - floorY, zlen, xs, floorY + (yMid - floorY) / 2, zlc));
+    upper.push(box(0.01, yTop - yMid, zlen, xs, yMid + (yTop - yMid) / 2, zlc));
+  }
+  upper.push(box(c.w - 0.06, yTop - floorY, 0.01, c.x + c.w / 2, floorY + (yTop - floorY) / 2, zp - 0.046));
+  const plyMesh = new THREE.Mesh(mergeGeometries(ply), lm.get('wood'));
+  plyMesh.name = 'van.liner.ply';
+  g.add(plyMesh);
+  const upMesh = new THREE.Mesh(mergeGeometries(upper), lm.get('metal_painted'));
+  upMesh.name = 'van.liner.upper';
+  g.add(upMesh);
+  const roofLiner = new THREE.Mesh(box(c.w - 0.04, 0.01, zlen, c.x + c.w / 2, yTop + 0.005, zlc), dark);
+  roofLiner.name = 'van.liner.roof';
+  g.add(roofLiner);
   // skirt + bumpers + wheel arches
   const low: THREE.BufferGeometry[] = [];
   low.push(box(W, sill - 0.05, zn - zr - 1.9, cx, 0.05 + (sill - 0.05) / 2, (zr + zn) / 2));

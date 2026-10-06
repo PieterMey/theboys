@@ -1,0 +1,29 @@
+const nav = await import('file:///C:/Users/Pieter/repos/theboys/tests/playtest/contract-run/nav.ts?v=3');
+h.nav = nav;
+const pg = A.page, pb = B.page;
+// aim helper: sweep around a point until the crosshair targets id
+const aimAt = async (p, id, x, y, z) => {
+  for (const [ox, oy] of [[0, 0], [0, 0.1], [0, -0.1], [0.15, 0], [-0.15, 0], [0.25, 0.1], [-0.25, 0.1], [0, 0.25], [0, -0.25]]) {
+    const ps = await nav.pose(p);
+    const yaw = Math.atan2(x - ps.p[0], z - ps.p[2]) + ox;
+    const pitch = Math.atan2(y - 1.6, Math.hypot(x - ps.p[0], z - ps.p[2])) + oy;
+    await p.evaluate(([a, b]) => window.__game.look(a, b), [yaw, pitch]);
+    await h.sleep(120);
+    const t = await p.evaluate(() => window.__ix.target());
+    if (t && t.id === id) return { ok: true, off: [ox, oy], text: t.view && t.view.text };
+  }
+  return { ok: false };
+};
+h.aimAt = aimAt;
+await h.tap(pg, 'Escape');
+await h.sleep(600);
+log('Ann screen after Esc', (await h.st(pg)).screen);
+await pg.mouse.click(800, 450);
+const [sx, sz] = await nav.standNear(pg, 20.5, 0.205, 1.0, 0);
+const r = await nav.walkTo(pg, sx, sz, { log: (...a) => log('A', ...a), timeoutMs: 90000 });
+log('Ann to lever1', r.ok, r.end, r.reason, JSON.stringify(r.stuck), r.doorsOpened);
+log('Ann aim', await aimAt(pg, 'lever:1', 20.5, 1.2, 0.205));
+log('Bob aim', await aimAt(pb, 'lever:0', 21.5, 1.2, 16.795));
+await h.shot(pg, '21-ann-at-lever1');
+await h.shot(pb, '22-bob-at-lever0-aimed');
+return {};

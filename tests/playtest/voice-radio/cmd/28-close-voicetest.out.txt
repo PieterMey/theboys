@@ -1,0 +1,11 @@
+{
+ "s0": "C:\\Users\\Pieter\\repos\\theboys\\tests\\playtest\\voice-radio\\shots\\28-voicetest-phone-initial.png",
+ "s1": "C:\\Users\\Pieter\\repos\\theboys\\tests\\playtest\\voice-radio\\shots\\28-voicetest-phone-joined.png",
+ "txt": "DEAD AIR\n\nVOICE LINK TEST · DEV\n\nREJOIN\n\nStatus: joined · rtt 4 ms\n\nforce relay (TURN only: tests the relay path, hides your IP)\nYOUR MIC\n-140 dBFS · band 0\nPEERS (2)\nQuiet\nDIRECT (host)\nband 0 · in -113 dBFS\nTalker\nDIRECT (host)\nband 2 · in -20 dBFS\n\nTip: on mobile data this proves the TURN relay works. Use headphones to avoid echo.",
+ "peers": {
+  "pT21aCqwhqG": "connected/host rx 12176 rms 0.000",
+  "pI02_7VSqTt": "connected/host rx 21430 rms 0.071"
+ },
+ "errors": []
+}
+-- 138.6 s

@@ -1,0 +1,8 @@
+[17:56:04] server up pid 70128 (probe3)
+[17:56:25] 41-ivy-first-join +0.0s {"screen":"join","net":"joined","phase":"hub","entering":"CREW IVYY · SIGNAL ACQUIRED ENTERING THE LOT…","fade":false,"fps":77,"frameMs":202}
+[17:56:52] 41-ivy-first-join +26.3s {"screen":"none","net":"joined","phase":"hub","entering":null,"fade":false,"fps":120,"frameMs":8}
+[17:56:54] 41-ivy-first-join +28.9s {"screen":"none","net":"joined","phase":"hub","entering":null,"fade":false,"fps":113,"frameMs":8}
+[17:57:22] 44-ivy-rejoin-mid-contract +0.1s {"screen":"join","net":"joined","phase":"contract","entering":"CREW IVYY · SIGNAL ACQUIRED ENTERING THE LOT…","fade":false,"fps":84,"frameMs":201}
+[17:57:55] 44-ivy-rejoin-mid-contract +33.4s {"screen":"none","net":"joined","phase":"contract","entering":null,"fade":false,"fps":100,"frameMs":10}
+[17:57:58] 44-ivy-rejoin-mid-contract +35.9s {"screen":"none","net":"joined","phase":"contract","entering":null,"fade":false,"fps":100,"frameMs":10}
+[17:57:59] probe3 done

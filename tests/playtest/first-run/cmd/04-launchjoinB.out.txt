@@ -1,0 +1,35 @@
+{
+ "samples": [
+  "5.33s net=open screen=join btn=CONNECTING… fps=20"
+ ],
+ "screenAfter": "join",
+ "pose": {
+  "x": 15,
+  "z": 8.6,
+  "yaw": 0
+ },
+ "hasMic": {
+  "band": 2,
+  "mic": {
+   "autoGainControl": false,
+   "channelCount": 1,
+   "deviceId": "default",
+   "echoCancellation": true,
+   "groupId": "60f625c12a057c9f11c6a417dfc81f8f3eb8e3d6de0bc8580326f01d94a774f3",
+   "latency": 0.01,
+   "noiseSuppression": true,
+   "sampleRate": 48000,
+   "sampleSize": 16,
+   "voiceIsolation": false,
+   "label": "Fake Default Audio Input"
+  }
+ },
+ "console": [
+  "145.3 error: bad server frame: sameLayout is not defined",
+  "145.3 error: bad server frame: sameLayout is not defined",
+  "145.3 error: event meta.update: sameLayout is not defined",
+  "157.2 warning: [render] material 'vintage_flashlight' on 'mesh_0' uses 6 textures (> 3): risks the 16-sampler limit with shadowed flashlights",
+  "157.2 warning: [render] material 'vintage_flashlight_glass' on 'mesh_0_1' uses 5 textures (> 3): risks the 16-sampler limit with shadowed flashlights"
+ ]
+}
+-- 56.9 s

@@ -1,0 +1,13 @@
+{
+ "ms": 12841,
+ "error": null,
+ "logs": [
+  "Ann inv after E [\"walkie\",null,null,null]",
+  "Bob walk {\"ok\":false,\"stuck\":[],\"doorsOpened\":[],\"ms\":162,\"end\":[16,26.6],\"reason\":\"no path from 16.0,26.6\"}",
+  "Bob target null",
+  "Bob inv [\"walkie\",null,null,null]",
+  "Ann walk to van {\"ok\":true,\"stuck\":[],\"doorsOpened\":[],\"ms\":10404,\"end\":[16.33,27.66]}",
+  "Ann target at van {\"id\":\"deposit:0\",\"view\":{\"id\":\"deposit:0\",\"text\":\"Deposit loot\",\"key\":\"E\",\"enabled\":true}}"
+ ],
+ "result": {}
+}

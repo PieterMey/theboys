@@ -1,0 +1,14 @@
+const A = P.A.page;
+await h.tap(A, 'Escape');
+await h.sleep(700);
+const out = { screen: (await h.st(A)).screen };
+await A.mouse.click(1000, 450); await h.sleep(400);
+out.locked = await A.evaluate(() => !!document.pointerLockElement);
+const q = await A.evaluate(() => window.__players.local());
+await A.evaluate(([y]) => window.__game.look(y, -0.12), [Math.atan2(5.13 - q.p[0], 17.19 - q.p[2])]);
+await h.sleep(800);
+out.band = await A.evaluate(() => window.__voiceDebug.band());
+out.light = await A.evaluate(() => window.__players.local().light);
+await h.shot(A, '17-A-hound-view');
+out.hound = await A.evaluate(() => window.__game.state().monsters.map(m => ({ st: m.st, anim: m.anim, yaw: m.yaw })));
+return out;

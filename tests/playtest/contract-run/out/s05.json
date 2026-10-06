@@ -1,0 +1,507 @@
+{
+ "ms": 67,
+ "error": null,
+ "logs": [
+  "freeze {\"frozen\":true}"
+ ],
+ "result": {
+  "players": [
+   {
+    "id": "p-tDmuBdN26",
+    "p": [
+     14.8,
+     0,
+     26.6
+    ],
+    "yaw": 3.141592653589793
+   },
+   {
+    "id": "pag1X0nY5s9",
+    "p": [
+     16,
+     0,
+     26.6
+    ],
+    "yaw": 3.141592653589793
+   }
+  ],
+  "van": {
+   "x": 16,
+   "z": 30.5,
+   "yaw": 0,
+   "cab": {
+    "x": 15,
+    "y": 28,
+    "w": 2,
+    "h": 3
+   }
+  },
+  "WH": [
+   32,
+   36
+  ],
+  "spaces": [
+   {
+    "id": 0,
+    "kind": "corridor",
+    "type": "junction",
+    "cs": null,
+    "r": {
+     "x": 7,
+     "y": 6,
+     "w": 2,
+     "h": 2
+    }
+   },
+   {
+    "id": 1,
+    "kind": "corridor",
+    "type": "corridor",
+    "cs": null,
+    "r": {
+     "x": 9,
+     "y": 6,
+     "w": 15,
+     "h": 2
+    }
+   },
+   {
+    "id": 2,
+    "kind": "corridor",
+    "type": "junction",
+    "cs": null,
+    "r": {
+     "x": 24,
+     "y": 6,
+     "w": 2,
+     "h": 2
+    }
+   },
+   {
+    "id": 3,
+    "kind": "corridor",
+    "type": "junction",
+    "cs": null,
+    "r": {
+     "x": 7,
+     "y": 17,
+     "w": 2,
+     "h": 2
+    }
+   },
+   {
+    "id": 4,
+    "kind": "corridor",
+    "type": "corridor",
+    "cs": null,
+    "r": {
+     "x": 9,
+     "y": 17,
+     "w": 15,
+     "h": 2
+    }
+   },
+   {
+    "id": 5,
+    "kind": "corridor",
+    "type": "junction",
+    "cs": null,
+    "r": {
+     "x": 24,
+     "y": 17,
+     "w": 2,
+     "h": 2
+    }
+   },
+   {
+    "id": 6,
+    "kind": "corridor",
+    "type": "corridor",
+    "cs": null,
+    "r": {
+     "x": 7,
+     "y": 8,
+     "w": 2,
+     "h": 9
+    }
+   },
+   {
+    "id": 7,
+    "kind": "corridor",
+    "type": "corridor",
+    "cs": null,
+    "r": {
+     "x": 24,
+     "y": 8,
+     "w": 2,
+     "h": 9
+    }
+   },
+   {
+    "id": 8,
+    "kind": "hall",
+    "type": "laundry",
+    "cs": "LAUNDRY",
+    "r": {
+     "x": 9,
+     "y": 8,
+     "w": 15,
+     "h": 9
+    }
+   },
+   {
+    "id": 9,
+    "kind": "room",
+    "type": "server",
+    "cs": "SERVER",
+    "r": {
+     "x": 0,
+     "y": 0,
+     "w": 6,
+     "h": 6
+    }
+   },
+   {
+    "id": 10,
+    "kind": "vault",
+    "type": "vault",
+    "cs": "VAULT",
+    "r": {
+     "x": 6,
+     "y": 0,
+     "w": 6,
+     "h": 6
+    }
+   },
+   {
+    "id": 11,
+    "kind": "room",
+    "type": "cryo",
+    "cs": "CRYO",
+    "r": {
+     "x": 12,
+     "y": 0,
+     "w": 5,
+     "h": 6
+    }
+   },
+   {
+    "id": 12,
+    "kind": "hall",
+    "type": "furnace",
+    "cs": "FURNACE",
+    "r": {
+     "x": 17,
+     "y": 0,
+     "w": 10,
+     "h": 6
+    }
+   },
+   {
+    "id": 13,
+    "kind": "room",
+    "type": "cold",
+    "cs": "COLDROOM",
+    "r": {
+     "x": 27,
+     "y": 0,
+     "w": 5,
+     "h": 6
+    }
+   },
+   {
+    "id": 14,
+    "kind": "room",
+    "type": "showers",
+    "cs": "SHOWERS",
+    "r": {
+     "x": 0,
+     "y": 19,
+     "w": 6,
+     "h": 5
+    }
+   },
+   {
+    "id": 15,
+    "kind": "room",
+    "type": "lobby",
+    "cs": "LOBBY",
+    "r": {
+     "x": 6,
+     "y": 19,
+     "w": 10,
+     "h": 5
+    }
+   },
+   {
+    "id": 16,
+    "kind": "room",
+    "type": "pumps",
+    "cs": "PUMPS",
+    "r": {
+     "x": 16,
+     "y": 19,
+     "w": 11,
+     "h": 5
+    }
+   },
+   {
+    "id": 17,
+    "kind": "room",
+    "type": "mailroom",
+    "cs": "MAILROOM",
+    "r": {
+     "x": 27,
+     "y": 19,
+     "w": 5,
+     "h": 5
+    }
+   },
+   {
+    "id": 18,
+    "kind": "hall",
+    "type": "greenhouse",
+    "cs": "GREENHOUSE",
+    "r": {
+     "x": 0,
+     "y": 6,
+     "w": 7,
+     "h": 8
+    }
+   },
+   {
+    "id": 19,
+    "kind": "room",
+    "type": "nursery",
+    "cs": "NURSERY",
+    "r": {
+     "x": 0,
+     "y": 14,
+     "w": 7,
+     "h": 5
+    }
+   },
+   {
+    "id": 20,
+    "kind": "room",
+    "type": "storage",
+    "cs": "STORES",
+    "r": {
+     "x": 26,
+     "y": 6,
+     "w": 6,
+     "h": 7
+    }
+   },
+   {
+    "id": 21,
+    "kind": "room",
+    "type": "archive",
+    "cs": "ARCHIVE",
+    "r": {
+     "x": 26,
+     "y": 13,
+     "w": 6,
+     "h": 6
+    }
+   },
+   {
+    "id": 22,
+    "kind": "outside",
+    "type": "lot",
+    "cs": null,
+    "r": {
+     "x": 0,
+     "y": 24,
+     "w": 32,
+     "h": 12
+    }
+   },
+   {
+    "id": 23,
+    "kind": "room",
+    "type": "van",
+    "cs": "VAN",
+    "r": {
+     "x": 15,
+     "y": 28,
+     "w": 2,
+     "h": 3
+    }
+   }
+  ],
+  "levers": [
+   {
+    "id": "lever:0",
+    "p": [
+     21.5,
+     1.2,
+     16.795
+    ],
+    "rot": 3.141592653589793,
+    "space": 8,
+    "zone": 1,
+    "down": false
+   },
+   {
+    "id": "lever:1",
+    "p": [
+     20.5,
+     1.2,
+     0.205
+    ],
+    "rot": 0,
+    "space": 12,
+    "zone": 1,
+    "down": false
+   }
+  ],
+  "keypad": {
+   "id": "keypad:0",
+   "p": [
+    11.35,
+    1.35,
+    6.11
+   ],
+   "rot": 0,
+   "space": 1,
+   "zone": 1,
+   "door": 28,
+   "enabled": false,
+   "lockedUntil": 0
+  },
+  "core": {
+   "p": [
+    9,
+    0,
+    3
+   ],
+   "state": "vault"
+  },
+  "deposit": {
+   "p": [
+    16,
+    0,
+    28.75
+   ],
+   "r": 0.9
+  },
+  "leave": {
+   "id": "leave_lever:0",
+   "p": [
+    15.18,
+    1.15,
+    29.75
+   ],
+   "rot": 1.5707963267948966
+  },
+  "loot": [
+   {
+    "id": "it2",
+    "name": "Reading glasses",
+    "v": 31,
+    "p": [
+     27.358,
+     0,
+     23.564
+    ],
+    "where": "world"
+   },
+   {
+    "id": "it3",
+    "name": "Typewriter",
+    "v": 69,
+    "p": [
+     30.559,
+     0,
+     14.446
+    ],
+    "where": "world"
+   },
+   {
+    "id": "it4",
+    "name": "Safe deposit box",
+    "v": 264,
+    "p": [
+     13.407,
+     0,
+     4.585
+    ],
+    "where": "world"
+   },
+   {
+    "id": "it5",
+    "name": "Fuse box",
+    "v": 35,
+    "p": [
+     26.674,
+     0,
+     5.329
+    ],
+    "where": "world"
+   },
+   {
+    "id": "it6",
+    "name": "Fuse box",
+    "v": 59,
+    "p": [
+     27.652,
+     0,
+     18.66
+    ],
+    "where": "world"
+   },
+   {
+    "id": "it7",
+    "name": "Fuse box",
+    "v": 38,
+    "p": [
+     27.658,
+     0,
+     4.305
+    ],
+    "where": "world"
+   }
+  ],
+  "lootMode": "interaction",
+  "code": "2287",
+  "notes": [
+   {
+    "id": "note:1",
+    "t": "Inside of a cigarette packet",
+    "p": [
+     0.09,
+     1.45,
+     20.5
+    ]
+   },
+   {
+    "id": "note:0",
+    "t": "Written on the back of a glove",
+    "p": [
+     26.5,
+     1.45,
+     0.09
+    ]
+   },
+   {
+    "id": "note:2",
+    "t": "Maintenance tag",
+    "p": [
+     29.5,
+     1.45,
+     23.91
+    ]
+   },
+   {
+    "id": "note:3",
+    "t": "Incident report",
+    "p": [
+     4.5,
+     1.45,
+     0.09
+    ]
+   }
+  ]
+ }
+}

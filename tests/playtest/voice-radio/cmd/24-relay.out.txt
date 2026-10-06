@@ -1,0 +1,55 @@
+{
+ "id": "pkJGcpQNply",
+ "alive": true,
+ "phase": "contract",
+ "ice": {
+  "relayOnly": true,
+  "servers": [
+   {
+    "urls": [
+     "stun:stun.cloudflare.com:3478",
+     "stun:stun.cloudflare.com:443"
+    ],
+    "hasCredential": false
+   },
+   {
+    "urls": [
+     "turn:turn.cloudflare.com:3478?transport=udp",
+     "turn:turn.cloudflare.com:3478?transport=tcp",
+     "turns:turn.cloudflare.com:5349?transport=tcp",
+     "turn:turn.cloudflare.com:443?transport=udp",
+     "turn:turn.cloudflare.com:80?transport=tcp",
+     "turns:turn.cloudflare.com:443?transport=tcp"
+    ],
+    "hasCredential": true
+   }
+  ]
+ },
+ "peers": {
+  "Talker": "connected/relay rx 3938->14132",
+  "Shouter": "connected/relay rx 0->10795",
+  "Quiet": "connected/relay rx 1536->7381",
+  "Tone2": "connected/relay rx 3066->16593"
+ },
+ "otherSide": {
+  "Quiet": {
+   "state": "connected",
+   "candidate": "relay",
+   "bytesReceived": 15455,
+   "rmsL": 0,
+   "rmsR": 0,
+   "gain": 0,
+   "band": 1
+  },
+  "Tone2": {
+   "state": "connected",
+   "candidate": "relay",
+   "bytesReceived": 11275,
+   "rmsL": 0,
+   "rmsR": 0,
+   "gain": 0,
+   "band": 1
+  }
+ }
+}
+-- 21.0 s

@@ -1,0 +1,7 @@
+const pg = A.page, pb = B.page;
+const ix = await pg.evaluate(() => { const s = window.__ix.state(); return { inv: s.inventories, active: s.active, items: Object.fromEntries(Object.entries(s.items).filter(([k, v]) => v.type.startsWith('loot') || v.where === 'held').map(([k, v]) => [k, { t: v.type, w: v.where, h: v.holder, p: v.p }])) }; });
+const o = await pg.evaluate(() => { const o = window.__game.state().objectives; return { salvage: o.salvage, loot: o.loot.map((l) => [l.id, l.where, l.holder]) }; });
+const { L, g } = await h.nav.grid(pb);
+const sn = await h.nav.standNear(pb, 27.652, 18.66, 1.0);
+const own = (x, z) => L.owner[Math.floor(z) * L.W + Math.floor(x)];
+return { ix, o, sn, ownSn: own(sn[0], sn[1]), ownItem: own(27.652, 18.66), ownBob: own(16, 26.6), errA: A.errors.slice(-5) };

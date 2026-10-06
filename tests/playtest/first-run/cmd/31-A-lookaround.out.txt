@@ -1,0 +1,82 @@
+{
+ "van": {
+  "x": 17,
+  "y": 28,
+  "w": 2,
+  "h": 3
+ },
+ "deposit": {
+  "p": [
+   18,
+   0,
+   28.75
+  ],
+  "r": 0.9
+ },
+ "items": [
+  {
+   "id": "console:0",
+   "kind": "console",
+   "x": 18,
+   "z": 30.645,
+   "rot": 3.141592653589793
+  },
+  {
+   "id": "leave_lever:0",
+   "kind": "leave_lever",
+   "x": 17.18,
+   "z": 29.75,
+   "rot": 1.5707963267948966
+  },
+  {
+   "id": "deposit:0",
+   "kind": "deposit",
+   "x": 18,
+   "z": 28.75,
+   "rot": 0
+  },
+  {
+   "id": "spawn_player:0",
+   "kind": "spawn_player",
+   "x": 16.8,
+   "z": 26.6,
+   "rot": 3.141592653589793
+  },
+  {
+   "id": "spawn_player:1",
+   "kind": "spawn_player",
+   "x": 18,
+   "z": 26.6,
+   "rot": 3.141592653589793
+  },
+  {
+   "id": "spawn_player:2",
+   "kind": "spawn_player",
+   "x": 19.2,
+   "z": 26.6,
+   "rot": 3.141592653589793
+  },
+  {
+   "id": "spawn_player:3",
+   "kind": "spawn_player",
+   "x": 16.8,
+   "z": 25.5,
+   "rot": 3.141592653589793
+  },
+  {
+   "id": "spawn_player:4",
+   "kind": "spawn_player",
+   "x": 18,
+   "z": 25.5,
+   "rot": 3.141592653589793
+  },
+  {
+   "id": "spawn_player:5",
+   "kind": "spawn_player",
+   "x": 19.2,
+   "z": 25.5,
+   "rot": 3.141592653589793
+  }
+ ]
+}
+-- 5.3 s

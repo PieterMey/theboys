@@ -1,0 +1,21 @@
+{
+ "note": "Voice mimicry · coming soon (always off tonight)\nSome content is AI-generated (work orders, HR memos, the Listener's choices). Speech is transcribed on the host PC; only text goes to Claude/JEV, never audio.\nRETURNING CONTRACTOR? RECLAIM YOUR BADGE\nMicrophone OK.",
+ "samples": [
+  "2.0 net=joined screen=join btn=ENTERING THE LOT…",
+  "4.7 net=joined screen=join btn=ENTERING THE LOT…",
+  "5.2 net=joined screen=join btn=ENTERING THE LOT…",
+  "24.9 net=joined screen=none btn=null"
+ ],
+ "screen": "none",
+ "phase": "hub",
+ "crew": "PLAY1",
+ "players": [
+  "Ann"
+ ],
+ "console": [
+  "26.8 warning: [render] material 'vintage_flashlight' on 'mesh_0' uses 6 textures (> 3): risks the 16-sampler limit with shadowed flashlights",
+  "26.8 warning: [render] material 'vintage_flashlight_glass' on 'mesh_0_1' uses 5 textures (> 3): risks the 16-sampler limit with shadowed flashlights",
+  "55.7 warning: THREE.KTX2Loader: Multiple active KTX2 loaders may cause performance issues. Use a single KTX2Loader instance, or call .dispose() on old instances."
+ ]
+}
+-- 28.1 s

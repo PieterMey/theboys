@@ -1,0 +1,11 @@
+{
+ "ms": 4890,
+ "error": null,
+ "logs": [
+  "shop {\"id\":\"shop:0\",\"kind\":\"shop\",\"x\":17.4,\"z\":13.9,\"rot\":1.5707963267948966}",
+  "to shop true [18.5,14.52]  []",
+  "target null",
+  "screen none"
+ ],
+ "result": {}
+}

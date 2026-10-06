@@ -184,14 +184,23 @@ function geoSize(m: THREE.Mesh): number {
 function prepHound(scene: THREE.Object3D): void {
   eachMesh(scene, (m) => {
     const src = m.material as THREE.MeshStandardMaterial;
-    // Lambert on purpose: PBR (Standard/Physical) node materials render this skinned GLB as a flat pale fill under
-    // the render pipeline (verified tonight: even with a black albedo), Lambert shades it correctly.
+    // PBR again (look pass, track ③): re-verified with the full render pipeline that Standard/Physical shade this
+    // skinned GLB correctly now (tests/render/houndlab.e2e.ts). Lambert read as a flat black cut-out; a damp, matted
+    // hide with a fur sheen catches the flashlight on the ribs, shoulders and skull, so the shape reads in the dark.
     // The friendly tan coat must go: the atlas multiplied down to a near-black, slightly brown mangy hide.
-    const mat = new THREE.MeshLambertNodeMaterial();
+    const mat = new THREE.MeshPhysicalNodeMaterial();
     if (src.map) mat.map = src.map;
     // desaturated + crushed: a grey-black hide where the tan was, the white patches stay a dirty grey
     const lum = luminance(materialColor.rgb);
-    mat.colorNode = mix(vec3(0.004, 0.0037, 0.0035), vec3(0.03, 0.028, 0.026), smoothstep(float(0.05), float(0.9), lum));
+    mat.colorNode = mix(vec3(0.006, 0.0055, 0.005), vec3(0.045, 0.04, 0.036), smoothstep(float(0.05), float(0.9), lum));
+    const k = uniform(1 / geoSize(m));
+    const wet = mx_fractal_noise_float(positionGeometry.mul(k).mul(9.0), 3, 2, 0.5).mul(0.5).add(0.5);
+    // matted wet clumps (glossy) between dry, dusty fur
+    mat.roughnessNode = mix(float(0.32), float(0.78), smoothstep(float(0.35), float(0.7), wet));
+    mat.metalness = 0;
+    mat.sheen = 0.6;
+    mat.sheenRoughness = 0.55;
+    mat.sheenColor = new THREE.Color(0x5a5550);
     m.material = mat;
   });
 }

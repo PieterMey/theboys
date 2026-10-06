@@ -1,0 +1,92 @@
+[0.0s] driver up; waiting for cmd/*.js
+[12.0s] run 01-launch-talker.js
+[14.5s] launched Talker (talk_en.wav) -> http://127.0.0.1:3204/?test=1#VRAD
+[36.7s] done 01-launch-talker.js
+[52.9s] run 02-allow-mic.js
+[52.9s] done 02-allow-mic.js
+[59.8s] run 02b-allow-mic.js
+[63.7s] done 02b-allow-mic.js
+[76.6s] run 03-join-talker.js
+[111.1s] done 03-join-talker.js
+[124.7s] run 04-launch-others.js
+[125.7s] launched Shouter (shout.wav) -> http://127.0.0.1:3204/?test=1&autojoin=1&nobright=1#VRAD
+[125.8s] launched Tone (tone440.wav) -> http://127.0.0.1:3204/?test=1&autojoin=1&nobright=1#VRAD
+[130.2s] launched Quiet (silence.wav) -> http://127.0.0.1:3204/?test=1&autojoin=1&nobright=1#VRAD
+[175.7s] done 04-launch-others.js
+[189.9s] run 05-mesh-recheck.js
+[230.7s] done 05-mesh-recheck.js
+[385.8s] run 06-bands.js
+[395.7s] done 06-bands.js
+[454.5s] run 07-relaunch-tone.js
+[455.2s] closed Tone
+[479.7s] launched Tone2 (tone440.wav) -> http://127.0.0.1:3204/?test=1&autojoin=1&nobright=1#VRAD
+[514.5s] done 07-relaunch-tone.js
+[560.4s] run 08-tp-test.js
+[563.9s] done 08-tp-test.js
+[584.3s] run 09-place-helper.js
+[587.5s] done 09-place-helper.js
+[607.9s] run 10-gating.js
+[637.8s] done 10-gating.js
+[663.3s] run 11-panning.js
+[678.1s] done 11-panning.js
+[704.1s] run 12-vancab.js
+[718.8s] done 12-vancab.js
+[778.3s] run 13-board.js
+[781.4s] done 13-board.js
+[806.8s] run 14-pick-drive.js
+[848.6s] done 14-pick-drive.js
+[857.6s] run 15-drive-voice.js
+[860.7s] done 15-drive-voice.js
+[879.0s] run 16-contract-state.js
+[879.8s] done 16-contract-state.js
+[922.1s] run 17-layout.js
+[922.2s] done 17-layout.js
+[943.9s] run 18-door.js
+[967.5s] done 18-door.js
+[996.4s] run 19-walkie.js
+[1018.1s] done 19-walkie.js
+[1053.9s] run 20-noWalkieQ-stuck.js
+[1062.8s] done 20-noWalkieQ-stuck.js
+[1096.8s] run 21-alive.js
+[1097.3s] done 21-alive.js
+[1120.3s] run 22-dead-a.js
+[1142.0s] done 22-dead-a.js
+[1163.0s] run 23-dead-b.js
+[1186.9s] done 23-dead-b.js
+[1213.4s] run 24-relay.js
+[1216.1s] launched Relay (tone880.wav) -> http://127.0.0.1:3204/?test=1&autojoin=1&nobright=1&relay=1#VRAD
+[1234.4s] done 24-relay.js
+[1258.5s] run 25-relay-audio.js
+[1341.0s] done 25-relay-audio.js
+[1376.8s] run 26-perf.js
+[1411.8s] done 26-perf.js
+[1440.6s] run 27-srvperf.js
+[1459.7s] done 27-srvperf.js
+[1494.1s] run 28-close-voicetest.js
+[1553.3s] closed Shouter
+[1597.6s] closed Tone2
+[1617.6s] closed Relay
+[1619.2s] launched Phone (callsign_boiler.wav) -> http://127.0.0.1:3204/voicetest?test=1
+[1632.8s] done 28-close-voicetest.js
+[1674.7s] run 29-phone-mic.js
+[1679.4s] done 29-phone-mic.js
+[1699.6s] run 30-voicetest-in-game.js
+[1700.2s] done 30-voicetest-in-game.js
+[1817.1s] run 31-storm-repro.js
+[1817.3s] closed Phone
+[1838.0s] done 31-storm-repro.js
+[1894.6s] run 32-storm-repro2.js
+[1920.2s] done 32-storm-repro2.js
+[1938.4s] run 33-fresh-bands.js
+[1938.8s] closed Talker
+[1939.8s] launched FreshWhisper (whisper.wav) -> http://127.0.0.1:3204/voicetest?test=1&autojoin=1#VFRS
+[1944.4s] launched FreshTalk (talk_en.wav) -> http://127.0.0.1:3204/voicetest?test=1&autojoin=1#VFRS
+[1944.7s] launched FreshShout (shout.wav) -> http://127.0.0.1:3204/voicetest?test=1&autojoin=1#VFRS
+[1985.8s] done 33-fresh-bands.js
+[2042.2s] run 34-close-all.js
+[2042.6s] closed Quiet
+[2042.7s] closed FreshWhisper
+[2042.9s] closed FreshTalk
+[2043.0s] closed FreshShout
+[2043.0s] done 34-close-all.js
+[2043.4s] driver exit

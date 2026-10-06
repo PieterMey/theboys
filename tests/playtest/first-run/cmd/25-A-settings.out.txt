@@ -1,0 +1,56 @@
+{
+ "n": 6,
+ "before": {
+  "exp": 1,
+  "preset": null,
+  "ls": {
+   "deadair.render.reduceFlicker": "0"
+  },
+  "rkeys": [
+   "views",
+   "view",
+   "info",
+   "hitch",
+   "stats",
+   "setPreset",
+   "setExposure",
+   "setFx",
+   "setPower",
+   "flickerSpace",
+   "camera",
+   "three"
+  ]
+ },
+ "after": {
+  "exp": 1.8,
+  "preset": null,
+  "ls": {
+   "deadair.meta.settings": "{\"preset\":\"low\",\"exposure\":1.8,\"brightnessDone\":false,\"master\":0.5,\"voice\":1,\"sfx\":1,\"sensitivity\":0.004,\"reduceFlicker\":false,\"ptt\":false,\"micGain\":null,\"hints\":true}",
+   "deadair.render.reduceFlicker": "0",
+   "deadair.render.exposure": "1.8",
+   "deadair.playerSettings": "{\"sensitivity\":0.004,\"crouchToggle\":false,\"invertY\":false,\"headBob\":true}",
+   "deadair.render.preset": "low"
+  },
+  "rkeys": [
+   "views",
+   "view",
+   "info",
+   "hitch",
+   "stats",
+   "setPreset",
+   "setExposure",
+   "setFx",
+   "setPower",
+   "flickerSpace",
+   "camera",
+   "three"
+  ]
+ },
+ "sens": {
+  "sensitivity": 0.004,
+  "crouchToggle": false,
+  "invertY": false,
+  "headBob": true
+ }
+}
+-- 19.4 s

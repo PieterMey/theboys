@@ -1,0 +1,26 @@
+{
+ "ms": 3528,
+ "error": null,
+ "logs": [
+  "pressed both (250 ms apart) in 399 ms",
+  "obj {\"power\":{\"0\":true,\"1\":true},\"levers\":[[\"lever:0\",true],[\"lever:1\",true]],\"keypad\":true,\"cd\":0}"
+ ],
+ "result": {
+  "power": {
+   "0": true,
+   "1": true
+  },
+  "levers": [
+   [
+    "lever:0",
+    true
+   ],
+   [
+    "lever:1",
+    true
+   ]
+  ],
+  "keypad": true,
+  "cd": 0
+ }
+}

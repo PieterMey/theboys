@@ -1,0 +1,17 @@
+STEP ERROR: locator.click: Error: strict mode violation: getByRole('button', { name: 'Resume' }) resolved to 2 elements:
+    1) <button class="m-close">RESUME [ESC]</button> aka getByRole('button', { name: 'RESUME [ESC]' })
+    2) <button class="m-btn primary">Resume</button> aka getByRole('button', { name: 'Resume', exact: true })
+
+Call log:
+[2m  - waiting for getByRole('button', { name: 'Resume' })[22m
+
+locator.click: Error: strict mode violation: getByRole('button', { name: 'Resume' }) resolved to 2 elements:
+    1) <button class="m-close">RESUME [ESC]</button> aka getByRole('button', { name: 'RESUME [ESC]' })
+    2) <button class="m-btn primary">Resume</button> aka getByRole('button', { name: 'Resume', exact: true })
+
+Call log:
+[2m  - waiting for getByRole('button', { name: 'Resume' })[22m
+
+    at eval (<anonymous>:12:49)
+    at async file:///C:/Users/Pieter/repos/theboys/tests/playtest/first-run/driver.ts:115:17
+-- 16.7 s

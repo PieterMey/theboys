@@ -52,6 +52,8 @@ export interface ContractRt {
   result: ObjContractResult | null;
   endFallbackAt: number;
   playersAtStart: string[];
+  /** performance.now() since every connected player is dead while the only living ones are offline (0 = not so) */
+  offlineWipeSince?: number;
 }
 
 type EndListener = (crew: Crew, result: ObjContractResult) => void;
@@ -981,16 +983,39 @@ function tickClock(crew: Crew, r: ContractRt): void {
 function tickDeaths(crew: Crew, r: ContractRt): void {
   let anyAlive = false;
   let anyone = false;
+  let aliveOnline = false;
+  let anyOnline = false;
+  const aliveOffline: ServerPlayer[] = [];
   for (const p of crew.players.values()) {
     if (!r.playersAtStart.includes(p.id) && !p.connected) continue;
     anyone = true;
+    if (p.connected) anyOnline = true;
     const alive = deps.isAlive(crew, p);
     if (alive) {
       anyAlive = true;
+      if (p.connected) aliveOnline = true;
+      else aliveOffline.push(p);
       if (r.st.dead.includes(p.id)) { r.st.dead = r.st.dead.filter((x) => x !== p.id); markDirty(r); }
     } else if (!r.st.dead.includes(p.id)) onPlayerDeath(crew, p.id, 'unknown');
   }
-  if (anyone && !anyAlive) endContract(crew, 'wipe');
+  if (anyone && !anyAlive) { endContract(crew, 'wipe'); return; }
+  // everyone still here is dead and the only survivors dropped offline: nobody can revive anyone, so do not leave
+  // the crew spectating an empty facility until the 90 s resume slot expires. After a short grace (a reload / blip
+  // comes back well within it) the offline survivors count as lost and the contract ends as a wipe.
+  if (anyOnline && !aliveOnline && aliveOffline.length) {
+    const now = performance.now();
+    r.offlineWipeSince ||= now;
+    if (now - r.offlineWipeSince >= num('offlineWipeGraceSec', 20) * 1000) {
+      for (const p of aliveOffline) {
+        dropAllOf(crew, r, p);
+        if (r.st.core?.carriers.includes(p.id)) releaseCore(crew, r, p.id, 'left');
+        deps.kill(crew, p, { killer: 'company', reason: 'lost contact', detail: 'Radio silence while the rest of the crew was down' });
+        recordDeath(crew, r, p.id, 'lost contact');
+      }
+      log?.info(`crew ${crew.code}: all connected players down, ${aliveOffline.map((p) => p.name).join(', ')} offline: wipe`);
+      endContract(crew, 'wipe');
+    }
+  } else r.offlineWipeSince = 0;
 }
 
 function tickRequests(crew: Crew, r: ContractRt): void {

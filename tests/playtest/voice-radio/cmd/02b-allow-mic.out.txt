@@ -1,0 +1,21 @@
+{
+ "s": "C:\\Users\\Pieter\\repos\\theboys\\tests\\playtest\\voice-radio\\shots\\02-join-after-allow.png",
+ "txt": "MICROPHONEDefault microphoneMIC GAIN100% · TALKTRANSCRIBE MY SPEECH ON THE HOST PC (TEXT ONLY REACHES THE AI). OFF = LOUDNESS ONLY.",
+ "lvl": {
+  "db": -35.73271856252291,
+  "base": -30,
+  "gate": -50,
+  "band": 2
+ },
+ "allowBtn": [
+  "SET",
+  "JOIN CREW",
+  "CREATE CREW"
+ ],
+ "errors": [
+  "41.1 warning: [render] material 'vintage_flashlight' on 'mesh_0' uses 6 textures (> 3): risks the 16-sampler limit with shadowed flashlights",
+  "41.1 warning: [render] material 'vintage_flashlight_glass' on 'mesh_0_1' uses 5 textures (> 3): risks the 16-sampler limit with shadowed flashlights",
+  "59.9 info: [voice] mic live: {\"autoGainControl\":false,\"channelCount\":1,\"deviceId\":\"default\",\"echoCancellation\":true,\"groupId\":\"b7e8acbcb67c2744770a2d3db2024c33ba9db03b0bdfcc325edb6d01a1875578\",\"latency\":0.01,\"noiseSuppression\":true,\"sampleRate\":48000,\"sampleSize\":16,\"voiceIsolation\":false,\"label\":\"Fake Default Audio Input\"}"
+ ]
+}
+-- 3.9 s

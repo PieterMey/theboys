@@ -1,0 +1,11 @@
+const q = P.Quiet.page;
+const before = await h.pose(q);
+await h.tp(q, 6.5, 19.5, Math.PI / 2);
+await h.sleep(1500);
+const afterServerTp = await h.pose(q);
+const srv1 = await h.dbg(q, 'players.pose', {});
+await h.ev(q, () => window.__game.teleport(6.5, 19.5, Math.PI / 2));
+await h.sleep(1500);
+const afterClientTp = await h.pose(q);
+const srv2 = await h.dbg(q, 'players.pose', {});
+return { before, afterServerTp, srv1: srv1 && srv1.pose.p, afterClientTp, srv2: srv2 && srv2.pose.p };

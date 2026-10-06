@@ -1,0 +1,14 @@
+const nav = h.nav, pg = A.page, pb = B.page;
+const pB = await nav.pose(pb);
+log('Bob at', pB.p);
+const lv = [15.18, 1.15, 29.75];
+const [ra, rb] = await Promise.all([nav.walkTo(pg, 16.1, 29.75, { timeoutMs: 40000, sprint: true }), nav.walkTo(pb, 16.4, 29.0, { timeoutMs: 40000, sprint: true })]);
+log('into van', ra.ok, ra.end, JSON.stringify(ra.stuck), rb.ok, rb.end, rb.reason, JSON.stringify(rb.stuck));
+log('aim leave', await h.aimAt(pg, 'leave_lever:0', lv[0], lv[1], lv[2]));
+await h.shot(pg, '36-leave-lever-prompt');
+await h.tap(pg, 'KeyE');
+await h.sleep(1500);
+const s = await h.st(pg);
+log('phase', s.phase, 'screen', s.screen);
+await h.shot(pg, '37-after-leave');
+return { phase: s.phase };

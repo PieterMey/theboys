@@ -1,0 +1,14 @@
+{
+ "ms": 12531,
+ "error": null,
+ "logs": [
+  "Ann console target {\"id\":\"console:0\",\"text\":\"Van console\",\"key\":\"E\",\"enabled\":true}",
+  "Ann screen console",
+  "B door 12 (door) target=door:12 'Open door' opened=true",
+  "B door 7 (locked) target=door:7 'Unlock with the keycard' opened=true",
+  "B door 31 (door) target=door:31 'Open door' opened=true",
+  "Bob to lever0 true [21.55,15.51]  [] doors [12,7,31]",
+  "Bob lever target null"
+ ],
+ "result": {}
+}

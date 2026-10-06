@@ -1,0 +1,21 @@
+{
+ "ms": 27888,
+ "error": null,
+ "logs": [
+  "back to core true [20.69,17.7] [] true [22.59,17.72] []",
+  "aim {\"ok\":true,\"off\":[0,0],\"text\":\"Grab a Core handle (needs 2)\"} {\"ok\":true,\"off\":[0,0.1],\"text\":\"Grab a Core handle (needs 2)\"}",
+  "regrab state dropped",
+  "carry2 true [15.94,28.4] [{\"at\":[11.77,23.62],\"t\":2692}] ms 13374",
+  "events [{\"t\":12308,\"core\":\"dropped\"}]"
+ ],
+ "result": {
+  "core": "dropped",
+  "val": 376,
+  "salvage": {
+   "count": 1,
+   "total": 6,
+   "value": 31
+  },
+  "clock": 323.6
+ }
+}

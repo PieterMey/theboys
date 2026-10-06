@@ -1,0 +1,118 @@
+[25.7] Ann joined as pdjquyMnHP4 backend=webgpu
+[33.5] Bob joined as px_0Ksi3L-M backend=webgpu
+[36.1] Cat joined as pa4YebPTf_I backend=webgpu
+[36.1] Ann band without V 0 meta ptt true
+[36.2] Bob band without V 0 meta ptt true
+[36.2] Cat band without V 0 meta ptt true
+[74.0] shot 00-hub-ann.png (Ann)
+[74.0] orders [{"id":"wo1-0-MDTN-000-7627","risk":1,"available":true,"siteName":"St. Brannock Infirmary, East Wing"},{"id":"wo1-1-MDTN-001-4485","risk":2,"available":false,"siteName":"Varga Brothers Foundry"},{"id":"wo1-2-MDTN-002-3380","risk":2,"available":false,"siteName":"Halcyon Department Store, Closed Floors"}] shift {"index":0,"contract":0,"quota":440,"hauled":0,"balance":150,"gear":{},"quotasMet":0,"quotaLocked":false}
+[74.2] pick {"ok":true}
+[74.3] Ann ready {"ok":true}
+[74.3] Bob ready {"ok":true}
+[74.3] Cat ready {"ok":true}
+[90.4] shot 01-drive-ann.png (Ann)
+[90.5] skipDrive {"ok":false}
+[91.5] contract phase on all; smooth worst-frame 59.70000000001164
+[92.0] shot 02-contract-spawn-ann.png (Ann)
+[92.2] layout 36x39 seed MDTN-000-7627 spaces 25 van {"x":9,"z":33.5,"yaw":0,"cab":{"x":8,"y":31,"w":2,"h":3}}
+[92.2] callsigns 8:FOUNDRY:hall:off 9:CRYO:room:broken 10:OFFICE:room:on 11:VAULT:vault:on 12:WARDEN:room:on 13:PUMPS:room:broken 14:NURSERY:room:broken 15:FURNACE:hall:on 16:LOBBY:room:on 17:CANTEEN:hall:on 18:CHAPEL:hall:broken 19:DOCK:room:on 20:TANKS:hall:flicker 21:KITCHEN:room:flicker 22:BOILER:room:on 24:VAN:room:on
+[92.3] monsters ["hound0 idle 23.5,8.5 act=true dorm=","listener0 dormant 30.5,3.5 act=false dorm=true"]
+[92.4] power zone 0 {"lights":{"0":false,"1":false,"2":false,"3":true,"4":true,"5":false,"6":false,"7":true,"8":false,"9":false,"10":false,"11":false,"12":false,"13":false,"14":false,"15":true,"16":true,"17":true,"18":fa
+[92.4] lights on {"lights":{"0":false,"1":false,"2":false,"3":true,"4":true,"5":false,"6":false,"7":true,"8":false,"9":false,"10":false,"11":false,"12":false,"13":false,"14":false,"15":true,"16":true,"17":true,"18":fa
+[93.0] test room 15 FURNACE hall light=on rect {"x":0,"y":20,"w":11,"h":7} litAt={"lit":true}
+[93.0] ================ HOUND
+[94.6] place hound {"ok":true,"agent":{"id":"hound0","kind":"hound","x":5.5,"z":23.5,"yaw":0,"state":"idle","anim":41,"active":true,"st":0,"path":0,"goal":[17.5,7.5],"chained":false,"tx":23.5,"tz":5.5,"tdoor":-1,"lastNoiseKind":"","lastNoiseDist":0}}
+[99.4] shot 10-hound-close-lit-bob.png (Bob)
+[99.9] shot 10-hound-far-lit-ann.png (Ann)
+[104.7] H1 bob whisper bands: 1,0,1,1,1,0,0,1,1,1,1,1
+[104.7] H1 after whisper+crouch: hound idle cues: 
+[110.4] H2 cat walks toward it hound0 states: 0.0s:alert@5.5,23.5 -> 0.7s:windup@5.5,23.5 -> 1.2s:charge@6.21,23.25 -> 1.4s:eat@6.91,23
+[110.4] H2 cues monsters.cue:{"id":"hound0","kind":"hound","cue":"bark","p":[5.5,0,23.5],"radius":20} ; monsters.cue:{"id":"hound0","kind":"hound","cue":"eat","p":[6.91,0,23],"radius":14}
+[111.0] shot 11-hound-alert-on-walk-cat.png (Cat)
+[124.1] H2b everyone freezes (quiet) hound0 states: 0.0s:eat@6.91,23 -> 0.2s:out@6.91,23
+[124.2] give bottle {"id":"it21","type":"bottle","value":0,"where":"held","count":3,"holder":"px_0Ksi3L-M"}
+[124.6] bob inventory ["walkie","bottle",null,null]
+[126.5] shot 12-hound-bottle-ann.png (Ann)
+[132.1] H3 bottle thrown hound0 states: 0.0s:out@6.91,23 -> 6.3s:idle@23.5,5.5
+[132.1] H3 events 
+[132.1] ================ DEATH
+[135.2] D1 ann shout bands 3,3,3,3,3
+[135.7] D1 after 1st shout: hound charge tdoor=-1 lastNoise=voice/5
+[136.1] shot 20-hound-alert-after-shout-ann.png (Ann)
+[139.2] shot 21-hound-investigating-ann.png (Ann)
+[140.1] shot 22-hound-second-shout-ann.png (Ann)
+[144.3] D2 after 2nd shout hound0 states: 0.0s:out@2.05,23.5
+[144.3] D2 ann dead=true; kill events: 
+[144.9] shot 23-death-card-ann.png (Ann)
+[144.9] D2 ann HUD: players-spectating: STATIC // SPECTATING following Bob · click to cycle | nethud: LINK 4 MS CREW MDTN 3/6 COPY INVITE | band-meter: SILENT PTT [V] | ix-spec: MEDKIT REVIVE WINDOW 22 S · OR A TEAMMATE CARRIES YOUR BADGE TO THE VAN | hud-chip: RENDER WEBGPU · ULTRA
+[145.3] shot 23b-bob-sees-death.png (Bob)
+[148.3] shot 24-death-card-late-ann.png (Ann)
+[151.5] shot 25-spectate-follow-ann.png (Ann)
+[151.5] S1 ann HUD: players-spectating: STATIC // SPECTATING following Bob · click to cycle | nethud: LINK 4 MS CREW MDTN 3/6 COPY INVITE | band-meter: SILENT PTT [V] | ix-spec: MEDKIT REVIVE WINDOW 15 S · OR A TEAMMATE CARRIES YOUR BADGE TO THE VAN | hud-chip: RENDER WEBGPU · ULTRA spec: {"on":true,"target":"px_0Ksi3L-M"}
+[153.6] shot 26-spectate-cycled-ann.png (Ann)
+[153.7] S2 after click spec: {"on":true,"target":"px_0Ksi3L-M"}
+[155.0] S3 dead Ann shouting: bob hears {"state":"connected","candidate":"host","bytesReceived":187287,"rmsL":0,"rmsR":0,"gain":0,"band":3} cat hears {"state":"connected","candidate":"host","bytesReceived":181673,"rmsL":0.00001178641385036251,"rmsR":0.00001178641385036251,"gain":1,"band":1}
+[155.0] R0 monsters after death ["hound0 out act=false 2.05,23.5","listener0 dormant act=false 30.5,3.5"]
+[155.0] give medkit {"id":"it23","type":"medkit","value":0,"where":"held","holder":"px_0Ksi3L-M"}
+[155.1] death record {"pid":"pdjquyMnHP4","name":"Ann","cause":{"killer":"hound","reason":"heard your SHOUT","detail":"5 m"},"at":1791307883145.7837,"p":[1.3199999999999998,0,23.5]}
+[156.2] R1 bob target {"id":"body:pdjquyMnHP4","kind":"body","p":[1.3199999999999998,0.3,23.5],"prompt":"Revive Ann (medkit)","enabled":true,"r":0.6,"ref":"pdjquyMnHP4","view":{"id":"body:pdjquyMnHP4","text":"Revive Ann (medkit)","key":"E","enabled":true,"sub":"11 s left"}} HUD nethud: LINK 29 MS CREW MDTN 3/6 COPY INVITE | ix-prompt: E Revive Ann (medkit) 11 s left | band-meter: SILENT PTT [V] | ix-inventory: LMB throw (15 m smash: Hound bait) 1 Walkie 2 x3 Bottle 3 Medkit 4 empty | ix-radio: RADIO · Q | ix-battery: LIGHT 94% | hud-chip: RENDER WEBGPU · ULTRA
+[156.7] shot 27-bob-at-body-prompt.png (Bob)
+[158.1] R1 revive by medkit at +12.7 s: alive=true interaction.fx:{"kind":"medkit","p":[1.3199999999999998,0,23.5],"pid":"px_0Ksi3L-M","id":"pdjquyMnHP4"} ; interaction.revive:{"pid":"pdjquyMnHP4","by":"px_0Ksi3L-M","how":"medkit","p":[1.3199999999999998,0,23.5],"yaw":1.5707963267948966,"hp":50}
+[159.3] shot 28-ann-after-revive.png (Ann)
+[159.3] R1 ann HUD nethud: LINK 17 MS CREW MDTN 3/6 COPY INVITE | band-meter: SILENT PTT [V] | ix-inventory: HP 50% 1 empty 2 empty 3 empty 4 empty | ix-battery: LIGHT 95% | hud-chip: RENDER WEBGPU · ULTRA
+[166.4] R2 hound during post-death window hound0 states: 0.0s:out@2.05,23.5 -> 1.4s:idle@23.5,5.5
+[166.4] R2 monsters ~21 s after death ["hound0 idle act=true 17.87,5.97","listener0 dormant act=false 30.5,3.5"]
+[166.4] kill cat (dbg) {"ok":false}
+[168.4] shot 29-cat-death-card-dbg.png (Cat)
+[199.4] B0 cat HUD after 32 s players-spectating: STATIC // SPECTATING following Bob · click to cycle | nethud: LINK 5 MS CREW MDTN 3/6 COPY INVITE | band-meter: SILENT PTT [V] | ix-spec: YOUR BADGE IS ON THE FLOOR · A TEAMMATE CAN CARRY IT TO THE VAN | hud-chip: RENDER WEBGPU · ULTRA
+[201.8] shot 30-cat-spectate-after-window.png (Cat)
+[202.0] cat badge {"id":"it20","type":"badge","value":0,"where":"world","owner":"pa4YebPTf_I","name":"Cat's badge","p":[7.305719820670115,0,22.890298590700528],"rot":-1.2951668884127658}
+[203.2] B1 bob target {"id":"body:pa4YebPTf_I","kind":"body","p":[7.555719820670115,0.3,22.69029859070053],"prompt":"Cat's body (take the badge to the van)","enabled":false,"r":0.6,"ref":"pa4YebPTf_I","view":{"id":"body:pa4YebPTf_I","text":"Cat's body","key":null,"enabled":false,"sub":"carry their badge to the van deposit"}}
+[203.7] shot 31-bob-at-badge.png (Bob)
+[204.8] B1 bob inventory ["walkie","bottle",null,null] HUD nethud: LINK 44 MS CREW MDTN 3/6 COPY INVITE | ix-prompt: Cat's body carry their badge to the van deposit | band-meter: SILENT PTT [V] | ix-inventory: LMB throw (15 m smash: Hound bait) 1 Walkie 2 x3 Bottle 3 empty 4 empty | ix-radio: RADIO · Q | ix-battery: LIGHT 88% | hud-chip: RENDER WEBGPU · ULTRA
+[204.8] van {"x":9,"z":33.5,"yaw":0,"cab":{"x":8,"y":31,"w":2,"h":3}}
+[207.8] B2 bob in van: HUD nethud: LINK 190 MS CREW MDTN 3/6 COPY INVITE | ix-prompt: E Van console | band-meter: SILENT PTT [V] | ix-inventory: LMB throw (15 m smash: Hound bait) 1 Walkie 2 x3 Bottle 3 empty 4 empty | ix-radio: RADIO · Q | ix-battery: LIGHT 93% | hud-chip: RENDER WEBGPU · ULTRA target {"id":"console:0","kind":"console","p":[9,0,33.645],"prompt":"Van console","enabled":true,"ref":"console:0","r":0.7,"view":{"id":"console:0","text":"Van console","key":"E","enabled":true}}
+[210.4] shot 32-bob-in-van.png (Bob)
+[213.1] B3 cat HUD players-spectating: STATIC // SPECTATING following Bob · click to cycle | nethud: LINK 104 MS CREW MDTN 3/6 COPY INVITE | band-meter: SILENT PTT [V] | ix-spec: YOUR BADGE IS ON THE FLOOR · A TEAMMATE CAN CARRY IT TO THE VAN | hud-chip: RENDER WEBGPU · ULTRA events 
+[214.4] shot 33-cat-badge-filed.png (Cat)
+[235.5] B4 cat alive after 21 s: false HUD: players-spectating: STATIC // SPECTATING following Bob · click to cycle | nethud: LINK 76 MS CREW MDTN 3/6 COPY INVITE | band-meter: SILENT PTT [V] | ix-spec: YOUR BADGE IS ON THE FLOOR · A TEAMMATE CAN CARRY IT TO THE VAN | hud-chip: RENDER WEBGPU · ULTRA
+[236.0] shot 34-cat-respawned.png (Cat)
+[236.0] ================ LISTENER
+[236.0] listener before {"state":"dormant","dormant":true,"wakeAt":180,"memory":[]}
+[240.4] L1 cat callsign bands 0,0,0,2,2,1,2,2,2,2,0,0,0,1
+[244.4] L1 utterances {"utterances":[]}
+[244.5] L1 listener memory [] log []
+[244.5] wake {"ok":true,"agent":{"id":"listener0","kind":"listener","x":5.5,"z":26.3,"yaw":0,"state":"patrol","anim":40,"active":true,"st":164.07,"path":0,"goal":[30.5,3.5],"dormant":false,"wakeAt":164.07,"intent":"patrol","targetSpace":-1,"targetPlayer":null,"grabVictim":null,"memory":[]}}
+[245.4] shot 40-listener-wake-flicker-ann.png (Ann)
+[246.9] L2 listener after wake {"state":"patrol","intent":"patrol","targetSpace":-1,"x":7.5,"z":20.5} log []
+[246.9] L2 events monsters.wake:{"ms":1600} ; monsters.led:{"to":["px_0Ksi3L-M"],"ms":1600} ; monsters.cue:{"id":"listener0","kind":"listener","cue":"click","p":[5.5,0,26.3],"radius":12}
+[246.9] L2 INTERCEPT text on Ann page []
+[248.3] place listener next to Bob {"ok":true,"agent":{"id":"listener0","kind":"listener","x":9.32,"z":23.5,"yaw":0.72,"state":"patrol","anim":41,"active":true,"st":0,"path":0,"goal":[10.12,23.5],"dormant":false,"wakeAt":164.07,"intent":"investigate_room","targetSpace":15,"targetPlayer":null,"grabVictim":null,"memory":[]}}
+[249.0] G1 grab events 
+[252.7] shot 41-listener-grab-victim-bob.png (Bob)
+[252.8] G1 bob HUD nethud: LINK 49 MS CREW MDTN 3/6 COPY INVITE | band-meter: SILENT PTT [V] | hud-chip: RENDER WEBGPU · ULTRA
+[254.2] shot 42-listener-grab-teammate-ann.png (Ann)
+[256.5] G2 ann HUD nethud: LINK 2 MS CREW MDTN 3/6 COPY INVITE | band-meter: SILENT PTT [V] | ix-inventory: HP 50% 1 empty 2 empty 3 empty 4 empty | ix-battery: LIGHT 95% | hud-chip: RENDER WEBGPU · ULTRA
+[257.1] G2 grab outcome  bob alive=true
+[257.7] shot 43-listener-after-shove-ann.png (Ann)
+[263.5] G3 cat grab->kill  cat alive=false
+[264.1] shot 44-listener-kill-card-cat.png (Cat)
+[264.1] G3 cat HUD players-spectating: STATIC // SPECTATING following Bob · click to cycle | nethud: LINK 90 MS CREW MDTN 3/6 COPY INVITE | band-meter: SILENT PTT [V] | ix-spec: YOUR BADGE IS ON THE FLOOR · A TEAMMATE CAN CARRY IT TO THE VAN | hud-chip: RENDER WEBGPU · ULTRA
+[270.2] G4 listener after kill listener0 states: 0.1s:patrol@3.72,17.55 -> 0.4s:search@3.5,17.5 -> 3.3s:patrol@3.92,17.61
+[272.3] shot 45-listener-lit-ann.png (Ann)
+[274.6] shot 46-listener-dark-noflash-ann.png (Ann)
+[277.9] shot 47-listener-dark-flashlight-ann.png (Ann)
+[278.4] ================ MANNEQUIN
+[278.5] restart monsters at risk 2 {"ok":true,"seed":"MDTN-000-7627","hash":"4acf4309","agents":[{"id":"hound0","kind":"hound","x":0.5,"z":0.5,"yaw":4.07,"state":"out","anim":40,"active":false,"st":34.23,"path":0,"goal":[16.5,8.5],"chained":false,"tx":1.32,"tz":23.5,"tdoor":-1,"lastNoiseKind":"voice","lastNoiseDist":5},{"id":"listener0","kind":"listener","x":5.59,"z":23.35,"yaw":-2.17,"state":"patrol","anim":41,"active":true,"st":0
+[280.4] spawn mannequin {"ok":false,"reason":"no mannequin this contract (risk >= 2 or contractIndex >= 2)"}
+[282.4] shot 50-mannequin-watched-lit-ann.png (Ann)
+[291.5] M1 two watchers (blinks scheduled at ~6 s) mannequin0 states: 
+[291.6] RUN ERROR TypeError: Cannot read properties of undefined (reading 'state')
+    at file:///C:/Users/Pieter/repos/theboys/tests/playtest/monsters-death/play.ts:481:36
+[291.6] Ann client errors (0): []
+[291.7] Ann perf {"fps":27.451588066729702,"frameMs":41.352289469495915,"drawCalls":344}
+[292.7] Bob client errors (0): []
+[293.8] Bob perf {"fps":11.087089108449332,"frameMs":480.3984886401409,"drawCalls":528}
+[294.6] Cat client errors (0): []
+[296.9] Cat perf {"fps":15.10629092615224,"frameMs":409.5652847430959,"drawCalls":285}
+[296.9] NOTES []

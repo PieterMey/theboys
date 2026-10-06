@@ -1,0 +1,39 @@
+{
+ "badge": [
+  "RENDER WEBGPU · ULTRA"
+ ],
+ "start": [
+  6.517433487687227,
+  0,
+  11.113764487351533
+ ],
+ "w": [
+  "arrived: (6.52,11.11) d=5.41 -> (10.57,10.02) d=1.38 -> (11.62,9.73) d=0.74 -> (11.20,9.13) d=0.33",
+  "arrived: (11.20,9.13) d=2.26 -> (11.33,10.44) d=1.09 -> (12.13,11.24) d=0.06",
+  "NOT arrived (stuck?) at 12.45,11.33: (12.19,11.30) d=0.32 -> (12.33,11.48) d=0.33 -> (12.34,11.49) d=0.33 -> (12.45,10.80) d=0.40"
+ ],
+ "target": {
+  "id": "mirror:0",
+  "text": "Locker mirror: change your look",
+  "key": "E",
+  "enabled": true
+ },
+ "metaNear": {
+  "id": "mirror:0",
+  "kind": "mirror",
+  "d": 2.248512422289198
+ },
+ "target2": {
+  "id": "mirror:0",
+  "text": "Locker mirror: change your look",
+  "key": "E",
+  "enabled": true
+ },
+ "pos2": [
+  12.45,
+  0,
+  11.358325813638018
+ ],
+ "screen": "mirror"
+}
+-- 20.1 s

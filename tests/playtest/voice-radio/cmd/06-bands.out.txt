@@ -1,0 +1,43 @@
+{
+ "out": {
+  "Talker (talk_en.wav)": {
+   "silent": 35,
+   "talk": 75,
+   "whisper": 2,
+   "base": -21.2,
+   "gate": -41.2,
+   "p50db": -25,
+   "p90db": -18
+  },
+  "Tone (tone440.wav)": {
+   "talk": 83,
+   "base": -39.4,
+   "gate": -59.4,
+   "p50db": -39,
+   "p90db": -39
+  },
+  "Shouter (shout.wav)": {
+   "talk": 64,
+   "whisper": 2,
+   "silent": 20,
+   "base": -9.2,
+   "gate": -29.2,
+   "p50db": -10,
+   "p90db": -7
+  },
+  "Quiet (silence.wav)": {
+   "silent": 95,
+   "base": -30,
+   "gate": -50,
+   "p50db": -140,
+   "p90db": -140
+  }
+ },
+ "shots": [
+  "C:\\Users\\Pieter\\repos\\theboys\\tests\\playtest\\voice-radio\\shots\\06-hud-Talker.png",
+  "C:\\Users\\Pieter\\repos\\theboys\\tests\\playtest\\voice-radio\\shots\\06-hud-Tone.png",
+  "C:\\Users\\Pieter\\repos\\theboys\\tests\\playtest\\voice-radio\\shots\\06-hud-Shouter.png",
+  "C:\\Users\\Pieter\\repos\\theboys\\tests\\playtest\\voice-radio\\shots\\06-hud-Quiet.png"
+ ]
+}
+-- 9.9 s

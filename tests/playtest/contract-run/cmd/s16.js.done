@@ -1,0 +1,11 @@
+const pg = A.page, pb = B.page;
+const t0 = Date.now();
+await Promise.all([h.tap(pg, 'KeyE'), h.sleep(250).then(() => h.tap(pb, 'KeyE'))]);
+log('pressed both (250 ms apart) in', Date.now() - t0, 'ms');
+await h.sleep(700);
+await h.shot(pg, '23-ann-after-twin-pull');
+const o = await pg.evaluate(() => { const o = window.__game.state().objectives; return { power: o.power, levers: o.levers.map((l) => [l.id, l.down]), keypad: o.keypad && o.keypad.enabled, cd: o.leverCooldownUntil }; });
+log('obj', o);
+await h.sleep(1500);
+await h.shot(pb, '24-bob-after-twin-pull');
+return o;

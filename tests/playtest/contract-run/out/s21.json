@@ -1,0 +1,13 @@
+{
+ "ms": 3748,
+ "error": null,
+ "logs": [
+  "Bob at [16.383145451032963,0,28.423227178107155]",
+  "into van true [16.14,29.89] [] true [16.39,28.75]  []",
+  "aim leave {\"ok\":true,\"off\":[0,0],\"text\":\"Leave now (everyone alive must be in the van)\"}",
+  "phase results screen results"
+ ],
+ "result": {
+  "phase": "results"
+ }
+}

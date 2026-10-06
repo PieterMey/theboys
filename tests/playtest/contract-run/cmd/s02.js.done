@@ -1,0 +1,23 @@
+const pg = A.page;
+await pg.getByText('ALLOW MICROPHONE').click().catch((e) => log('allow mic click failed', String(e)));
+await h.sleep(800);
+await pg.getByText('CREATE CREW').click();
+await pg.waitForFunction(() => window.__game.state().net === 'joined', undefined, { timeout: 30000 });
+await pg.waitForFunction(() => window.__game.state().screen === 'none', undefined, { timeout: 40000 }).catch(() => log('screen not none'));
+const code = (await h.st(pg)).crew.code;
+log('crew', code);
+await h.shot(pg, '02-ann-in-hub');
+// Bob joins with the code via the URL hash (a friend clicking the invite link)
+const B = await h.mk('Bob', 'silence.wav', code);
+players.B = B;
+await h.waitForGame(B.page, 90000).catch((e) => log('B waitForGame', String(e)));
+await B.page.getByText('ALLOW MICROPHONE').click().catch((e) => log('B allow mic failed', String(e)));
+await h.sleep(500);
+await B.page.getByText('JOIN CREW').click();
+await B.page.waitForFunction(() => window.__game.state().net === 'joined', undefined, { timeout: 30000 });
+await B.page.waitForFunction(() => window.__game.state().screen === 'none', undefined, { timeout: 40000 }).catch(() => log('B screen not none'));
+await h.sleep(2500);
+await h.shot(B.page, '03-bob-in-hub');
+await h.shot(pg, '04-ann-sees-bob');
+const s = await h.st(pg);
+return { code, players: s.crew.players.map((p) => ({ n: p.name, leader: p.isLeader, ready: p.ready })), errA: A.errors.slice(-5), errB: B.errors.slice(-5) };

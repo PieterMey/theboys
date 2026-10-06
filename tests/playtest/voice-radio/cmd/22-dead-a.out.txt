@@ -1,0 +1,88 @@
+{
+ "talkerBefore": {
+  "listener": {
+   "pos": [
+    28.32641454019496,
+    2.0480741629781325,
+    38.52811903544351
+   ],
+   "fwd": [
+    0.9889518107814408,
+    -0.14823734333520105,
+    0.00007741466828448118
+   ],
+   "up": [
+    0.14823734288102536,
+    0.9889518138114323,
+    0.000011603947332336495
+   ],
+   "src": "camera"
+  },
+  "svc": {
+   "radio": 0,
+   "band": 2,
+   "tx": true
+  }
+ },
+ "tpose": {
+  "id": "pI02_7VSqTt",
+  "pose": {
+   "seq": 12807,
+   "p": [
+    28.32641454019496,
+    2.0480741629781325,
+    38.52811903544351
+   ],
+   "yaw": 3.141592653589793,
+   "pitch": 0,
+   "stance": 4,
+   "anim": 12,
+   "light": 0
+  },
+  "alive": false
+ },
+ "audQ": 2,
+ "livingQuietHearsDeadTalker": "max 0.0000 L -180 R -180 gate 0.00 band 2",
+ "bandOfDeadAtQ": {
+  "state": "connected",
+  "candidate": "host",
+  "bytesReceived": 3299629,
+  "rmsL": 0,
+  "rmsR": 0,
+  "gain": 0,
+  "band": 2
+ },
+ "deadTalkerHearsLivingShouter": "max 0.2653 L -16 R -15.9 gate 0.96 band 2",
+ "talkerAudShouter": 2,
+ "talkerListener": {
+  "pos": [
+   11.47520850164063,
+   2.045180445180281,
+   23.32805093175815
+  ],
+  "fwd": [
+   -0.000006932046155645123,
+   -0.14834856761987086,
+   0.9889351356065168
+  ],
+  "up": [
+   -0.0000010398650839812935,
+   0.988935135630812,
+   0.14834856761622633
+  ],
+  "src": "camera"
+ },
+ "invTalker": [
+  null,
+  null,
+  null,
+  null
+ ],
+ "deadTx": {
+  "radio": 0,
+  "hud": null
+ },
+ "livingShouterHearsDeadRadio": "max 0.0000 L -180 R -180 gate 0.00 band 2",
+ "shotDead": "C:\\Users\\Pieter\\repos\\theboys\\tests\\playtest\\voice-radio\\shots\\22-dead-talker-view.png"
+}
+-- 21.7 s

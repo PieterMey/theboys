@@ -1,0 +1,44 @@
+[29.1] Ann joined as po9Tw55Nzce backend=webgpu
+[30.3] Bob joined as pE0G3SFqJpX backend=webgpu
+[30.3] Cat joined as p3hgpQOEuk6 backend=webgpu
+[66.4] shot 00-hub-ann.png (Ann)
+[66.5] orders [{"id":"wo1-0-MDTK-000-8325","risk":1,"available":true,"siteName":"Northgate Parcel Sorting Centre"},{"id":"wo1-1-MDTK-001-9314","risk":1,"available":true,"siteName":"Blackwater Waterworks"},{"id":"wo1-2-MDTK-002-3840","risk":2,"available":false,"siteName":"St. Brannock Infirmary, East Wing"}] shift {"index":0,"contract":0,"quota":440,"hauled":0,"balance":150,"gear":{},"quotasMet":0,"quotaLocked":false}
+[66.7] pick {"ok":true}
+[66.8] Ann ready {"ok":true}
+[66.8] Bob ready {"ok":true}
+[66.8] Cat ready {"ok":true}
+[94.7] shot 01-drive-ann.png (Ann)
+[94.8] skipDrive {"ok":false}
+[96.9] contract phase on all; smooth worst-frame 59.30000000000291
+[97.3] shot 02-contract-spawn-ann.png (Ann)
+[97.4] layout 36x39 seed MDTK-000-8325 spaces 28 van {"x":22,"z":33.5,"yaw":0,"cab":{"x":21,"y":31,"w":2,"h":3}}
+[97.4] callsigns 8:CHAPEL:room:on 9:BOILER:room:on 10:PIT:hall:on 11:KITCHEN:room:broken 12:STORES:hall:on 13:SERVER:room:on 14:VAULT:vault:on 15:ARCHIVE:room:on 16:NURSERY:room:off 17:TANKS:hall:on 18:WARDEN:room:on 19:LOBBY:room:on 20:COLDROOM:room:on 21:GARAGE:hall:on 22:FOUNDRY:hall:on 23:MAILROOM:room:on 24:OFFICE:room:on 25:PUMPS:room:on 27:VAN:room:on
+[97.5] monsters ["hound0 idle 30.5,16.5 act=true dorm=","listener0 dormant 5.5,14.5 act=false dorm=true"]
+[97.5] test room 10 PIT hall light=on rect {"x":19,"y":9,"w":9,"h":9} litAt={"lit":false}
+[97.5] ================ HOUND
+[100.5] place hound {"ok":true,"agent":{"id":"hound0","kind":"hound","x":23.5,"z":13.5,"yaw":0,"state":"idle","anim":45,"active":true,"st":0,"path":0,"goal":[27.55,11.7],"chained":false,"tx":27.55,"tz":11.7,"tdoor":-1,"lastNoiseKind":"voice","lastNoiseDist":2}}
+[108.0] shot 10-hound-close-lit-bob.png (Bob)
+[108.5] shot 10-hound-far-lit-ann.png (Ann)
+[112.9] H1 bob whisper bands: 1,2,1,0,0,1,1,1,0,0,1,2
+[113.0] H1 after whisper+crouch: hound out cues: 
+[118.9] H2 cat walks toward it hound0 states: 0.1s:alert@23.5,13.5 -> 0.9s:windup@23.5,13.5 -> 1.3s:charge@23.5,13.5 -> 1.8s:eat@20.25,13.5
+[118.9] H2 cues monsters.cue:{"id":"hound0","kind":"hound","cue":"bark","p":[23.5,0,13.5],"radius":20} ; monsters.cue:{"id":"hound0","kind":"hound","cue":"eat","p":[20.25,0,13.5],"radius":14}
+[119.1] shot 11-hound-alert-on-walk-cat.png (Cat)
+[132.1] H2b everyone freezes (quiet) hound0 states: 
+[132.3] give bottle {"id":"it21","type":"bottle","value":0,"where":"held","count":3,"holder":"pE0G3SFqJpX"}
+[132.7] bob inventory ["bottle",null,null,null]
+[134.4] shot 12-hound-bottle-ann.png (Ann)
+[140.3] H3 bottle thrown hound0 states: 
+[140.3] H3 events 
+[140.3] ================ DEATH
+[143.4] D1 ann shout bands 3,0,0,0,0
+[144.0] RUN ERROR TypeError: Cannot read properties of undefined (reading 'find')
+    at agent (file:///C:/Users/Pieter/repos/theboys/tests/playtest/monsters-death/play.ts:75:75)
+    at async file:///C:/Users/Pieter/repos/theboys/tests/playtest/monsters-death/play.ts:245:16
+[144.1] Ann client errors (0): []
+[144.1] Ann perf {"fps":24.589235125668576,"frameMs":35.39449761214858,"drawCalls":405}
+[144.1] Bob client errors (0): []
+[144.1] Bob perf {"fps":30.78419301558528,"frameMs":27.28596811214595,"drawCalls":319}
+[144.1] Cat client errors (0): []
+[144.1] Cat perf {"fps":40.004330504377734,"frameMs":16.288462767295723,"drawCalls":200}
+[144.1] NOTES []

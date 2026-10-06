@@ -2,7 +2,10 @@
 // TSL cookie + (6-N) unshadowed SpotLights batched by DynamicLighting, each with a soft additive cone).
 // Never add/remove lights or toggle castShadow at runtime: on/off/battery = intensity only.
 import * as THREE from 'three/webgpu';
-import { Fn, float, mix, normalView, positionLocal, positionView, smoothstep, uniform, vec3, exp, sin, length, vec2, cos, color as tslColor } from 'three/tsl';
+import {
+  Fn, float, mix, normalView, positionLocal, positionView, positionWorld, smoothstep, uniform, vec3, exp, sin, length, vec2, cos, atan,
+  lightPosition, color as tslColor,
+} from 'three/tsl';
 import type { FlashlightInfo, V3 } from './types.ts';
 
 export interface FlashCfg {
@@ -19,6 +22,15 @@ export interface FlashCfg {
   shadowRadius: number;
   near: number;
   cone: number;
+  /** metres: below this distance from the lens the beam stops getting brighter (no blown-out hot spot up close) */
+  nearClamp?: number;
+  /** unshadowed SpotLight half-angle (rad); its smooth full penumbra mimics the cookie's body */
+  plainAngle?: number;
+  /** half-angle (rad) of the fake additive cone mesh */
+  coneAngle?: number;
+  /** volumetric scattering weight: own beam / teammates' beams */
+  volLocal?: number;
+  volRemote?: number;
 }
 
 interface Slot {
@@ -26,6 +38,8 @@ interface Slot {
   shadowed: boolean;
   /** cookie flicker multiplier (shadowed) */
   flick: { value: number };
+  /** volumetric scattering weight of this beam (read by the volume model via light.userData.volWeight) */
+  volW: { value: number };
   cone: THREE.Mesh;
   coneK: { value: number };
   id: string | null;
@@ -35,23 +49,43 @@ interface Slot {
 
 const PARK = new THREE.Vector3(0, -500, 0);
 
-/** Procedural cookie: round reflector disk, hot spot, darker inner ring, bright rim ring, lens smudges. */
-function makeCookie(seed: number) {
+/**
+ * Procedural cookie (r = 1 at the projector frustum edge). A real reflector torch: tight hot core (~7 deg), the main
+ * throw (~16 deg), a wide dim spill (~33 deg) and faint reflector rings + lens smudges. Everything ends inside
+ * r = 0.94, so the ProjectorLight's square frustum never shows (the old spill ran to r = 1.3: a rounded-square beam).
+ * Edges run slightly warmer than the core (incandescent spill). Near-field clamp: closer than `nearClamp` m the
+ * beam stops brightening, so a wall in your face is bright, never a blown-out white disk + bloom.
+ * The node reads the lit position from the build context: in the volume pass that is the ray sample, so the
+ * shafts get the same profile and clamp.
+ */
+function makeCookie(seed: number, light: THREE.Light, nearClamp: number, decay: number) {
   const k = uniform(1);
+  const nearK = uniform(nearClamp);
   return {
     k,
-    node: Fn(([uv]: [THREE.Node]) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    node: (Fn as any)(([uv]: [THREE.Node], builder: { context: { positionWorld?: THREE.Node } }) => {
       const p = (uv as unknown as ReturnType<typeof vec3>).xy.sub(0.5).mul(2);
       const r = length(p);
-      const disk = smoothstep(1.0, 0.5, r);
-      const hot = exp(r.mul(r).mul(-7)).mul(1.8);
-      const innerDark = float(1).sub(smoothstep(0.25, 0.42, r).mul(smoothstep(0.66, 0.45, r)).mul(0.14));
-      const rim = smoothstep(0.55, 0.7, r).mul(smoothstep(0.88, 0.72, r)).mul(0.16);
-      const a = p.x.mul(13.1).add(seed);
-      const smudge = float(0.88).add(sin(a.add(sin(p.y.mul(9.7).add(seed * 0.37)).mul(2.3))).mul(cos(p.y.mul(17.3).sub(p.x.mul(5.1))).mul(0.12)));
-      const spill = smoothstep(1.3, 0.55, r).mul(0.12);
-      const v = disk.mul(float(0.55).add(hot).add(rim)).mul(innerDark).mul(smudge).add(spill);
-      return vec3(v).mul(k);
+      const r2 = r.mul(r);
+      const core = exp(r2.mul(-1 / (0.17 * 0.17)));
+      const body = exp(r2.mul(-1 / (0.42 * 0.42))).mul(0.42);
+      const spill = smoothstep(0.95, 0.42, r).mul(0.14);
+      // reflector rings: bright lip at the core edge, a faint dark band outside it
+      const ring = float(1)
+        .add(smoothstep(0.11, 0.16, r).mul(smoothstep(0.24, 0.17, r)).mul(0.09))
+        .sub(smoothstep(0.22, 0.3, r).mul(smoothstep(0.44, 0.33, r)).mul(0.1));
+      const ang = atan(p.y, p.x);
+      const smudge = float(1)
+        .add(sin(ang.mul(3).add(seed)).mul(0.035))
+        .add(sin(ang.mul(7).sub(seed * 1.7).add(r.mul(9))).mul(0.03))
+        .add(sin(p.x.mul(11).add(p.y.mul(5)).add(seed * 0.6)).mul(cos(p.y.mul(13).sub(p.x.mul(4)))).mul(0.03));
+      const prof = core.add(body).add(spill).mul(ring).mul(smudge).div(1.56);
+      const tint = mix(vec3(1, 1, 1), vec3(1.07, 0.97, 0.84), smoothstep(0.2, 0.75, r));
+      const pw = (builder.context.positionWorld ?? positionWorld) as unknown as ReturnType<typeof vec3>;
+      const d = pw.sub(lightPosition(light)).length();
+      const near = d.div(nearK).min(1).pow(decay);
+      return tint.mul(prof.mul(near)).mul(k);
     }),
   };
 }
@@ -92,10 +126,12 @@ export function createFlashlightPool(scene: THREE.Scene, cfg: FlashCfg, shadowed
     const isShadow = i < shadowed;
     let light: THREE.SpotLight;
     let flick = { value: 1 };
+    const volW = uniform(1);
     if (isShadow) {
       const pl = new THREE.ProjectorLight(0xffffff, 0, cfg.distance, cfg.angle, cfg.penumbra, cfg.decay);
-      const ck = makeCookie(1.7 + i * 2.31);
+      const ck = makeCookie(1.7 + i * 2.31, pl, cfg.nearClamp ?? 2, cfg.decay);
       flick = ck.k as unknown as { value: number };
+      pl.userData.volWeight = volW;
       (pl as unknown as { colorNode: unknown }).colorNode = ck.node;
       pl.castShadow = true;
       pl.shadow.mapSize.set(shadowMap, shadowMap);
@@ -107,18 +143,19 @@ export function createFlashlightPool(scene: THREE.Scene, cfg: FlashCfg, shadowed
       pl.layers.enable(volLayer);
       light = pl;
     } else {
-      light = new THREE.SpotLight(0xffffff, 0, cfg.distance, cfg.angle * 1.05, cfg.penumbra, cfg.decay);
+      // no cookie on the batched spots: a full smooth penumbra over a narrower cone reads like the cookie's body
+      light = new THREE.SpotLight(0xffffff, 0, cfg.distance, cfg.plainAngle ?? cfg.angle * 0.8, 1, cfg.decay);
       light.castShadow = false;
     }
     light.name = `flashlight-${isShadow ? 's' : 'u'}${i}`;
     light.position.copy(PARK);
     light.target.position.set(0, -600, 0);
     scene.add(light, light.target);
-    const cone = makeCone(6, cfg.angle * 0.75, c1);
+    const cone = makeCone(6, cfg.coneAngle ?? cfg.angle * 0.5, c1);
     cone.mesh.visible = true;
     cone.mesh.position.copy(PARK);
     scene.add(cone.mesh);
-    slots.push({ light, shadowed: isShadow, flick, cone: cone.mesh, coneK: cone.k, id: null, cur: 0 });
+    slots.push({ light, shadowed: isShadow, flick, volW: volW as unknown as { value: number }, cone: cone.mesh, coneK: cone.k, id: null, cur: 0 });
   }
 
   const fwd = new THREE.Vector3();
@@ -189,6 +226,8 @@ export function createFlashlightPool(scene: THREE.Scene, cfg: FlashCfg, shadowed
         const k = s.cur * flick;
         s.light.intensity = base * (s.shadowed ? 1 : 0.9) * k;
         s.flick.value = 1;
+        // your own beam: a subtle haze (you look down its axis); teammates' beams: readable shafts across the dark
+        s.volW.value = f.local ? (cfg.volLocal ?? 0.6) : (cfg.volRemote ?? 1.8);
         s.light.position.set(f.pos[0], f.pos[1], f.pos[2]);
         s.light.target.position.set(f.pos[0] + f.dir[0] * 10, f.pos[1] + f.dir[1] * 10, f.pos[2] + f.dir[2] * 10);
         s.light.target.updateMatrixWorld();

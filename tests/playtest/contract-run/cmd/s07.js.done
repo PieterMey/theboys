@@ -1,0 +1,34 @@
+const nav = h.nav;
+const pg = A.page, pb = B.page;
+await h.tap(pg, 'KeyE');
+await h.sleep(600);
+const invA = await pg.evaluate(() => window.__ix.inventory());
+log('Ann inv after E', invA);
+await h.shot(pg, '13-ann-holding-glasses');
+// Bob: lock pointer and walk to the fuse box in ARCHIVE
+await pb.mouse.click(800, 450);
+await h.sleep(200);
+const bobWalk = (async () => {
+  const [sx, sz] = await nav.standNear(pb, 27.652, 18.66, 1.0);
+  const r = await nav.walkTo(pb, sx, sz, { log: (...a) => log('B', ...a), timeoutMs: 60000 });
+  log('Bob walk', r);
+  await nav.face(pb, 27.652, 18.66, 0.1);
+  await h.sleep(400);
+  const t = await pb.evaluate(() => window.__ix.target());
+  log('Bob target', t && t.view);
+  await h.shot(pb, '14-bob-at-fusebox');
+  await h.tap(pb, 'KeyE');
+  await h.sleep(600);
+  log('Bob inv', await pb.evaluate(() => window.__ix.inventory()));
+})();
+// Ann: carry to the van deposit
+const dep = [16, 28.75];
+const ra = await nav.walkTo(pg, 16, 27.6, { log: (...a) => log('A', ...a), timeoutMs: 60000 });
+log('Ann walk to van', ra);
+await nav.face(pg, 16, 28.75, 0.5);
+await h.sleep(500);
+const t = await pg.evaluate(() => window.__ix.target());
+log('Ann target at van', t && { id: t.id, view: t.view });
+await h.shot(pg, '15-ann-at-deposit');
+await bobWalk;
+return {};

@@ -1,0 +1,42 @@
+{
+ "boxDisabled": true,
+ "Aprofile": {
+  "name": "Ann",
+  "body": "m",
+  "suit": [
+   "#2e86c1",
+   "#d4a017"
+  ],
+  "helmet": "dome",
+  "visor": {
+   "glyphs": "ANN",
+   "color": "#ff4d4d"
+  },
+  "badge": 947
+ },
+ "BseesA": {
+  "name": "Ann",
+  "body": "m",
+  "suit": [
+   "#2e86c1",
+   "#d4a017"
+  ],
+  "helmet": "dome",
+  "visor": {
+   "glyphs": "ANN",
+   "color": "#ff4d4d"
+  },
+  "badge": 947
+ },
+ "posA": [
+  12.45,
+  0,
+  11.358325813638018
+ ],
+ "posB": [
+  18.29695065956454,
+  0,
+  14.247795654114634
+ ]
+}
+-- 9.0 s

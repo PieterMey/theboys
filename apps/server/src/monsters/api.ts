@@ -35,6 +35,8 @@ export interface HeardUtterance {
   hearers?: { players?: string[]; listener?: boolean; walkies?: string[] };
   /** 'voice' (default) | 'radio' | 'text' */
   via?: 'voice' | 'radio' | 'text';
+  /** AI track's taunt flag (meta / injection / mocking talk): fresh input even without callsigns or plan words */
+  taunt?: boolean;
 }
 
 export interface MonstersImpl {

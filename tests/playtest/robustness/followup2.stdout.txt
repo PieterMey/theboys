@@ -1,0 +1,9 @@
+[17:52:40] server up pid 75428 (followup2)
+[17:53:38] I: first join panel closed after 25435 ms, fps 10
+[17:53:51] E2: inventory before reload: walkie,crowbar,bottlex3,-
+[17:54:45] E2: rejoined mid-contract, join panel closed after 32896 ms; inventory after reload: walkie,crowbar,bottlex3,- phase contract
+[17:54:45] J: drone before: {"drone":false,"fear":0}
+[17:54:46] J: net while offline: joined
+[17:54:49] J: server phase now: hub
+[17:54:52] J: after reconnect: net joined phase hub screen none drone {"drone":false,"fear":0}
+[17:54:53] followup2 done

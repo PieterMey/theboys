@@ -1,0 +1,30 @@
+const nav = h.nav, pg = A.page, pb = B.page;
+const bob = (async () => {
+  const [sx, sz] = await nav.standNear(pb, 29.5, 21.5, 0.9);
+  const r = await nav.walkTo(pb, sx, sz, { log: (...a) => log('B', ...a), timeoutMs: 50000 });
+  log('Bob walk keycard', r.ok, r.end, r.reason, r.stuck);
+  await nav.face(pb, 29.5, 21.5, 0.85);
+  await h.sleep(400);
+  const t = await pb.evaluate(() => window.__ix.target());
+  log('Bob target', t && t.view);
+  await h.shot(pb, '17-bob-keycard');
+  await h.tap(pb, 'KeyE');
+  await h.sleep(700);
+  log('Bob inv', await pb.evaluate(() => window.__ix.inventory()));
+})();
+const r = await nav.walkTo(pg, 16, 27.6, { timeoutMs: 50000 });
+log('Ann to van', r.ok, r.end, r.stuck);
+await nav.face(pg, 16, 28.75, 0.5);
+await h.sleep(400);
+const t = await pg.evaluate(() => window.__ix.target());
+log('Ann target', t && t.view);
+// select the slot with the loot (slot 2 = key 2) like a player
+await h.tap(pg, 'Digit2');
+await h.sleep(300);
+await h.tap(pg, 'KeyE');
+await h.sleep(900);
+await h.shot(pg, '18-ann-deposited');
+const o = await pg.evaluate(() => window.__game.state().objectives.salvage);
+log('salvage after deposit', o, 'inv', await pg.evaluate(() => window.__ix.inventory()));
+await bob;
+return {};

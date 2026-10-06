@@ -1,0 +1,43 @@
+{
+ "eld": {
+  "p50": 15.69,
+  "p99": 31.57,
+  "max": 249.69,
+  "mean": 17.09
+ },
+ "top": [
+  [
+   "tick:ai.stt",
+   3.9
+  ],
+  [
+   "tick:objectives",
+   2.4
+  ],
+  [
+   "tick:monsters",
+   2
+  ],
+  [
+   "tick:interaction",
+   1.2
+  ],
+  [
+   "crewSnapshot:netAudCrew",
+   0.9
+  ],
+  [
+   "snapshot:netAudReceiver",
+   0.4
+  ]
+ ],
+ "stats": {
+  "ticks": 49473,
+  "tickHz": 29.98227354392338,
+  "snaps": 32697,
+  "snapHz": 19.815462940708322,
+  "snapSkipped": 22,
+  "crews": 1
+ }
+}
+-- 19.1 s

@@ -1,0 +1,52 @@
+{
+ "ms": 7779,
+ "error": null,
+ "logs": [],
+ "result": {
+  "pose": {
+   "p": [
+    21.07045542348445,
+    0,
+    15.462244301351518
+   ],
+   "yaw": -2.816300829518748,
+   "pitch": -0.41744025817942887,
+   "stance": 0
+  },
+  "hits": [],
+  "ints": [
+   {
+    "k": "lever:0",
+    "v": {
+     "id": "lever:0",
+     "kind": "lever",
+     "p": [
+      21.5,
+      1.2,
+      16.795
+     ],
+     "prompt": "Pull breaker (partner pulls the other within 1 s)",
+     "enabled": true,
+     "ref": "lever:0",
+     "r": 0.3
+    }
+   },
+   {
+    "k": "lever:1",
+    "v": {
+     "id": "lever:1",
+     "kind": "lever",
+     "p": [
+      20.5,
+      1.2,
+      0.205
+     ],
+     "prompt": "Pull breaker (partner pulls the other within 1 s)",
+     "enabled": true,
+     "ref": "lever:1",
+     "r": 0.3
+    }
+   }
+  ]
+ }
+}

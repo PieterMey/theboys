@@ -1,0 +1,8 @@
+{
+ "ms": 530,
+ "error": "window is not defined\nReferenceError: window is not defined\n    at eval (eval at <anonymous> (file:///C:/Users/Pieter/repos/theboys/tests/playtest/contract-run/driver.ts:79:18), <anonymous>:9:63)\n    at Array.find (<anonymous>)\n    at eval (eval at <anonymous> (file:///C:/Users/Pieter/repos/theboys/tests/playtest/contract-run/driver.ts:79:18), <anonymous>:9:41)\n    at async file:///C:/Users/Pieter/repos/theboys/tests/playtest/contract-run/driver.ts:80:16",
+ "logs": [
+  "pointer locked after click: true"
+ ],
+ "result": null
+}

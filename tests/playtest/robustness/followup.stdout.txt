@@ -1,0 +1,40 @@
+[17:47:48] server up pid 75492 (followup)
+[17:47:48] ---- H: stale voice band after a disconnect
+[17:47:49] H: LoudX at ["22.8","26.6"] hound spot [28.8,26.6] L true
+[17:47:49] H: place hound: {"ok":true,"agent":{"id":"hound0","kind":"hound","x":28.8,"z":26.6,"yaw":4.25,"state":"idle","anim":41,"active":true,"st":0,"path":0,"goal":[22.5,4.5],"chained":false,"tx":26.5,"tz":6.5,"tdoor":-1,"lastNoiseKind":"","lastNoiseDist":0}}
+[17:47:52] H: +1s LoudX connected=false band=3 alive=true | hound {"state":"alert","x":28.8,"z":26.6,"target":[22.5,4.5]}
+[17:47:53] H: +2s LoudX connected=false band=3 alive=true | hound {"state":"investigate","x":26,"z":26.6,"target":[22.8,26.6]}
+[17:47:54] H: +3s LoudX connected=false band=3 alive=true | hound {"state":"search","x":22.8,"z":26.6,"target":[22.8,26.6]}
+[17:47:55] H: +4s LoudX connected=false band=3 alive=true | hound {"state":"search","x":22.8,"z":26.6,"target":[22.8,26.6]}
+[17:47:56] H: +5s LoudX connected=false band=3 alive=true | hound {"state":"search","x":22.8,"z":26.6,"target":[22.8,26.6]}
+[17:47:57] H: +6s LoudX connected=false band=3 alive=true | hound {"state":"search","x":22.8,"z":26.6,"target":[22.8,26.6]}
+[17:47:58] H: +7s LoudX connected=false band=3 alive=true | hound {"state":"search","x":21.78,"z":26.96,"target":[17.5,28.5]}
+[17:47:59] H: +8s LoudX connected=false band=3 alive=true | hound {"state":"search","x":20.09,"z":27.57,"target":[17.5,28.5]}
+[17:48:00] H: +9s LoudX connected=false band=3 alive=true | hound {"state":"search","x":18.34,"z":28.2,"target":[17.5,28.5]}
+[17:48:01] H: +10s LoudX connected=false band=3 alive=true | hound {"state":"idle","x":17.5,"z":28.5,"target":[17.5,28.5]}
+[17:48:02] H: +11s LoudX connected=false band=3 alive=true | hound {"state":"idle","x":17.83,"z":28.39,"target":[26.5,25.5]}
+[17:48:03] H: +12s LoudX connected=false band=3 alive=true | hound {"state":"idle","x":19.3,"z":27.9,"target":[26.5,25.5]}
+[17:48:03] ---- A: wipe while one crewmate is disconnected
+[17:48:06] A: both connected players dead at 17:48:06
+[17:48:26] A: results 20.1 s after the last connected player died
+[17:48:26] ---- B: held slot vs crew cap
+[17:48:27] B: roster after Full6 dropped: Full1 Full2 Full3 Full4 Full5 Full6(away) connected 5/6
+[17:48:27] B: new friend joins: LateFriend: crew_full: crew is full (6)
+[17:48:27] ---- C/D/E: Gus (Chrome)
+[17:49:14] D: join panel ("ENTERING THE LOT") closed after 24616 ms (single Chrome, fps 25)
+[17:49:15] G: hub kick UI for the leader: {"count":0,"kick":0,"nethud":"LINK 1 MS"}
+[17:49:17] C: screen=board ready before R=false after R=false; footer: You are the crew leader: click a contract to pick it. The van leaves when everyone is READY (0/2), or hold DRIVE for 3 s. READY UP HOLD TO DRIVE NOW
+[17:49:25] E: Gus inventory before reload: walkie,crowbar,bottlex3,-
+[17:51:02] FATAL followup page.evaluate: Error: not connected
+    at http://127.0.0.1:3205/src/core/net.ts:321:68
+    at new Promise (<anonymous>)
+    at Object.req (http://127.0.0.1:3205/src/core/net.ts:320:14)
+    at Object.dbg (http://127.0.0.1:3205/src/core/net.ts:342:18)
+    at Object.dbg (http://127.0.0.1:3205/src/core/testapi.ts:53:26)
+    at eval (eval at evaluate (:311:30), <anonymous>:1:28)
+    at UtilityScript.evaluate (<anonymous>:313:16)
+    at UtilityScript.<anonymous> (<anonymous>:1:44)
+    at dbg (C:\Users\Pieter\repos\theboys\tests\playtest\robustness\lib.ts:89:15)
+    at inv (C:\Users\Pieter\repos\theboys\tests\playtest\robustness\followup.ts:150:23)
+    at main (C:\Users\Pieter\repos\theboys\tests\playtest\robustness\followup.ts:162:197)
+[17:51:03] followup done

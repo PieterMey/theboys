@@ -1,0 +1,36 @@
+{
+ "keys": [
+  "doors",
+  "items",
+  "inventories",
+  "lights",
+  "dead",
+  "hidden",
+  "active",
+  "ints",
+  "glows",
+  "bodies",
+  "respawns",
+  "hp"
+ ],
+ "n": 0,
+ "near": [],
+ "cam": {
+  "o": [
+   14.38,
+   1.62,
+   11.200011842264544
+  ],
+  "d": [
+   -0.8360301663620496,
+   0.393467228042194,
+   -0.3824095989765891
+  ]
+ },
+ "aim": [
+  null,
+  null
+ ],
+ "target": null
+}
+-- 0.0 s

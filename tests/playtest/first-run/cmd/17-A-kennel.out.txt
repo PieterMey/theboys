@@ -1,0 +1,23 @@
+{
+ "start": [
+  14.38,
+  0,
+  11.2
+ ],
+ "w": [
+  "arrived: (14.38,11.20) d=3.24 -> (15.56,9.52) d=1.65 -> (15.05,8.28) d=0.32",
+  "arrived: (15.05,8.28) d=6.17 -> (10.26,8.07) d=1.91 -> (9.03,9.38) d=0.12",
+  "arrived: (9.02,9.40) d=3.02 -> (6.84,10.80) d=0.47 -> (6.53,11.10) d=0.12"
+ ],
+ "near": {
+  "id": "kennel:0",
+  "kind": "kennel",
+  "d": 3.0171904494755313
+ },
+ "prompt": [
+  "ETRAINING KENNEL · CALIBRATE MIC"
+ ],
+ "screen": "kennel",
+ "text": "DONE [ESC]\nTRAINING KENNEL · MIC CALIBRATION\nMEET THE DOG\nThe chained Hound behind the fence is blind. Whisper and it ignores you. Talk and it turns its head. Shout and it lunges at the fence. Out there, it is not chained. This also teaches the game your voice: your friends hear you exactly as far as it does.\nSILENT\nWHISPER\nTALK\nSHOUT\nSCREAM\nRADIUS NOW: 10 m\nVOICE CALIBRATION\nTakes about 8 seconds. Use the headset you will play with.\nSTART"
+}
+-- 11.9 s

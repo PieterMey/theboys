@@ -1,0 +1,9 @@
+{
+ "B": [
+  "board: at 15.41,11.50 dist=0.86 0:- -0.25:- -0.6:- | E(eye level) -> screen=none",
+  "console: at 15.09,11.66 dist=0.99 0:Van console -0.25:Van console -0.6:Van console | E(eye level) -> screen=console",
+  "shop: at 15.62,12.07 dist=2.55 0:- -0.25:- -0.6:- | E(eye level) -> screen=none"
+ ],
+ "A": "none"
+}
+-- 32.2 s

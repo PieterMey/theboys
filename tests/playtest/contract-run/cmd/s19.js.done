@@ -1,0 +1,39 @@
+const nav = h.nav, pg = A.page, pb = B.page;
+let fin = false;
+const events = [];
+const t0 = Date.now();
+const coreSt = async () => pg.evaluate(() => { const c = window.__game.state().objectives.core; return { state: c.state, carriers: c.carriers, p: c.p }; });
+// Bob follows Ann like a human holding the other handle: W toward Ann when > 1.4 m
+const follower = (async () => {
+  let holding = false;
+  let n = 0;
+  while (!fin) {
+    const a = await nav.pose(pg), b = await nav.pose(pb);
+    const d = Math.hypot(a.p[0] - b.p[0], a.p[2] - b.p[2]);
+    await pb.evaluate((y) => window.__game.look(y, -0.1), Math.atan2(a.p[0] - b.p[0], a.p[2] - b.p[2]));
+    if (d > 1.4 && !holding) { await pb.keyboard.down('KeyW'); holding = true; }
+    else if (d <= 1.1 && holding) { await pb.keyboard.up('KeyW'); holding = false; }
+    if (++n % 20 === 0) events.push({ t: Date.now() - t0, d: Math.round(d * 100) / 100, a: a.p.map((v) => Math.round(v * 10) / 10), b: b.p.map((v) => Math.round(v * 10) / 10) });
+    await h.sleep(60);
+  }
+  if (holding) await pb.keyboard.up('KeyW');
+})();
+const watcher = (async () => {
+  let last = '';
+  while (!fin) {
+    const c = await coreSt();
+    if (c.state !== last) { events.push({ t: Date.now() - t0, core: c.state, carriers: c.carriers.length, p: c.p }); last = c.state; }
+    await h.sleep(150);
+  }
+})();
+let shots = 0;
+const shooter = (async () => { while (!fin && shots < 3) { await h.sleep(5000); if (fin) break; await h.shot(pg, `31-carry-ann-${shots}`); await h.shot(pb, `31-carry-bob-${shots}`); shots++; } })();
+const r = await nav.walkTo(pg, 16, 28.4, { timeoutMs: 120000, log: (...a) => log('A', ...a) });
+log('Ann carry walk', r.ok, r.end, r.reason, JSON.stringify(r.stuck), r.doorsOpened, 'ms', r.ms);
+await h.sleep(1500);
+fin = true;
+await Promise.all([follower, watcher, shooter]);
+log('events', events);
+const c = await coreSt();
+await h.shot(pg, '32-carry-end-ann');
+return c;

@@ -1,0 +1,31 @@
+{
+ "ids": {
+  "Tone": "pq6inO5Ghlh",
+  "Shouter": "pJQy1hLErLR",
+  "Quiet": "pT21aCqwhqG",
+  "Talker": "pI02_7VSqTt"
+ },
+ "out": {
+  "Talker": {
+   "Shouter": "connected/host rx=130441 band=2",
+   "Quiet": "connected/host rx=58586 band=0",
+   "Tone": "connected/host rx=79240 band=2"
+  },
+  "Tone": {
+   "Talker": "connected/host rx=54694 band=0",
+   "Shouter": "connected/host rx=33945 band=2",
+   "Quiet": "new/none rx=0 band=-1"
+  },
+  "Shouter": {
+   "Talker": "connected/host rx=146251 band=2",
+   "Quiet": "connected/host rx=68596 band=0",
+   "Tone": "connected/host rx=77216 band=2"
+  },
+  "Quiet": {
+   "Talker": "connected/host rx=130692 band=2",
+   "Shouter": "connected/host rx=129842 band=0",
+   "Tone": "connecting/host rx=0 band=-1"
+  }
+ }
+}
+-- 51.0 s

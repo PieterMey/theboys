@@ -1,0 +1,13 @@
+{
+ "screen": "none",
+ "locked": true,
+ "band": 2,
+ "light": true,
+ "hound": [
+  {
+   "anim": 44,
+   "yaw": -3.367
+  }
+ ]
+}
+-- 3.0 s

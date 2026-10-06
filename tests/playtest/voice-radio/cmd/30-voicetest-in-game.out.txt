@@ -1,0 +1,61 @@
+{
+ "players": [
+  {
+   "id": "pI02_7VSqTt",
+   "name": "Talker",
+   "alive": false,
+   "connected": true,
+   "band": 2,
+   "pos": [
+    31.2,
+    2.1,
+    39.8
+   ]
+  },
+  {
+   "id": "pT21aCqwhqG",
+   "name": "Quiet",
+   "alive": true,
+   "connected": true,
+   "band": 0,
+   "pos": [
+    31.2,
+    0,
+    37.6
+   ]
+  },
+  {
+   "id": "p777JwwzSvx",
+   "name": "voicetest",
+   "alive": true,
+   "connected": true,
+   "band": 2,
+   "pos": [
+    22,
+    0,
+    31.5
+   ]
+  }
+ ],
+ "roster": [
+  "Talker alive=false",
+  "Quiet alive=true",
+  "voicetest alive=true"
+ ],
+ "voiceState": [
+  "Talker band=2 alive=false",
+  "Quiet band=0 alive=true",
+  "voicetest band=2 alive=true"
+ ],
+ "recentVoiceNoise": [],
+ "hound": [
+  {
+   "state": "idle",
+   "lastNoiseKind": "",
+   "x": 15.88,
+   "z": 13.85
+  }
+ ],
+ "shot": "C:\\Users\\Pieter\\repos\\theboys\\tests\\playtest\\voice-radio\\shots\\30-quiet-with-voicetest-in-crew.png"
+}
+-- 0.6 s

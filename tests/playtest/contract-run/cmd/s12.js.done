@@ -1,0 +1,25 @@
+const nav = await import('file:///C:/Users/Pieter/repos/theboys/tests/playtest/contract-run/nav.ts?v=2');
+h.nav = nav;
+const pg = A.page, pb = B.page;
+const bob = (async () => {
+  const [sx, sz] = await nav.standNear(pb, 21.5, 16.795, 0.9, Math.PI);
+  const r = await nav.walkTo(pb, sx, sz, { keycard: true, log: (...a) => log('B', ...a), timeoutMs: 90000 });
+  log('Bob to lever0', r.ok, r.end, r.reason, JSON.stringify(r.stuck), 'doors', r.doorsOpened);
+  await nav.face(pb, 21.5, 16.795, 1.2);
+  await h.sleep(400);
+  const t = await pb.evaluate(() => window.__ix.target());
+  log('Bob lever target', t && t.view);
+  await h.shot(pb, '20-bob-at-lever0');
+})();
+// Ann: console in the van (E)
+await nav.walkTo(pg, 16, 29.6, { timeoutMs: 15000 });
+await nav.face(pg, 16, 30.6, 1.0);
+await h.sleep(400);
+const t = await pg.evaluate(() => window.__ix.target());
+log('Ann console target', t && t.view);
+await h.tap(pg, 'KeyE');
+await h.sleep(1500);
+log('Ann screen', (await h.st(pg)).screen);
+await h.shot(pg, '19-console-map');
+await bob;
+return {};

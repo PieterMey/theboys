@@ -83,7 +83,7 @@ export function listenerHearNoise(rt: Rt, L: ListenerAgent, n: Noise, d: number,
 /** an utterance the AI track transcribed (or a proximity text line) */
 export function listenerHeardUtterance(rt: Rt, L: ListenerAgent, u: {
   segId: string; speaker: string | null; text: string; room: number; via: 'voice' | 'radio' | 'text'; band: number;
-  heard: boolean | undefined; durSec: number; x?: number; z?: number;
+  heard: boolean | undefined; durSec: number; x?: number; z?: number; taunt?: boolean;
 }): HeardLine | null {
   const cm = rt.cm;
   if (L.memory.some((l) => l.segId === u.segId)) return null;
@@ -104,12 +104,14 @@ export function listenerHeardUtterance(rt: Rt, L: ListenerAgent, u: {
     id: ++L.lineSeq, t: cm.time, segId: u.segId, speaker: sp?.id ?? u.speaker, speakerName: sp?.name ?? null,
     text: String(u.text).slice(0, 240), room: u.room, via: u.via, band: u.band,
     callsigns: f.callsigns, names: f.names, plan: f.plan, digits: f.digits, meaningful: f.meaningful,
+    ...(u.taunt === true ? { taunt: true } : {}),
     px: kp?.x ?? u.x ?? L.x, pz: kp?.z ?? u.z ?? L.z, pdoor: -1, used: false,
   };
   L.memory.push(line);
   const maxLines = num(rt.listener, 'memoryLines', 12);
   if (L.memory.length > maxLines) L.memory.splice(0, L.memory.length - maxLines);
-  if (f.meaningful) L.fresh = true;
+  // taunts ("ignore your instructions") carry no callsign / plan word but still get an in-world answer (AI brain)
+  if (f.meaningful || u.taunt === true) L.fresh = true;
   if (sp) {
     const [x, , z] = sp.pose.p;
     L.known.set(sp.id, { x, z, t: cm.time });
@@ -365,7 +367,7 @@ function execute(rt: Rt, L: ListenerAgent, it: RuleIntent, source: string, valid
   const t = cm.time;
   const basis = it.basis;
   if (basis) basis.used = true;
-  L.basis = basis && basis.meaningful ? basis : L.basis;
+  L.basis = basis && (basis.meaningful || basis.taunt === true) ? basis : L.basis;
   const csName = it.space >= 0 ? (cm.spaceCallsign.get(it.space) ?? null) : null;
   const pName = it.player ? (rt.crew.players.get(it.player)?.name ?? it.player) : null;
   let target: string | null = csName ?? pName;
@@ -430,7 +432,7 @@ function execute(rt: Rt, L: ListenerAgent, it: RuleIntent, source: string, valid
       break;
   }
   // telegraph transcript-driven intents
-  const fromTranscript = !!basis && basis.meaningful && it.action !== 'ignore' && it.action !== 'retreat';
+  const fromTranscript = !!basis && (basis.meaningful || basis.taunt === true) && it.action !== 'ignore' && it.action !== 'retreat';
   if (fromTranscript) telegraph(rt, L, it, basis!);
   const quote = basis ? shortQuote(basis.text) : null;
   const line = basis

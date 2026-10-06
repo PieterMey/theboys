@@ -427,14 +427,18 @@ function addAchievement(player: ServerPlayer, a: string): boolean {
 
 // ---------------------------------------------------------------- board
 
-function boardFor(crew: Crew): WorkOrder[] {
+/** board inputs that decide order ids/seeds (default: the crew's current shift position) */
+export interface BoardAt { shiftIndex: number; contract: number; boardSeq: number }
+
+function boardFor(crew: Crew, at?: BoardAt): WorkOrder[] {
   const s = S(crew);
   const ctx = ctxOf();
   const e = econ();
   const core = ctx.balance.core as Record<string, unknown>;
   const n = Math.max(1, connected(crew).length);
+  const pos = at ?? { shiftIndex: s.shift.index, contract: s.shift.contract, boardSeq: s.boardSeq };
   return makeBoard({
-    crewCode: crew.code, shiftIndex: s.shift.index, contract: s.shift.contract, boardSeq: s.boardSeq, players: n,
+    crewCode: crew.code, shiftIndex: pos.shiftIndex, contract: pos.contract, boardSeq: pos.boardSeq, players: n,
     avgLevel: avgLevel(crew), achievements: crewAchievements(crew),
     payoutMult: (mb().payoutMult as Record<string, number>) ?? { 1: 1, 2: 1.4, 3: 1.9 },
     riskLootMult: (core.riskLootMult as Record<string, number>) ?? { 1: 1, 2: 1.4, 3: 1.9 },
@@ -497,7 +501,9 @@ function requestBriefs(crew: Crew): void {
       if (Array.isArray(ai.requests)) {
         ai.requests.forEach((r, i) => {
           const t = order.requests.find((x) => x.kind === r?.kind) ?? order.requests[i];
-          if (t && typeof r?.text === 'string' && r.text.trim() && r.text !== t.text) { t.text = r.text.trim().slice(0, 240); changed = true; }
+          // a brief prefetched at contract start was written for that crew size: keep the template line if the
+          // threshold moved since (someone joined/left), so the text never shows a stale number
+          if (t && r?.param === t.param && typeof r?.text === 'string' && r.text.trim() && r.text !== t.text) { t.text = r.text.trim().slice(0, 240); changed = true; }
         });
       }
       if (changed) {
@@ -506,6 +512,21 @@ function requestBriefs(crew: Crew): void {
       }
     });
   }
+}
+
+/**
+ * Opus briefs take a while, so the board the van shows AFTER this contract is built now (same ids/seeds as the one
+ * enterHub -> newBoard builds later) and (e) briefFor is asked for its orders right away: (e) caches per order id + seed,
+ * so by results time the AI text is ready and requestBriefs at hub entry lands it at once. A shift's last contract
+ * prefetches at results instead (the next board depends on the quota verdict). Same gates as requestBriefs.
+ */
+export function prefetchBriefs(crew: Crew, at: BoardAt): number {
+  const ctx = ctxOf();
+  if (ctx.flags.briefsAi === false || !A.has('ai', 'briefFor') || !aiReal()) return 0;
+  const wait = num(mb().briefAiWaitSec, 25) * 1000;
+  const orders = boardFor(crew, at);
+  for (const order of orders) void A.briefFor(order, wait);
+  return orders.length;
 }
 
 // ---------------------------------------------------------------- phase transitions
@@ -619,6 +640,10 @@ export function startContract(crew: Crew): void {
   handOutGear(crew);
   hubInteractables(crew);
   markDirty(crew);
+  // AI text for the next board (same shift): ready by results time
+  if (s.shift.contract + 1 < econ().contractsPerShift) {
+    prefetchBriefs(crew, { shiftIndex: s.shift.index, contract: s.shift.contract + 1, boardSeq: s.boardSeq + 1 });
+  }
 }
 
 function handOutGear(crew: Crew): void {
@@ -912,6 +937,8 @@ function buildShiftReview(crew: Crew): void {
   const input: ReviewInput = { crew: crew.code, shiftIndex: s.shift.index, quota: s.shift.quota, hauled: s.shift.hauled, overtime: ot, met, nextQuota: nextQ, players };
   const review = templateReview(input);
   s.review = review;
+  // the next shift's first board (continueFromResults: promoted -> index + 1, fired -> 0): briefs during the HR memo
+  prefetchBriefs(crew, { shiftIndex: met ? s.shift.index + 1 : 0, contract: 0, boardSeq: s.boardSeq + 1 });
   for (const fnc of RT?.shiftEndFns ?? []) {
     try { fnc(crew, review); } catch (err) { ctxOf().log('meta').warn('onShiftEnd listener threw:', err instanceof Error ? err.message : err); }
   }

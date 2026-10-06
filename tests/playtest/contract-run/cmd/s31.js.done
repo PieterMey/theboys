@@ -1,0 +1,14 @@
+const pg = A.page;
+const bottles = await pg.evaluate(() => Object.values(window.__ix.state().items).filter((i) => i.type === 'bottle').map((i) => ({ id: i.id, w: i.where, h: i.holder, n: i.count, p: i.p && i.p.map((v) => Math.round(v * 100) / 100) })));
+log('bottle items', bottles);
+const near = bottles.find((b) => b.w === 'world' && b.p && Math.hypot(b.p[0] - 14.8, b.p[2] - 26.2) < 1);
+log('near bottle', near);
+const inv0 = await pg.evaluate(() => { const s = window.__ix.state(); const me = window.__game.me(); return s.inventories[me].map((id) => id && [s.items[id].type, s.items[id].count]); });
+if (near) {
+  log('aim', await h.aimAt(pg, near.id, near.p[0], 0.1, near.p[2]));
+  await h.tap(pg, 'KeyE'); await h.sleep(700);
+}
+const inv1 = await pg.evaluate(() => { const s = window.__ix.state(); const me = window.__game.me(); return s.inventories[me].map((id) => id && [s.items[id].type, s.items[id].count]); });
+log('inv before/after pickup', inv0, inv1);
+// what does the server log say about the throw?
+return {};

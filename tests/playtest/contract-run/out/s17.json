@@ -1,0 +1,22 @@
+{
+ "ms": 12930,
+ "error": null,
+ "logs": [
+  "to keypad true [11.42,7.5] [] | true [12.79,7.51]  []",
+  "Ann aim keypad {\"ok\":true,\"off\":[0,0],\"text\":\"Enter vault code\"}",
+  "Ann screen obj-keypad",
+  "after code {\"vaultOpen\":true,\"core\":{\"state\":\"vault\",\"p\":[9,0,3],\"carriers\":[]}} screen none"
+ ],
+ "result": {
+  "vaultOpen": true,
+  "core": {
+   "state": "vault",
+   "p": [
+    9,
+    0,
+    3
+   ],
+   "carriers": []
+  }
+ }
+}

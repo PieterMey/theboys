@@ -1,0 +1,15 @@
+{
+ "phase": "contract",
+ "screen": "none",
+ "aud": {
+  "pI02_7VSqTt": 3,
+  "pJQy1hLErLR": 1,
+  "p17v-qARqY6": 3
+ },
+ "hear": [
+  "max 0.150 gate 0.92",
+  "max 0.421 gate 0.99",
+  "max 0.078 gate 0.92"
+ ]
+}
+-- 3.1 s

@@ -1,0 +1,10 @@
+const p = P.Talker.page;
+await h.place(p, 15.0, 8.0, Math.PI);
+await p.mouse.click(800, 450);
+await h.sleep(300);
+await h.tap(p, 'KeyB');
+await h.sleep(1500);
+const s = await h.shot(p, '13-board');
+const st = await h.st(p);
+const btns = await p.evaluate(() => [...document.querySelectorAll('button')].map((b) => b.textContent.trim()).filter(Boolean).slice(0, 30));
+return { screen: st.screen, btns, s };

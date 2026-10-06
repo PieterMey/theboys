@@ -1,0 +1,13 @@
+{
+ "ms": 2412,
+ "error": null,
+ "logs": [
+  "yaw before/after mouse move 0 -0.43999999999999995",
+  "screen after B: board locked: false"
+ ],
+ "result": {
+  "y0": 0,
+  "y1": -0.43999999999999995,
+  "scr": "board"
+ }
+}

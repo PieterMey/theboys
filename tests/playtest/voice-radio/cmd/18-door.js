@@ -1,0 +1,20 @@
+const ids = h.state.ids;
+const far = [[36.5, 38.5], [37.5, 39.5]];
+await h.place(P.Shouter.page, far[0][0], far[0][1], 0);
+await h.place(P.Tone2.page, far[1][0], far[1][1], 0);
+const lq = await h.place(P.Quiet.page, 9.5, 20.9, 0);
+const lt = await h.place(P.Talker.page, 9.5, 23.6, Math.PI);
+await h.sleep(2500);
+const door0 = (await h.dbg(P.Quiet.page, 'interaction.state', {})).doors[19];
+const aud0 = (await h.ev(P.Quiet.page, () => window.__voiceDebug.aud()))[ids.Talker];
+const m0 = await h.measure(P.Quiet.page, ids.Talker, 4000);
+const s0 = await h.shot(P.Quiet.page, '18-door-closed');
+// press E at the door (real key)
+const target = await h.ev(P.Quiet.page, () => window.__ix && window.__ix.target ? window.__ix.target() : null);
+await h.tap(P.Quiet.page, 'KeyE');
+await h.sleep(2500);
+const door1 = (await h.dbg(P.Quiet.page, 'interaction.state', {})).doors[19];
+const aud1 = (await h.ev(P.Quiet.page, () => window.__voiceDebug.aud()))[ids.Talker];
+const m1 = await h.measure(P.Quiet.page, ids.Talker, 4000);
+const s1 = await h.shot(P.Quiet.page, '18-door-open');
+return { lq, lt, target, closed: { door: door0, aud: aud0, max: m0.max.toFixed(4), rms: h.dB(Math.hypot(m0.l, m0.r) / Math.SQRT2), gate: m0.maxGain.toFixed(2) }, open: { door: door1, aud: aud1, max: m1.max.toFixed(4), rms: h.dB(Math.hypot(m1.l, m1.r) / Math.SQRT2), gate: m1.maxGain.toFixed(2) } };

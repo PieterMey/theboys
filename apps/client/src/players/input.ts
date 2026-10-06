@@ -4,6 +4,7 @@
 import type { InputState } from '@dead-air/shared/test-api.ts';
 import type { ClientContext } from '../core/context.ts';
 import type { PlayerSettings } from './types.ts';
+import { ui } from './social.ts';
 
 const LS_SETTINGS = 'deadair.playerSettings';
 
@@ -146,7 +147,8 @@ export function createInput(ctx: ClientContext, settings: PlayerSettings): Input
       case 'KeyV': if (!repeat) bus.emit('action:ptt', { down }); return true;
       case 'KeyT': if (!repeat) bus.emit('action:emote', { down }); return true;
       case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4':
-        if (down && !repeat) bus.emit('action:slot', { slot: Number(code.slice(5)) - 1 });
+        // with the emote wheel open the digits pick an emote and must not also switch the inventory slot
+        if (down && !repeat) bus.emit(ui.wheelOpen.value ? 'action:wheelKey' : 'action:slot', { slot: Number(code.slice(5)) - 1 });
         return true;
       default: return false;
     }

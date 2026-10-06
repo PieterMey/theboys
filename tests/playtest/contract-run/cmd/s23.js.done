@@ -1,0 +1,24 @@
+const pg = A.page;
+const cam = async () => pg.evaluate(() => { const c = window.__ix.camera(); return { yaw: Math.round(Math.atan2(c.d[0], c.d[2]) * 1000) / 1000, pitch: Math.round(Math.asin(c.d[1]) * 1000) / 1000, x: Math.round(c.o[0] * 100) / 100, z: Math.round(c.o[2] * 100) / 100, locked: !!document.pointerLockElement }; });
+const seq = [];
+await pg.mouse.click(800, 450);
+await h.sleep(400);
+seq.push(['afterClick', await cam()]);
+await pg.evaluate(() => window.__game.look(1.0, -0.6));
+for (let i = 0; i < 5; i++) { await h.sleep(200); seq.push(['idle' + i, await cam()]); }
+await h.shot(pg, '41-drift-test-a');
+seq.push(['afterShot', await cam()]);
+await h.sleep(1500);
+seq.push(['afterShot+1.5s', await cam()]);
+await h.hold(pg, 'KeyW', 600);
+seq.push(['afterW', await cam()]);
+await h.sleep(500);
+await h.shot(pg, '41-drift-test-b');
+seq.push(['afterShot2', await cam()]);
+await pg.evaluate(() => window.__game.look(-1.0, -0.4));
+await h.sleep(300);
+seq.push(['look2', await cam()]);
+await pg.mouse.move(820, 450);
+await h.sleep(300);
+seq.push(['afterMouseMove+20', await cam()]);
+return seq;

@@ -1,0 +1,140 @@
+{
+ "ms": 115,
+ "error": null,
+ "logs": [],
+ "result": {
+  "ix": {
+   "inv": {
+    "p-tDmuBdN26": [
+     "it14",
+     null,
+     null,
+     null
+    ],
+    "pag1X0nY5s9": [
+     "it15",
+     null,
+     null,
+     null
+    ]
+   },
+   "active": {
+    "p-tDmuBdN26": 0,
+    "pag1X0nY5s9": 0
+   },
+   "items": {
+    "it2": {
+     "t": "loot.small",
+     "w": "world",
+     "p": [
+      27.358,
+      0,
+      23.564
+     ]
+    },
+    "it3": {
+     "t": "loot.medium",
+     "w": "world",
+     "p": [
+      30.559,
+      0,
+      14.446
+     ]
+    },
+    "it4": {
+     "t": "loot.heavy",
+     "w": "world",
+     "p": [
+      13.407,
+      0,
+      4.585
+     ]
+    },
+    "it5": {
+     "t": "loot.medium",
+     "w": "world",
+     "p": [
+      26.674,
+      0,
+      5.329
+     ]
+    },
+    "it6": {
+     "t": "loot.medium",
+     "w": "world",
+     "p": [
+      27.652,
+      0,
+      18.66
+     ]
+    },
+    "it7": {
+     "t": "loot.medium",
+     "w": "world",
+     "p": [
+      27.658,
+      0,
+      4.305
+     ]
+    },
+    "it14": {
+     "t": "walkie",
+     "w": "held",
+     "h": "p-tDmuBdN26"
+    },
+    "it15": {
+     "t": "walkie",
+     "w": "held",
+     "h": "pag1X0nY5s9"
+    }
+   }
+  },
+  "o": {
+   "salvage": {
+    "count": 0,
+    "total": 6,
+    "value": 0
+   },
+   "loot": [
+    [
+     "it2",
+     "world",
+     null
+    ],
+    [
+     "it3",
+     "world",
+     null
+    ],
+    [
+     "it4",
+     "world",
+     null
+    ],
+    [
+     "it5",
+     "world",
+     null
+    ],
+    [
+     "it6",
+     "world",
+     null
+    ],
+    [
+     "it7",
+     "world",
+     null
+    ]
+   ]
+  },
+  "sn": [
+   28.652,
+   18.66
+  ],
+  "ownSn": 21,
+  "ownItem": 21,
+  "ownBob": 22,
+  "errA": []
+ }
+}

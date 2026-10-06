@@ -1,0 +1,6 @@
+{
+ "ms": 279,
+ "error": "locator.click: Error: strict mode violation: getByText('BACK TO THE VAN') resolved to 2 elements:\n    1) <div class=\"m-small m-dim\">Everyone made it back to the van. HR is suspiciou…</div> aka getByText('Everyone made it back to the')\n    2) <button class=\"m-btn primary\">…</button> aka getByRole('button', { name: 'BACK TO THE VAN · 25 s' })\n\nCall log:\n\u001b[2m  - waiting for getByText('BACK TO THE VAN')\u001b[22m\n\nlocator.click: Error: strict mode violation: getByText('BACK TO THE VAN') resolved to 2 elements:\n    1) <div class=\"m-small m-dim\">Everyone made it back to the van. HR is suspiciou…</div> aka getByText('Everyone made it back to the')\n    2) <button class=\"m-btn primary\">…</button> aka getByRole('button', { name: 'BACK TO THE VAN · 25 s' })\n\nCall log:\n\u001b[2m  - waiting for getByText('BACK TO THE VAN')\u001b[22m\n\n    at eval (<anonymous>:5:39)\n    at async file:///C:/Users/Pieter/repos/theboys/tests/playtest/contract-run/driver.ts:80:16",
+ "logs": [],
+ "result": null
+}

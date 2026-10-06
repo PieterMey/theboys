@@ -1,0 +1,30 @@
+{
+ "roster": [
+  "Talker alive=false conn=true",
+  "Shouter alive=true conn=true",
+  "Quiet alive=true conn=true",
+  "Tone2 alive=true conn=true"
+ ],
+ "dead": [
+  "Talker"
+ ],
+ "deaths": [
+  {
+   "pid": "pI02_7VSqTt",
+   "name": "Talker",
+   "cause": {
+    "killer": "listener",
+    "reason": "heard \"meet me in the boiler room\"",
+    "detail": "Talker's voice, 21 s ago"
+   },
+   "at": 1791308268701.1145,
+   "p": [
+    9.421689384095705,
+    0,
+    26.725912844334967
+   ]
+  }
+ ],
+ "monsters": "{\"mode\":\"contract\",\"time\":280.03,\"risk\":1,\"contractIndex\":0,\"frozen\":false,\"agents\":[{\"id\":\"hound0\",\"kind\":\"hound\",\"x\":5.6,\"z\":4.5,\"yaw\":1.57,\"state\":\"idle\",\"anim\":41,\"active\":true,\"st\":15.47,\"path\":2,\"goal\":[7.5,4.5],\"chained\":false,\"tx\":27.5,\"tz\":18.5,\"tdoor\":-1,\"lastNoiseKind\":\"\",\"lastNoiseDist\":0},{\"id\":\"listener0\",\"kind\":\"listener\",\"x\":24.5,\"z\":8.16,\"yaw\":-2.74,\"state\":\"investigate\",\"anim\":41,\"active\":true,\"st\":13.73,\"path\":2,\"goal\":[26.5,4],\"dormant\":false,\"wakeAt\":180,\"intent\":\"investigate_room\",\"targetSpace\":16,\"targetPlayer\":\"pI02_7VSqTt\",\"grabVictim\":null,\"memory\":[{\"text\":\"the code is 4719\",\"speaker\":\"Shouter\",\"callsigns\":[],\"meaningful\":true,\"used\":true},{\"text\":\"meet me in the boiler room\",\"speaker\":\"Shouter\",\"callsigns\":[],\"meaningful\":true,\"used\":false},{\"text\":\"go to the chapel\",\"speaker\":\"Shouter\",\"callsigns\":[\"CHAPEL\"],\"meaningful\":true,\"used\":false},{\"text\":\"the code is 4719\",\"speaker\":\"Shouter\",\"callsigns\":[],\"meaningful\":true,\"used\":false},{\"text\":\"meet me in the boiler room go to the chapel the code is 4719\",\"speaker\":\"Shouter\",\"callsigns\":[\"CHAPEL\"],\"meaningful\":true,\"used\":true},{\"text\":\"the code is 4719\",\"speaker\":\"Talker\",\"callsigns\":[],\"meaningful\":true,\"used\":true},{\"text\":\"meet me in the boiler room\",\"speaker\":\"Talker\",\"callsigns\":[],\"meaningful\":true,\"used\":true},{\"text\":\"meet me in the boiler room\",\"speaker\":\"Talker\",\"callsigns\":[],\"meaningful\":true,\"used\":false},{\"text\":\"go to the chapel\",\"speaker\":\"Talker\",\"callsigns\":[\"CHAPEL\"],\"meaningful\":t"
+}
+-- 0.5 s

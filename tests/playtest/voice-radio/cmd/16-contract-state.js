@@ -1,0 +1,11 @@
+const ids = h.state.ids;
+const name = (k) => Object.keys(ids).find((x) => ids[x] === k) || k;
+const ix = await h.dbg(P.Quiet.page, 'interaction.state', {});
+const inv = Object.fromEntries(Object.entries(ix.inventories || {}).map(([k, v]) => [name(k), v]));
+const items = ix.items ? Object.values(ix.items).filter((i) => i.type === 'walkie').map((i) => ({ id: i.id, where: i.where, holder: i.holder && name(i.holder) })) : null;
+const walkieSvc = {};
+for (const n of ['Talker', 'Tone2', 'Shouter', 'Quiet']) walkieSvc[n] = await h.ev(P[n].page, () => { const s = window.__voiceDebug.service(); return { radio: s.radio(), tx: s.transmitting() }; });
+const lay = await h.ev(P.Quiet.page, () => { const L = window.__game.state().layout; return L; });
+const pos = {};
+for (const n of ['Talker', 'Tone2', 'Shouter', 'Quiet']) pos[n] = await h.pose(P[n].page);
+return { inv, items, walkieSvc, lay, pos, doors: ix.doors && Object.keys(ix.doors).length };

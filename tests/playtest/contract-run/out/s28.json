@@ -1,0 +1,63 @@
+{
+ "ms": 781,
+ "error": null,
+ "logs": [],
+ "result": {
+  "inv": {
+   "p-tDmuBdN26": [
+    {
+     "id": "it14",
+     "t": "walkie"
+    },
+    {
+     "id": "it30",
+     "t": "walkie"
+    },
+    {
+     "id": "it31",
+     "t": "bottle",
+     "n": 3
+    },
+    {
+     "id": "it32",
+     "t": "bottle",
+     "n": 3
+    }
+   ],
+   "pag1X0nY5s9": [
+    {
+     "id": "it15",
+     "t": "walkie"
+    },
+    {
+     "id": "it1",
+     "t": "keycard"
+    },
+    {
+     "id": "it34",
+     "t": "walkie"
+    },
+    null
+   ]
+  },
+  "keycards": [
+   {
+    "id": "it1",
+    "w": "held",
+    "h": "pag1X0nY5s9"
+   },
+   {
+    "id": "it16",
+    "w": "world",
+    "p": [
+     29.5,
+     0.85,
+     20.5
+    ]
+   }
+  ],
+  "lockedDoors": [
+   "4"
+  ]
+ }
+}

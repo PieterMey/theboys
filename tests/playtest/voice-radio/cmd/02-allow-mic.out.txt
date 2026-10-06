@@ -1,0 +1,5 @@
+STEP ERROR: Unexpected identifier 'as'
+SyntaxError: Unexpected identifier 'as'
+    at new AsyncFunction (<anonymous>)
+    at file:///C:/Users/Pieter/repos/theboys/tests/playtest/voice-radio/driver.ts:166:18
+-- 0.0 s

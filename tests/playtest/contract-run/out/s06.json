@@ -1,0 +1,9 @@
+{
+ "ms": 15158,
+ "error": null,
+ "logs": [
+  "walk {\"ok\":true,\"stuck\":[],\"doorsOpened\":[],\"ms\":8880,\"end\":[28.43,23.26]}",
+  "target {\"id\":\"it2\",\"kind\":\"item\",\"view\":{\"id\":\"it2\",\"text\":\"Pick up Reading glasses ($31)\",\"key\":\"E\",\"enabled\":true}}"
+ ],
+ "result": {}
+}

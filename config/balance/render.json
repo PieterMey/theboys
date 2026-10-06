@@ -1,55 +1,86 @@
 {
- "_doc": "Track 3 Render defaults (PLAN 4.9). Tuned by eye from tests/render/stress.e2e.ts screenshots (tests/artifacts/render_<backend>_<view>.png). Units: light intensities in candela (physical), flashlight decay 1.6 for game-readable throw; volume.density is the VolumeNodeMaterial scattering scale (r186 example range 1-2); bloom.threshold is luminance (HDR, pre-tonemap); fx.ca is ChromaticAberrationNode strength; grade.contrast is a toe-preserving power curve (never clips darks). Pool sizes (shadowed/unshadowed/fixtures) and shadowMap apply at page load; everything else switches live via services.render.setPreset.",
- "exposure": 1.0,
+ "_doc": "Track 3 Render defaults (PLAN 4.9), look pass tuned from tests/render/polish.e2e.ts contact sheets (tests/artifacts/polish/*). Units: light intensities in candela (physical); the flashlight cookie is normalised (hot core = 1) and stops brightening closer than flashlight.nearClamp m (no blown-out hot spot up close); decay 1.6 for game-readable throw. fog: exponential height fog indoors, blended to outdoorDensity/outdoorColor while the camera stands in an open space (lot); moon = extra cold hemisphere sky light (colour + intensity) blended in while the camera stands outdoors (no DirectionalLight: its DynamicLighting arrays overflow the 12 fragment uniform buffers on Medium/Low). adapt = faint cold dark-adaptation fill light riding above the camera (visual only); core = cyan point light following the Core canister. flashlight.volLocal/volRemote weight the scattering of your own beam (subtle haze down its axis) vs teammates' beams (readable shafts). volume.density is the scattering scale of the depth-clamped ray march (maxDist m); bloom.threshold is luminance (HDR, pre-tonemap); fx.ca is ChromaticAberrationNode strength; grade.contrast is a toe-preserving power curve (never clips darks). fixture.kinds: per-kind colour / intensity multiplier / range (tube = cold green-white fluorescent, lamp = sodium lot lamp, wall = entrance wall pack, van = cargo light). Pool sizes (shadowed/unshadowed/fixtures) and shadowMap apply at page load; everything else switches live via services.render.setPreset.",
+ "exposure": 1,
  "ambient": {
-  "sky": "#7a8aa0",
-  "ground": "#14120e",
-  "intensity": 0.3
+  "sky": "#6f819c",
+  "ground": "#17130e",
+  "intensity": 0.85
+ },
+ "adapt": {
+  "color": "#a9b8cc",
+  "intensity": 0.4,
+  "distance": 9,
+  "decay": 1.3
  },
  "fog": {
-  "color": "#06080a",
-  "density": 0.085,
-  "height": 3.4
+  "color": "#05070a",
+  "density": 0.0147,
+  "height": 8,
+  "outdoorColor": "#0a0f16",
+  "outdoorDensity": 0.0072
+ },
+ "moon": {
+  "color": "#8ea4c8",
+  "intensity": 0.55
+ },
+ "core": {
+  "intensity": 3.2,
+  "distance": 7
  },
  "flashlight": {
-  "angle": 0.42,
-  "penumbra": 0.7,
+  "angle": 0.62,
+  "penumbra": 0.9,
   "decay": 1.6,
   "distance": 28,
-  "intensity1": 260,
-  "intensity2": 380,
+  "intensity1": 90,
+  "intensity2": 130,
   "color1": "#ffe3bd",
   "color2": "#e4eeff",
   "bias": -0.0004,
   "normalBias": 0.02,
   "shadowRadius": 3,
   "near": 0.12,
-  "cone": 0.07
+  "cone": 0.035,
+  "nearClamp": 2,
+  "plainAngle": 0.48,
+  "coneAngle": 0.3,
+  "volLocal": 0.6,
+  "volRemote": 1.8
  },
  "volume": {
-  "density": 1.4,
-  "noiseScale": 0.55,
-  "drift": 0.06,
-  "strength": 1.0,
-  "blur": 0.3
+  "density": 1.6,
+  "noiseScale": 0.45,
+  "drift": 0.05,
+  "strength": 1.7,
+  "blur": 0.35,
+  "maxDist": 15,
+  "haze": 0.22,
+  "nearFade": 3.5
  },
  "fixture": {
-  "color": "#d9f2c4",
+  "color": "#cfeedd",
   "intensity": 12,
   "distance": 9,
   "decay": 2,
-  "halo": 0.55,
-  "tube": 3.2
+  "halo": 0.5,
+  "tube": 3.4,
+  "lampCone": 0.07,
+  "kinds": {
+   "lamp": {
+    "mult": 11,
+    "distance": 22
+   }
+  }
  },
  "bloom": {
-  "strength": 0.38,
-  "radius": 0.5,
-  "threshold": 0.9
+  "strength": 0.32,
+  "radius": 0.55,
+  "threshold": 1.1
  },
  "fx": {
-  "ca": 0.22,
+  "ca": 0.12,
   "grain": 0.07,
-  "vignette": 0.42,
+  "vignette": 0.3,
   "desat": 0.32
  },
  "grade": {
@@ -64,7 +95,7 @@
    0.9
   ],
   "contrast": 1.06,
-  "lift": 0.012
+  "lift": 0.018
  },
  "presets": {
   "low": {
@@ -89,7 +120,7 @@
    "volSteps": 8,
    "gtao": true,
    "aoScale": 0.5,
-   "res": 1.0,
+   "res": 1,
    "fixtures": 16,
    "traa": true
   },
@@ -102,7 +133,7 @@
    "volSteps": 12,
    "gtao": true,
    "aoScale": 0.5,
-   "res": 1.0,
+   "res": 1,
    "fixtures": 24,
    "traa": true
   },
@@ -114,8 +145,8 @@
    "volScale": 0.5,
    "volSteps": 16,
    "gtao": true,
-   "aoScale": 1.0,
-   "res": 1.0,
+   "aoScale": 1,
+   "res": 1,
    "fixtures": 32,
    "traa": true
   }

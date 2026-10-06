@@ -1,0 +1,11 @@
+{
+ "ms": 1068,
+ "error": null,
+ "logs": [
+  "bottle items [{\"id\":\"it24\",\"w\":\"world\",\"n\":1,\"p\":[30.66,0,4.46]},{\"id\":\"it25\",\"w\":\"world\",\"n\":1,\"p\":[2.44,0,8.39]},{\"id\":\"it31\",\"w\":\"held\",\"h\":\"p-tDmuBdN26\",\"n\":2},{\"id\":\"it32\",\"w\":\"held\",\"h\":\"p-tDmuBdN26\",\"n\":3},{\"id\":\"it33\",\"w\":\"world\",\"n\":3,\"p\":[14.8,0,26.2]}]",
+  "near bottle {\"id\":\"it33\",\"w\":\"world\",\"n\":3,\"p\":[14.8,0,26.2]}",
+  "aim {\"ok\":true,\"off\":[0,0],\"text\":\"Pick up Bottle x3\"}",
+  "inv before/after pickup [[\"walkie\",null],null,[\"bottle\",2],[\"bottle\",3]] [[\"walkie\",null],[\"bottle\",3],[\"bottle\",2],[\"bottle\",3]]"
+ ],
+ "result": {}
+}

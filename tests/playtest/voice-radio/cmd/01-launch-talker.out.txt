@@ -1,0 +1,6 @@
+{
+ "s1": "C:\\Users\\Pieter\\repos\\theboys\\tests\\playtest\\voice-radio\\shots\\01-join-screen.png",
+ "pre": "MICROPHONEDefault microphoneMIC GAIN100%TRANSCRIBE MY SPEECH ON THE HOST PC (TEXT ONLY REACHES THE AI). OFF = LOUDNESS ONLY.",
+ "errors": []
+}
+-- 24.7 s

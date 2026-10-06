@@ -1,0 +1,24 @@
+{
+ "res1": {
+  "listener": {
+   "pos": [
+    20.5,
+    1.62,
+    19.5
+   ],
+   "fwd": [
+    1,
+    0,
+    0
+   ],
+   "src": "camera"
+  },
+  "Talker_right": "L -31.3 R -22.7 diff(R-L) 8.6 dB",
+  "Tone2_left": "L -22.7 R -30.5 diff(L-R) 7.8 dB"
+ },
+ "res2": {
+  "Talker_now_left": "L -22.4 R -31 diff(L-R) 8.6 dB",
+  "Tone2_now_right": "L -30.5 R -22.7 diff(R-L) 7.8 dB"
+ }
+}
+-- 14.8 s

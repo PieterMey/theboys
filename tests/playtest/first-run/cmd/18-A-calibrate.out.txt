@@ -1,0 +1,43 @@
+{
+ "before": [
+  {
+   "id": "kennel",
+   "kind": "hound",
+   "p": [
+    5.13,
+    0,
+    17.19
+   ],
+   "st": "alert",
+   "anim": 44,
+   "yaw": -3.37
+  }
+ ],
+ "steps": [
+  "0.5s VOICE CALIBRATION Stay quiet for a moment… START | hound={\"id\":\"kennel\",\"kind\":\"hound\",\"p\":[5.13,0,17.19],\"st\":\"alert\",\"anim\":44,\"yaw\":-3.37}",
+  "1.0s VOICE CALIBRATION Stay quiet for a moment… START | hound={\"id\":\"kennel\",\"kind\":\"hound\",\"p\":[5.13,0,17.19],\"st\":\"alert\",\"anim\":44,\"yaw\":-3.37}",
+  "1.5s VOICE CALIBRATION Say, at normal volume: “Night shift salvage, crew checking in. Radio check, one two three.” START | hound={\"id\":\"kennel\",\"kind\":\"hound\",\"p\":[5.13,0,17.19],\"st\":\"alert\",\"anim\":44,\"yaw\":-3.37}",
+  "2.0s VOICE CALIBRATION Say, at normal volume: “Night shift salvage, crew checking in. Radio check, one two three.” START | hound={\"id\":\"kennel\",\"kind\":\"hound\",\"p\":[5.13,0,17.19],\"st\":\"alert\",\"anim\":44,\"yaw\":-3.37}",
+  "2.5s VOICE CALIBRATION Say, at normal volume: “Night shift salvage, crew checking in. Radio check, one two three.” START | hound={\"id\":\"kennel\",\"kind\":\"hound\",\"p\":[5.13,0,17.19],\"st\":\"alert\",\"anim\":44,\"yaw\":-3.37}",
+  "3.0s VOICE CALIBRATION Say, at normal volume: “Night shift salvage, crew checking in. Radio check, one two three.” START | hound={\"id\":\"kennel\",\"kind\":\"hound\",\"p\":[5.13,0,17.19],\"st\":\"alert\",\"anim\":44,\"yaw\":-3.37}",
+  "3.5s VOICE CALIBRATION Say, at normal volume: “Night shift salvage, crew checking in. Radio check, one two three.” START | hound={\"id\":\"kennel\",\"kind\":\"hound\",\"p\":[5.13,0,17.19],\"st\":\"alert\",\"anim\":44,\"yaw\":-3.37}",
+  "4.0s VOICE CALIBRATION Say, at normal volume: “Night shift salvage, crew checking in. Radio check, one two three.” START | hound={\"id\":\"kennel\",\"kind\":\"hound\",\"p\":[5.13,0,17.19],\"st\":\"alert\",\"anim\":44,\"yaw\":-3.37}",
+  "4.5s CALIBRATED. Good dog. AGAIN | hound={\"id\":\"kennel\",\"kind\":\"hound\",\"p\":[5.13,0,17.19],\"st\":\"alert\",\"anim\":44,\"yaw\":-3.37}",
+  "5.0s CALIBRATED. Good dog. AGAIN | hound={\"id\":\"kennel\",\"kind\":\"hound\",\"p\":[5.13,0,17.19],\"st\":\"alert\",\"anim\":44,\"yaw\":-3.37}",
+  "5.5s CALIBRATED. Good dog. AGAIN | hound={\"id\":\"kennel\",\"kind\":\"hound\",\"p\":[5.13,0,17.19],\"st\":\"alert\",\"anim\":44,\"yaw\":-3.37}",
+  "6.0s CALIBRATED. Good dog. AGAIN | hound={\"id\":\"kennel\",\"kind\":\"hound\",\"p\":[5.13,0,17.19],\"st\":\"alert\",\"anim\":44,\"yaw\":-3.37}",
+  "6.5s CALIBRATED. Good dog. AGAIN | hound={\"id\":\"kennel\",\"kind\":\"hound\",\"p\":[5.13,0,17.19],\"st\":\"alert\",\"anim\":44,\"yaw\":-3.37}",
+  "7.0s CALIBRATED. Good dog. AGAIN | hound={\"id\":\"kennel\",\"kind\":\"hound\",\"p\":[5.13,0,17.19],\"st\":\"alert\",\"anim\":44,\"yaw\":-3.37}",
+  "7.5s CALIBRATED. Good dog. AGAIN | hound={\"id\":\"kennel\",\"kind\":\"hound\",\"p\":[5.13,0,17.19],\"st\":\"alert\",\"anim\":44,\"yaw\":-3.37}",
+  "8.0s CALIBRATED. Good dog. AGAIN | hound={\"id\":\"kennel\",\"kind\":\"hound\",\"p\":[5.13,0,17.19],\"st\":\"alert\",\"anim\":44,\"yaw\":-3.37}",
+  "8.5s CALIBRATED. Good dog. AGAIN | hound={\"id\":\"kennel\",\"kind\":\"hound\",\"p\":[5.13,0,17.19],\"st\":\"alert\",\"anim\":44,\"yaw\":-3.37}",
+  "9.0s CALIBRATED. Good dog. AGAIN | hound={\"id\":\"kennel\",\"kind\":\"hound\",\"p\":[5.13,0,17.19],\"st\":\"alert\",\"anim\":44,\"yaw\":-3.37}",
+  "9.5s CALIBRATED. Good dog. AGAIN | hound={\"id\":\"kennel\",\"kind\":\"hound\",\"p\":[5.13,0,17.19],\"st\":\"alert\",\"anim\":44,\"yaw\":-3.37}",
+  "10.0s CALIBRATED. Good dog. AGAIN | hound={\"id\":\"kennel\",\"kind\":\"hound\",\"p\":[5.13,0,17.19],\"st\":\"alert\",\"anim\":44,\"yaw\":-3.37}",
+  "10.5s CALIBRATED. Good dog. AGAIN | hound={\"id\":\"kennel\",\"kind\":\"hound\",\"p\":[5.13,0,17.19],\"st\":\"alert\",\"anim\":44,\"yaw\":-3.37}",
+  "11.0s CALIBRATED. Good dog. AGAIN | hound={\"id\":\"kennel\",\"kind\":\"hound\",\"p\":[5.13,0,17.19],\"st\":\"alert\",\"anim\":44,\"yaw\":-3.37}",
+  "11.5s CALIBRATED. Good dog. AGAIN | hound={\"id\":\"kennel\",\"kind\":\"hound\",\"p\":[5.13,0,17.19],\"st\":\"alert\",\"anim\":44,\"yaw\":-3.37}",
+  "12.0s CALIBRATED. Good dog. AGAIN | hound={\"id\":\"kennel\",\"kind\":\"hound\",\"p\":[5.13,0,17.19],\"st\":\"alert\",\"anim\":44,\"yaw\":-3.37}"
+ ]
+}
+-- 15.0 s

@@ -1,0 +1,24 @@
+{
+ "kill": {
+  "ok": true
+ },
+ "livingQuietHearsShouter": {
+  "alive": "max 0.2818 L -16.5 R -16.6 gate 0.99",
+  "dead": "max 0.0000 L -180 R -180 gate 0.00"
+ },
+ "deadTalkerPos": [
+  33.8,
+  2.1,
+  38.5
+ ],
+ "deadShouterPos": [
+  33.8,
+  2,
+  38.5
+ ],
+ "deadTalkerHearsDeadShouter": "max 0.2439 L -17.7 R -17.8 gate 1.00",
+ "deadShouterHearsDeadTalker": "max 0.0939 L -27.1 R -27.1 gate 1.00",
+ "livingTone2HearsDeadShouter": "max 0.0000 L -180 R -180 gate 0.00",
+ "sShot": "C:\\Users\\Pieter\\repos\\theboys\\tests\\playtest\\voice-radio\\shots\\23-shouter-death-card.png"
+}
+-- 23.9 s

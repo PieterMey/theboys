@@ -1,0 +1,18 @@
+{
+ "audAtQuiet": {
+  "Talker_outside": 255,
+  "Shouter_inside": 1
+ },
+ "QuietHears": {
+  "Talker_outside_2m": "max 0.0000 gate 0.00",
+  "Shouter_inside_1m": "max 0.3711 gate 0.99"
+ },
+ "TalkerOutsideHearsShouterInside": {
+  "aud": 255,
+  "max": "0.0000",
+  "gate": "0.00"
+ },
+ "shotIn": "C:\\Users\\Pieter\\repos\\theboys\\tests\\playtest\\voice-radio\\shots\\12-van-inside-looking-out.png",
+ "shotOut": "C:\\Users\\Pieter\\repos\\theboys\\tests\\playtest\\voice-radio\\shots\\12-van-outside-looking-in.png"
+}
+-- 14.8 s

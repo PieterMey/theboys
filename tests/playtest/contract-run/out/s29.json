@@ -1,0 +1,11 @@
+{
+ "ms": 7945,
+ "error": null,
+ "logs": [
+  "Ann slot3 {\"inv\":[[\"walkie\",null],[\"walkie\",null],[\"bottle\",3],[\"bottle\",3]],\"active\":2}",
+  "after throw {\"inv\":[[\"walkie\",null],[\"walkie\",null],[\"bottle\",2],[\"bottle\",3]],\"active\":2} thrown dyn? [{\"w\":\"world\",\"p\":[30.659,0,4.46]},{\"w\":\"world\",\"p\":[2.444,0,8.387]},{\"w\":\"world\",\"p\":[14.8,0,26.200000000000003]}]",
+  "after G {\"inv\":[[\"walkie\",null],null,[\"bottle\",2],[\"bottle\",3]],\"active\":1}",
+  "crouch: camY 1.0159382117068585 moved 2.21 m in 1.5 s"
+ ],
+ "result": {}
+}

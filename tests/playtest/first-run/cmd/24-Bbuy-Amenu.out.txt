@@ -1,0 +1,10 @@
+{
+ "nBuy": 5,
+ "afterBuy": "135 | gear: Bottle ×3",
+ "Btoasts": [
+  "Bob bought Bottles x3 (15 scrip)"
+ ],
+ "A_screen": "menu",
+ "A_menuText": "RESUME [ESC]\nPAUSED · THE NIGHT CONTINUES WITHOUT YOU · CREW PLAY1\nDEAD AIR\nRESUME\nHOW TO PLAY\nSETTINGS\nCREDITS\nLEAVE THE SHIFT\nTHE JOB\n\nSalvage loot, restore power with the twin breaker levers (pulled within one second of each other), read the vault code off the van console, open the vault and carry the Core out between two people. The van leaves at 04:00. Blackout at 03:00. Three contracts make a shift; miss the quota and HR writes to you.\n\nHOUND\nIT IS BLIND\nIt ignores whispers and crouch-steps. When it growls, FREEZE. A second noise nearby and it charges. Bottles send it elsewhere.\nLISTENER"
+}
+-- 4.2 s

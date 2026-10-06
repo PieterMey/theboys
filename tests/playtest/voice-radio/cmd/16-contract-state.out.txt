@@ -1,0 +1,88 @@
+{
+ "inv": {
+  "Talker": [
+   "it18",
+   null,
+   null,
+   null
+  ],
+  "Shouter": [
+   "it19",
+   null,
+   null,
+   null
+  ],
+  "Quiet": [
+   null,
+   null,
+   null,
+   null
+  ],
+  "Tone2": [
+   null,
+   null,
+   null,
+   null
+  ]
+ },
+ "items": [
+  {
+   "id": "it18",
+   "where": "held",
+   "holder": "Talker"
+  },
+  {
+   "id": "it19",
+   "where": "held",
+   "holder": "Shouter"
+  }
+ ],
+ "walkieSvc": {
+  "Talker": {
+   "radio": 0,
+   "tx": true
+  },
+  "Tone2": {
+   "radio": 0,
+   "tx": true
+  },
+  "Shouter": {
+   "radio": 0,
+   "tx": true
+  },
+  "Quiet": {
+   "radio": 0,
+   "tx": true
+  }
+ },
+ "lay": {
+  "seed": "VRAD-000-5336",
+  "hash": "ecc28fbe",
+  "W": 40,
+  "H": 42
+ },
+ "pos": {
+  "Talker": {
+   "x": 20.8,
+   "z": 32.6,
+   "yaw": 3.141592653589793
+  },
+  "Tone2": {
+   "x": 20.8,
+   "z": 31.5,
+   "yaw": 3.141592653589793
+  },
+  "Shouter": {
+   "x": 22,
+   "z": 32.6,
+   "yaw": 3.141592653589793
+  },
+  "Quiet": {
+   "x": 23.2,
+   "z": 32.6,
+   "yaw": 3.141592653589793
+  }
+ },
+ "doors": 37
+}
+-- 0.8 s

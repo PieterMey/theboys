@@ -50,10 +50,33 @@ export function createViewModel(scene: THREE.Scene): ViewModel {
   const sw = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.008, 0.02), chrome);
   sw.position.set(0, 0.018, -0.01);
   inner.add(sw);
-  // a gloved hand hint (rounded box under the grip)
-  const glove = new THREE.Mesh(new THREE.CapsuleGeometry(0.03, 0.06, 4, 10), flat(0x1a1917));
-  glove.rotation.z = Math.PI / 2;
-  glove.position.set(0.004, -0.012, 0.045);
+  // gloved hand round the grip (look pass, ③): palm + four wrapped fingers + thumb in worn work-glove leather.
+  // Lit (the lens light points away from it, so it never blows out) with a faint floor so it is never a black hole.
+  const gloveMat = new THREE.MeshStandardNodeMaterial({ color: 0x2a2520, roughness: 0.82, metalness: 0, emissive: new THREE.Color(0x0b0a09), emissiveIntensity: 1 });
+  const cuffMat = new THREE.MeshStandardNodeMaterial({ color: 0x1c1d1f, roughness: 0.6, metalness: 0.1, emissive: new THREE.Color(0x060607), emissiveIntensity: 1 });
+  const glove = new THREE.Group();
+  const palm = new THREE.Mesh(new THREE.CapsuleGeometry(0.024, 0.05, 4, 12), gloveMat);
+  palm.rotation.x = Math.PI / 2;
+  palm.scale.set(1.05, 1, 0.8);
+  palm.position.set(0.024, -0.008, 0.052);
+  glove.add(palm);
+  for (let f = 0; f < 4; f++) {
+    const finger = new THREE.Mesh(new THREE.TorusGeometry(0.0225, 0.0085, 8, 14, Math.PI * 1.15), gloveMat);
+    // wrap from the palm side under the barrel round to the far side; little finger slightly smaller
+    finger.rotation.set(0, Math.PI / 2, Math.PI * 0.55);
+    finger.position.set(0.004, 0, 0.018 + f * 0.0185);
+    finger.scale.setScalar(f === 3 ? 0.92 : 1);
+    glove.add(finger);
+  }
+  const thumb = new THREE.Mesh(new THREE.CapsuleGeometry(0.0085, 0.036, 4, 8), gloveMat);
+  thumb.rotation.set(Math.PI / 2, 0, 0);
+  thumb.position.set(-0.004, 0.02, 0.03);
+  glove.add(thumb);
+  const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.032, 0.035, 14), cuffMat);
+  cuff.rotation.x = Math.PI / 2;
+  cuff.position.set(0.03, -0.012, 0.1);
+  glove.add(cuff);
+  for (const c of glove.children) { c.castShadow = false; c.receiveShadow = false; }
   inner.add(glove);
   inner.rotation.set(0.05, 0.1, 0);
   inner.scale.setScalar(0.85);
@@ -117,9 +140,10 @@ export function createViewModel(scene: THREE.Scene): ViewModel {
               glassMats.push(mat);
             } else if (mat.map) {
               // dim self-illumination so the prop never reads as a black hole in total darkness
-              mat.emissive = new THREE.Color(0x3a3a3a);
+              // (look pass: 0.35 made the red vintage body glow like a toy in the dark)
+              mat.emissive = new THREE.Color(0x2a2a2a);
               mat.emissiveMap = mat.map;
-              mat.emissiveIntensity = 0.35;
+              mat.emissiveIntensity = 0.16;
             }
           }
         });

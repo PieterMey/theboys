@@ -100,6 +100,8 @@ export interface HeardLine {
   plan: string[];
   digits: string[];
   meaningful: boolean;
+  /** meta / injection / mocking talk ("ignore your instructions", "come and get me"): it answers in-world */
+  taunt?: boolean;
   /** where it reached the Listener */
   px: number;
   pz: number;

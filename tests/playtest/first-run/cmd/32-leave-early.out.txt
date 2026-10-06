@@ -1,0 +1,30 @@
+{
+ "w": [
+  [
+   "arrived: (16.80,26.60) d=1.50 -> (17.63,27.22) d=0.46 -> (18.03,27.52) d=0.04",
+   "arrived: (18.05,27.54) d=1.87 -> (17.97,28.67) d=0.74 -> (17.94,29.10) d=0.30 -> (17.86,29.88) d=0.48 -> (17.85,29.96) d=0.56 -> (17.91,29.25) d=0.15"
+  ],
+  [
+   "arrived: (18.00,26.60) d=1.08 -> (18.12,26.77) d=0.87 -> (18.74,27.72) d=0.26",
+   "arrived: (18.74,27.72) d=1.11 -> (18.41,28.71) d=0.13"
+  ]
+ ],
+ "target": {
+  "id": "leave_lever:0",
+  "text": "Leave now (everyone alive must be in the van)",
+  "key": "E",
+  "enabled": true
+ },
+ "afterE": {
+  "target": {
+   "id": "leave_lever:0",
+   "text": "Leave now (everyone alive must be in the van)",
+   "key": "E",
+   "enabled": false
+  },
+  "msg": null,
+  "screen": "results",
+  "phase": "results"
+ }
+}
+-- 9.6 s

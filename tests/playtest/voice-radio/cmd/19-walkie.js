@@ -1,0 +1,23 @@
+const ids = h.state.ids;
+await h.place(P.Talker.page, 9.5, 27.0, Math.PI);
+await h.place(P.Shouter.page, 30.5, 38.5, Math.PI / 2);
+await h.place(P.Quiet.page, 31.6, 38.5, -Math.PI / 2);
+await h.place(P.Tone2.page, 36.5, 32.5, 0);
+await h.sleep(3000);
+const audS = await h.ev(P.Shouter.page, () => window.__voiceDebug.aud());
+const audQ = await h.ev(P.Quiet.page, () => window.__voiceDebug.aud());
+const pre = await Promise.all([h.measure(P.Shouter.page, ids.Talker, 2500), h.measure(P.Quiet.page, ids.Talker, 2500)]);
+// Talker holds Q (real key)
+await P.Talker.page.bringToFront();
+await P.Talker.page.keyboard.down('q');
+await h.sleep(800);
+const txState = await h.ev(P.Talker.page, () => { const s = window.__voiceDebug.service(); return { radio: s.radio(), tx: s.transmitting(), hud: document.querySelector('[data-testid=ix-radio]')?.textContent, meter: document.querySelector('[data-testid=band-meter]')?.textContent }; });
+const [shTx, qTx] = await Promise.all([h.measure(P.Shouter.page, ids.Talker, 4000), h.measure(P.Quiet.page, ids.Talker, 4000)]);
+const sTalker = await h.shot(P.Talker.page, '19-talker-tx');
+const sShouter = await h.shot(P.Shouter.page, '19-shouter-rx');
+await P.Talker.page.keyboard.up('q');
+await h.sleep(2000);
+const post = await Promise.all([h.measure(P.Shouter.page, ids.Talker, 2500), h.measure(P.Quiet.page, ids.Talker, 2500)]);
+const after = await h.ev(P.Talker.page, () => { const s = window.__voiceDebug.service(); return { radio: s.radio(), hud: document.querySelector('[data-testid=ix-radio]')?.textContent }; });
+const fmt = (m) => `max ${m.max.toFixed(4)} L ${h.dB(m.l)} R ${h.dB(m.r)} gate ${m.maxGain.toFixed(2)}`;
+return { audS: audS[ids.Talker], audQ: audQ[ids.Talker], pre: pre.map(fmt), txState, during: { Shouter_walkie: fmt(shTx), Quiet_noWalkie: fmt(qTx) }, post: post.map(fmt), after, shots: [sTalker, sShouter] };

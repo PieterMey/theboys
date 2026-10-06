@@ -1,0 +1,12 @@
+const p = P.Talker.page;
+await p.mouse.click(420, 330);
+await h.sleep(1000);
+const b = await p.getByText('HOLD TO DRIVE NOW').boundingBox();
+await p.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+await p.mouse.down();
+await h.sleep(3600);
+await p.mouse.up();
+await h.sleep(1500);
+const st = await h.st(p);
+const s = await h.shot(p, '14-after-drive');
+return { phase: st.phase, screen: st.screen, s };

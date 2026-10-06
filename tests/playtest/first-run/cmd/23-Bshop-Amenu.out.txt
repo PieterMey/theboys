@@ -1,0 +1,24 @@
+{
+ "B": [
+  "arrived: (5.30,12.89) d=5.37 -> (8.42,9.61) d=0.84 -> (9.00,9.00) d=0.01",
+  "arrived: (9.00,9.00) d=6.16 -> (13.37,7.91) d=1.66 -> (14.75,7.65) d=0.25",
+  "arrived: (14.75,7.65) d=3.80 -> (17.65,8.74) d=0.70 -> (18.36,9.02) d=0.06",
+  "arrived: (18.41,9.04) d=4.86 -> (18.38,12.47) d=1.43 -> (18.30,14.15) d=0.25"
+ ],
+ "A_afterEsc1": "none",
+ "A_afterEsc2": "none",
+ "B_target": {
+  "id": "shop:0",
+  "text": "Company store",
+  "key": "E",
+  "enabled": true
+ },
+ "B_pos": [
+  18.297354663029306,
+  0,
+  14.240619473708792
+ ],
+ "B_screen": "shop",
+ "shopText": "CLOSE [ESC]\nCOMPANY STORE · PRICES SET BY THE COMPANY · NO REFUNDS\nEQUIPMENT\nSPENDABLE SCRIP\n150\npurchases never count against the quota\nWALKIE-TALKIE\nHold Q to transmit. Everyone holding one hears you. So might something else.\n40\nBUY\nCROWBAR\nLMB to swing. Frees a grabbed teammate, pries jammed doors. Loud.\n30\nBUY\nBOTTLES X3\nLMB to throw. A 15 m crash the Hound cannot resist.\n15\nBUY\nGLOWSTICKS X5\nDrop to mark a path. Keeps a Mannequin lit.\n10\nBUY\nMEDKIT\nRevive a teammate where they fell, within 30 s. Single use.\n45\nBUY\nYOUR GEAR\nnothing yet\nCOMPANY ISSUE (FREE, PER SHIFT)\nWalkie ×2\nGear is handed out when the van reaches the site. Survivors keep what they carry back to the van. The dead do not."
+}
+-- 16.3 s

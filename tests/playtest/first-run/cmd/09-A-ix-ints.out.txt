@@ -1,0 +1,117 @@
+{
+ "n": 7,
+ "sample": [
+  {
+   "key": "console:0",
+   "id": "console:0",
+   "kind": "console",
+   "p": [
+    15,
+    0,
+    12.645
+   ],
+   "prompt": "Van console",
+   "enabled": true,
+   "ref": "console:0",
+   "r": 0.7
+  },
+  {
+   "key": "leave_lever:0",
+   "id": "leave_lever:0",
+   "kind": "leave_lever",
+   "p": [
+    14.18,
+    1.15,
+    11.75
+   ],
+   "prompt": "Leave now (everyone in the van)",
+   "enabled": true,
+   "ref": "leave_lever:0",
+   "r": 0.3
+  },
+  {
+   "key": "deposit:0",
+   "id": "deposit:0",
+   "kind": "deposit",
+   "p": [
+    15,
+    0.4,
+    10.75
+   ],
+   "prompt": "Deposit loot",
+   "enabled": true,
+   "ref": "deposit:0",
+   "r": 0.8
+  },
+  {
+   "key": "kennel:0",
+   "id": "kennel:0",
+   "kind": "kennel",
+   "p": [
+    6,
+    0,
+    13.4
+   ],
+   "prompt": "Training kennel: calibrate your mic",
+   "enabled": true,
+   "ref": "kennel:0",
+   "r": 0.9
+  },
+  {
+   "key": "mirror:0",
+   "id": "mirror:0",
+   "kind": "mirror",
+   "p": [
+    13,
+    0,
+    11.2
+   ],
+   "prompt": "Locker mirror: change your look",
+   "enabled": true,
+   "ref": "mirror:0",
+   "r": 0.5
+  },
+  {
+   "key": "board:0",
+   "id": "board:0",
+   "kind": "board",
+   "p": [
+    16.27,
+    0,
+    11.6
+   ],
+   "prompt": "Work orders",
+   "enabled": true,
+   "ref": "board:0",
+   "r": 0.7
+  },
+  {
+   "key": "shop:0",
+   "id": "shop:0",
+   "kind": "shop",
+   "p": [
+    17.4,
+    0,
+    13.9
+   ],
+   "prompt": "Company store",
+   "enabled": true,
+   "ref": "shop:0",
+   "r": 0.7
+  }
+ ],
+ "pose": {
+  "id": "pJ5VSnnXuED",
+  "p": [
+   14.38,
+   0,
+   11.200011842264544
+  ],
+  "yaw": 0,
+  "pitch": 0,
+  "stance": 0,
+  "anim": 0,
+  "light": 1
+ }
+}
+-- 0.0 s

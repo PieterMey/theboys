@@ -2,7 +2,59 @@
 // a helmet lamp housing, badge decals and nameplates. All geometry is built in "helmet space":
 // origin = centre of the head, +Y up, +Z forward (character facing), metres.
 import * as THREE from 'three/webgpu';
+import { abs, float, materialColor, max, mix, mx_fractal_noise_float, positionGeometry, smoothstep, uniform, vec3 } from 'three/tsl';
 import type { HelmetKind, Profile } from '@dead-air/shared/profile.ts';
+
+/**
+ * Work-suit fabric for the UAL mannequin body (look pass, track ③): the bare colour slot read as a naked plastic
+ * mannequin. No UVs on the rig, so patterns live in normalised bind-pose space (T-pose box: y 0 = soles .. 1 = crown,
+ * dx = distance from the body axis in body heights): retro-reflective hi-vis tape on the chest, upper arms and shins,
+ * a coarse woven breakup in albedo + roughness, grime rising from the boots, a soft fabric sheen. The profile colour
+ * stays in material.color (a uniform), so every suit shares one shader program.
+ */
+export function suitMaterial(primary: THREE.Color, geo: THREE.BufferGeometry, normalMap?: THREE.Texture | null): THREE.MeshPhysicalNodeMaterial {
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox ?? new THREE.Box3(new THREE.Vector3(), new THREE.Vector3(1, 1, 1));
+  const size = bb.getSize(new THREE.Vector3());
+  const lo = uniform(bb.min.clone());
+  const inv = uniform(new THREE.Vector3(1 / Math.max(1e-6, size.x), 1 / Math.max(1e-6, size.y), 1 / Math.max(1e-6, size.z)));
+  const aspect = uniform(size.x / Math.max(1e-6, size.y));
+  const q = positionGeometry.sub(lo).mul(inv);
+  const y = q.y;
+  const dx = abs(q.x.sub(0.5)).mul(aspect);
+  const torso = smoothstep(0.15, 0.12, dx);
+  const arm = smoothstep(0.11, 0.14, dx).mul(smoothstep(0.7, 0.74, y));
+  const band = (c: number, w: number) => smoothstep(w, w * 0.55, abs(y.sub(c)));
+  const tape = max(max(band(0.675, 0.017).mul(torso), band(0.14, 0.014).mul(smoothstep(0.3, 0.25, y))), smoothstep(0.013, 0.007, abs(dx.sub(0.205))).mul(arm)).clamp(0, 1);
+  const weave = mx_fractal_noise_float(q.mul(vec3(46, 70, 46)), 2, 2.0, 0.5, 1.0).mul(0.5).add(0.5);
+  const blot = mx_fractal_noise_float(q.mul(vec3(6, 9, 6)), 3, 2.0, 0.5, 1.0).mul(0.5).add(0.5);
+  const grime = smoothstep(0.34, 0.02, y).mul(0.5).add(blot.mul(0.2)).clamp(0, 0.8);
+  // webbing: utility belt + two chest harness straps up to the shoulders (breaks the bare-mannequin torso)
+  const belt = band(0.555, 0.02).mul(torso);
+  const straps = smoothstep(0.016, 0.009, abs(dx.sub(0.052))).mul(smoothstep(0.55, 0.57, y)).mul(smoothstep(0.82, 0.79, y));
+  const web = max(belt, straps).clamp(0, 1);
+  const tinted = materialColor.rgb;
+  const muted = mix(tinted, vec3(tinted.dot(vec3(0.2126, 0.7152, 0.0722))), 0.22).mul(0.88);
+  const base = muted.mul(weave.mul(0.14).add(0.92));
+  const dirty = mix(base, base.mul(vec3(0.4, 0.36, 0.31)), grime);
+  const m = new THREE.MeshPhysicalNodeMaterial();
+  m.color.copy(primary);
+  m.colorNode = mix(mix(dirty, vec3(0.045, 0.043, 0.04), web), vec3(0.74, 0.76, 0.72), tape);
+  m.roughnessNode = mix(mix(mix(float(0.7), float(0.92), weave).add(grime.mul(0.06)), float(0.62), web), float(0.3), tape);
+  m.metalnessNode = mix(float(0), float(0.3), tape);
+  m.sheen = 0.55;
+  m.sheenRoughness = 0.55;
+  m.sheenColor = new THREE.Color(0x9a9a92);
+  if (normalMap) m.normalMap = normalMap;
+  return m;
+}
+
+/** suit joints (knees, elbows, shoulders, neck ring, gloves): dark rubber tinted by the profile's second colour */
+export function jointMaterial(secondary: THREE.Color): THREE.MeshPhysicalNodeMaterial {
+  const m = new THREE.MeshPhysicalNodeMaterial({ roughness: 0.5, metalness: 0, clearcoat: 0.4, clearcoatRoughness: 0.35 });
+  m.color.copy(secondary).multiplyScalar(0.22).add(new THREE.Color(0.018, 0.018, 0.02));
+  return m;
+}
 
 const geoCache = new Map<string, THREE.BufferGeometry>();
 function geo(key: string, make: () => THREE.BufferGeometry): THREE.BufferGeometry {

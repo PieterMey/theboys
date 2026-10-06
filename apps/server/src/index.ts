@@ -18,6 +18,10 @@ import { install as monsters } from './monsters/index.ts';
 import { install as meta } from './meta/index.ts';
 import { install as ai } from './ai/index.ts';
 
+// .env aliases: the host's .env uses the Cloudflare dashboard's names for the TURN key (Token ID + API token)
+if (!process.env.CF_TURN_KEY_ID && process.env.CLOUDFLARE_TURN_TOKEN_ID) process.env.CF_TURN_KEY_ID = process.env.CLOUDFLARE_TURN_TOKEN_ID;
+if (!process.env.CF_TURN_API_TOKEN && process.env.CLOUDFLARE_TURN_KEY) process.env.CF_TURN_API_TOKEN = process.env.CLOUDFLARE_TURN_KEY;
+
 /** Install order = dependency order. Tracks must not rely on later tracks at install time. */
 const TRACKS: [string, TrackInstall][] = [
   ['net', net], ['level', level], ['players', players], ['voice', voice], ['objectives', objectives],

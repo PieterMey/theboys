@@ -1,0 +1,15 @@
+const pg = A.page;
+await pg.mouse.click(800, 450);
+await h.sleep(500);
+const locked = await pg.evaluate(() => !!document.pointerLockElement);
+log('pointer locked after click:', locked);
+// try relative mouse look
+const before = (await h.st(pg)).players.find((p) => p.id === (window.__game ? '' : ''));
+await pg.mouse.move(900, 450, { steps: 10 });
+await h.sleep(300);
+await h.tap(pg, 'KeyB');
+await h.sleep(1200);
+const scr = (await h.st(pg)).screen;
+log('screen after B:', scr);
+await h.shot(pg, '05-board');
+return { locked, scr };

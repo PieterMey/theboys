@@ -1,0 +1,18 @@
+[
+ {
+  "Talker": "2 m: aud=2 max=0.1514 rms=-24.9 dB gate=0.96 band=0",
+  "Tone2": "8 m: aud=8 max=0.0355 rms=-29.4 dB gate=0.62 band=2",
+  "Shouter": "20 m: aud=20 max=0.0000 rms=-180 dB gate=0.00 band=2"
+ },
+ {
+  "Talker": "8 m: aud=8 max=0.0744 rms=-30.9 dB gate=0.62 band=0",
+  "Tone2": "20 m: aud=20 max=0.0000 rms=-180 dB gate=0.00 band=2",
+  "Shouter": "2 m: aud=2 max=0.3903 rms=-15.6 dB gate=0.96 band=2"
+ },
+ {
+  "Talker": "20 m: aud=20 max=0.0000 rms=-180 dB gate=0.00 band=2",
+  "Tone2": "2 m: aud=2 max=0.0556 rms=-25.5 dB gate=0.96 band=2",
+  "Shouter": "8 m: aud=8 max=0.1972 rms=-19.8 dB gate=0.62 band=0"
+ }
+]
+-- 29.9 s

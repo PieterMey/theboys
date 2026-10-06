@@ -37,6 +37,8 @@ export interface SurfaceOpts {
   /** procedural world-space detail: 'paint' = two-tone institutional wall (dado band, seams, water stains),
    *  'tile' = 0.6 m floor tiles with grout + wet patches, 'concrete' = blotchy concrete, default none */
   pattern?: 'paint' | 'tile' | 'concrete';
+  /** 0..1 standing water on floors: world-space puddles (near-mirror roughness, darker albedo) with damp rims */
+  wet?: number;
 }
 
 const warned = new Set<string>();
@@ -99,6 +101,15 @@ export function makeSurfaceMaterial(o: SurfaceOpts): THREE.MeshStandardNodeMater
     colorNode = colorNode.mul(mix(float(0.75), float(1.12), blot));
     patRough = mix(float(1.1), float(0.85), blot);
   }
+  // standing water: low-frequency world-space puddles (flashlight + tube glints) with a damp darker rim
+  let puddle: AnyNode = null;
+  let damp: AnyNode = null;
+  if (o.wet && o.wet > 0) {
+    const w = mx_fractal_noise_float(vec3(p.x.mul(0.21), p.y.mul(0.0), p.z.mul(0.21)), 3, 2.0, 0.5, 1.0).mul(0.5).add(0.5);
+    puddle = smoothstep(0.6, 0.68, w).mul(o.wet);
+    damp = smoothstep(0.5, 0.62, w).mul(o.wet);
+    colorNode = colorNode.mul(float(1).sub(damp.mul(0.22)).sub(puddle.mul(0.18)));
+  }
   m.colorNode = colorNode.mul(tint);
 
   let rough: AnyNode = float(o.roughness);
@@ -112,6 +123,7 @@ export function makeSurfaceMaterial(o: SurfaceOpts): THREE.MeshStandardNodeMater
   }
   if (grime > 0) rough = rough.mul(mix(float(1 - 0.35 * grime), float(1 + 0.1 * grime), stains));
   rough = rough.mul(patRough).clamp(0.04, 1);
+  if (puddle) rough = mix(rough.mul(float(1).sub(damp.mul(0.35))), float(0.045), puddle);
   m.roughnessNode = rough;
   m.metalnessNode = metal;
 

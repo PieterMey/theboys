@@ -1,0 +1,43 @@
+{
+ "t0": "A:3fps B:3fps",
+ "t1": "A:2fps B:3fps",
+ "t2": "A:2fps B:3fps",
+ "t3": "A:2fps B:2fps",
+ "t4": "A:2fps B:2fps",
+ "t5": "A:3fps B:3fps",
+ "errCount": 1861,
+ "firstErr": "358.1 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+ "lastErr": "430.4 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+ "diag": {
+  "players": {
+   "st": {
+    "forward": 0,
+    "right": 0,
+    "sprint": false,
+    "crouch": false
+   },
+   "typing": false,
+   "vel": [
+    0,
+    0
+   ],
+   "frozen": [],
+   "dt": 0.07540000000002328
+  },
+  "keys": [
+   "keepNames",
+   "backend",
+   "renderPreset",
+   "gpu",
+   "monstersSee",
+   "monsters",
+   "net",
+   "playersMs",
+   "ixMs",
+   "voice",
+   "level",
+   "players"
+  ]
+ }
+}
+-- 18.2 s

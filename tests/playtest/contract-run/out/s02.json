@@ -1,0 +1,6 @@
+{
+ "ms": 0,
+ "error": "Identifier 'B' has already been declared\nSyntaxError: Identifier 'B' has already been declared\n    at new AsyncFunction (<anonymous>)\n    at file:///C:/Users/Pieter/repos/theboys/tests/playtest/contract-run/driver.ts:79:18",
+ "logs": [],
+ "result": null
+}

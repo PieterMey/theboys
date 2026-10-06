@@ -1,0 +1,14 @@
+{
+ "log": [
+  "30.1s A back err locator.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: /BACK TO THE VAN/ })\u001b[22m\n",
+  "60.1s B back err locator.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: /BACK TO THE VAN/ })\u001b[22m\n",
+  "61.4s A in hub: none",
+  "66.9s A hub screen after 1.5s: none"
+ ],
+ "driveVisibleSec": "1.9",
+ "texts": [
+  "99.7s EN ROUTE · VAN 9 · CONTRACT 2/3 · RISK 1 | HALCYON DEPARTMENT STORE, CLOSED FLOORS | Stock-taking is not required. If a display figure appears closer than it was, keep looking at it and keep it lit. Two of you. Back away together. Do not argue about whose turn it is to blink. | HOUND | THE HOUND IS BLIND | It ignores whispers and crouch-steps. When it growls, everyone FREEZE. A second noise nearby and it charges. | THROW A BOTTLE TO SEND IT ELSEWHERE. | LISTENER | THE LISTENER UNDERSTANDS | It hunts information, not noise: room names, player names, numbers and plans. It only grabs someone with no teammate within 8 m. | IT LISTENS QUIETLY AT FIRST. THEN IT ACTS ON WHAT IT HEARD. | MANNEQUIN | MANNEQUIN: NOT REPORTED | No display figures reported on this site. If one is closer than it was, keep it lit and keep looking. | RISK 2 SITES AND EVERY THIRD CONTRACT: EXPECT COMPANY. | ARRIVING IN 1 s · 22:00 · THE VAN LEAVES AT 04:00 | QUOTA 0/375",
+  "99.7s EN ROUTE · VAN 9 · CONTRACT 2/3 · RISK 1 | HALCYON DEPARTMENT STORE, CLOSED FLOORS | Stock-taking is not required. If a display figure appears closer than it was, keep looking at it and keep it lit. Two of you. Back away together. Do not argue about whose turn it is to blink. | HOUND | THE HOUND IS BLIND | It ignores whispers and crouch-steps. When it growls, everyone FREEZE. A second noise nearby and it charges. | THROW A BOTTLE TO SEND IT ELSEWHERE. | LISTENER | THE LISTENER UNDERSTANDS | It hunts information, not noise: room names, player names, numbers and plans. It only grabs someone with no teammate within 8 m. | IT LISTENS QUIETLY AT FIRST. THEN IT ACTS ON WHAT IT HEARD. | MANNEQUIN | MANNEQUIN: NOT REPORTED | No display figures reported on this site. If one is closer than it was, keep it lit and keep looking. | RISK 2 SITES AND EVERY THIRD CONTRACT: EXPECT COMPANY. | ARRIVING IN 1 s · 22:00 · THE VAN LEAVES AT 04:00 | QUOTA 0/375"
+ ]
+}
+-- 110.0 s

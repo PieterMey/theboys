@@ -112,8 +112,10 @@ declare module '../core/bus.ts' {
     'action:emote': { down: boolean };
     /** MMB silent ping */
     'action:ping': { down: boolean };
-    /** 1-4 inventory slots (0-based slot index) */
+    /** 1-4 inventory slots (0-based slot index); not sent while the emote wheel is open */
     'action:slot': { slot: number };
+    /** 1-4 while the emote wheel (T) is open: pick that emote (0-based wheel index) instead of changing slots */
+    'action:wheelKey': { slot: number };
     /** Esc / pointer lock released by the browser: open the pause menu */
     'action:menu': { down: boolean };
     /** Enter: proximity text line opened/closed */

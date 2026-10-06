@@ -1,0 +1,21 @@
+const nav = await import('file:///C:/Users/Pieter/repos/theboys/tests/playtest/contract-run/nav.ts');
+h.nav = nav;
+const pg = A.page;
+await pg.mouse.click(800, 450); // re-lock pointer like a player would
+await h.sleep(300);
+await pg.evaluate(() => window.__game.look(0, 0)); // turn around toward the van
+await h.sleep(700);
+await h.shot(pg, '10-ann-turned-to-van');
+await pg.evaluate(() => window.__game.look(Math.PI / 2, 0));
+await h.sleep(500);
+await h.shot(pg, '11-ann-looks-east');
+// walk to the reading glasses in MAILROOM
+const [sx, sz] = await nav.standNear(pg, 27.358, 23.564, 1.0);
+const r = await nav.walkTo(pg, sx, sz, { log, timeoutMs: 45000 });
+log('walk', r);
+await nav.face(pg, 27.358, 23.564, 0.1);
+await h.sleep(500);
+const tgt = await pg.evaluate(() => window.__ix.target());
+log('target', tgt && { id: tgt.id, kind: tgt.kind, view: tgt.view });
+await h.shot(pg, '12-ann-at-glasses');
+return {};

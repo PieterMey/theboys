@@ -163,7 +163,10 @@ export function resetBriefs(): void {
   started = 0;
 }
 
-async function generate(order: WorkOrder, writer: string, fast: string): Promise<WorkOrder> {
+/** gateway answers that mean no request was sent at all (route busy, breaker open, AI off, budget, no key) */
+const NOT_SENT: ReadonlySet<string> = new Set(['busy', 'breaker', 'disabled', 'budget', 'nokey']);
+
+async function generate(order: WorkOrder, writer: string, fast: string): Promise<{ order: WorkOrder; notSent: boolean }> {
   const user = briefUser(order);
   const common = { system: WRITER_SYSTEM, user, schema: BRIEF_SCHEMA as unknown as Record<string, unknown>, mock: () => mockBrief(order) };
   let res: ClaudeResult = await claudeJson({
@@ -179,10 +182,10 @@ async function generate(order: WorkOrder, writer: string, fast: string): Promise
   if (!res.ok && res.reason === 'refusal') {
     res = await claudeJson({ ...common, route: 'writer.haiku', model: fast, maxTokens: balNum('haikuRetryMaxTokens', 2500), expectedOut: 800, timeoutMs: balNum('refusalRetryTimeoutMs', 20_000) });
   }
-  if (!res.ok) return order;
+  if (!res.ok) return { order, notSent: NOT_SENT.has(res.reason) };
   const merged = mergeBrief(order, res.data);
   if (!merged) log().warn(`brief for ${order.id}: AI output failed validation; template kept`);
-  return merged ?? order;
+  return { order: merged ?? order, notSent: false };
 }
 
 /** api.ts briefFor: always resolves (AI-enriched order or the template). */
@@ -194,7 +197,15 @@ export function brief(order: WorkOrder, writer: string, fast: string): Promise<W
   if (hit) return hit;
   if (!flagOn('ai') || !flagOn('briefsAi') || started >= balNum('briefMaxPerSession', 8)) return Promise.resolve(order);
   started++;
-  const p = generate(order, writer, fast).catch((e: unknown) => {
+  const p: Promise<WorkOrder> = generate(order, writer, fast).then((g) => {
+    // nothing was sent (e.g. the previous board's briefs still in flight): do not pin the template to this order
+    // forever; a later request (meta asks again at hub entry) may try again and the attempt is not counted
+    if (g.notSent && cache.get(key) === p) {
+      cache.delete(key);
+      started = Math.max(0, started - 1);
+    }
+    return g.order;
+  }, (e: unknown) => {
     log().warn(`brief for ${order.id} failed: ${e instanceof Error ? e.message : e}`);
     return order;
   });

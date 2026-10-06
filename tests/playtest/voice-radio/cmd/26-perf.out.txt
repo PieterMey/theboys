@@ -1,0 +1,38 @@
+{
+ "Talker": {
+  "fps": 17,
+  "frameMs": 76,
+  "rtt": 26092,
+  "snapHz": 52.8,
+  "errs": 0
+ },
+ "Shouter": {
+  "fps": 5,
+  "frameMs": 416,
+  "rtt": 30293,
+  "snapHz": 14.5,
+  "errs": 0
+ },
+ "Quiet": {
+  "fps": 11,
+  "frameMs": 96,
+  "rtt": 3736,
+  "snapHz": 46,
+  "errs": 0
+ },
+ "Tone2": {
+  "fps": 3,
+  "frameMs": 483,
+  "rtt": 8768,
+  "snapHz": 32.3,
+  "errs": 0
+ },
+ "Relay": {
+  "fps": 15,
+  "frameMs": 124,
+  "rtt": 5261,
+  "snapHz": 8.8,
+  "errs": 0
+ }
+}
+-- 34.9 s

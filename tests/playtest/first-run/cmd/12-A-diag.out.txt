@@ -1,0 +1,55 @@
+{
+ "d1": {
+  "st": {
+   "forward": 1,
+   "right": 0,
+   "sprint": false,
+   "crouch": false
+  },
+  "typing": false,
+  "vel": [
+   null,
+   null
+  ],
+  "frozen": [],
+  "dt": 0.023400000000023284
+ },
+ "keys": [
+  "local",
+  "avatars",
+  "flashlights",
+  "emote",
+  "ping",
+  "chat",
+  "chatLines",
+  "markers",
+  "spectate",
+  "spectating",
+  "cycle",
+  "rigReady",
+  "setCamera",
+  "freeCam",
+  "dummy",
+  "clearDummies",
+  "testLight",
+  "inputState",
+  "findWall"
+ ],
+ "pose": {
+  "p": [
+   14.38,
+   0,
+   11.200011842264544
+  ],
+  "yaw": -1.1797963267948977,
+  "pitch": -0.1572000000000005,
+  "stance": 0,
+  "anim": 0,
+  "stamina": 1,
+  "speed": 0,
+  "light": true,
+  "dead": false,
+  "eye": 1.62
+ }
+}
+-- 0.5 s

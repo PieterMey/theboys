@@ -1,0 +1,23 @@
+[27.2] joined Ann=pzwFykqhBP4  Bob=ppe8JUWfOO5  Cat=pMvUtUnG6q4  backends ["webgpu","webgpu","webgpu"]
+[28.1] orders after level-up [{"id":"wo1-0-MDTW-000-7723","risk":1,"available":true,"siteName":"Blackwater Waterworks"},{"id":"wo1-1-MDTW-001-5494","risk":2,"available":true,"siteName":"Wren's End Holiday Camp, Staff Quarters"},{"id":"wo1-2-MDTW-002-8834","risk":2,"available":true,"siteName":"Mercer & Pell Records Depository"}]
+[65.1] shot M0-drive-risk2-ann.png (Ann)
+[77.7] contract; worst frame 43.5
+[77.8] agents hound0:idle:true listener0:search:true mannequin0:dormant:false risk 2
+[77.9] test room 24 FURNACE hall rect {"x":31,"y":7,"w":5,"h":15}
+[80.2] spawn {"ok":true,"agent":{"id":"mannequin0","kind":"mannequin","x":33.5,"z":20.3,"yaw":3.14,"state":"frozen","anim":46,"active":true,"st":0,"path":0,"goal":[27.5,1.5],"spawned":true,"observed":false}}
+[83.1] shot M1-mannequin-watched-lit-ann.png (Ann)
+[91.2] M2 two watchers (blinks due ~5 s) mannequin0 states: 0.0s:frozen@33.5,20.3 -> 2.2s:move@33.41,19.37 -> 2.5s:frozen@33.26,17.74
+[91.3] M2 mannequin {"state":"frozen","x":33.26,"z":17.74,"observed":true,"lit":true} blink events (ann) monsters.blink:{"at":1791309022911.4119,"ms":350}
+[91.5] M2 sight {"mannequin0":["pzwFykqhBP4","ppe8JUWfOO5"]} blinks {"pzwFykqhBP4":{"next":71.83,"end":72.18},"pMvUtUnG6q4":{"next":75.91,"end":76.26},"ppe8JUWfOO5":{"next":76.33,"end":76.68}}
+[92.7] shot M3-visor-blink-ann.png (Ann)
+[95.9] M4 only Bob watching mannequin0 states: 0.1s:frozen@33.26,17.74
+[99.5] M5 nobody watching mannequin0 states: 0.0s:frozen@33.26,17.74 -> 0.2s:move@33.17,16.81 -> 1.6s:out@32.42,8.91
+[99.5] M5 mannequin {"state":"out","x":32.42,"z":8.91} kills interaction.death:{"pid":"pzwFykqhBP4","name":"Ann","cause":{"killer":"mannequin","reason":"nobody was watching it","detail":"2 m from the nearest teammate"},"p":[32.36,0,8.29]} ; monsters.kill:{"victim":"pzwFykqhBP4","killer":"mannequin","reason":"nobody was watching it","detail":"2 m from the nearest teammate","p":[32.36,0,8.29]}
+[100.6] shot M5-mannequin-after-lookaway-bob.png (Bob)
+[104.6] M6 dark + watched {"state":"frozen","x":33.5,"z":20.3,"lit":true} ann light false bob light true
+[105.1] shot M6-mannequin-dark-ann.png (Ann)
+[106.5] M7 dark + Ann pressed F {"state":"frozen","x":33.5,"z":20.3,"lit":true} ann light true
+[106.9] shot M7-mannequin-dark-F-ann.png (Ann)
+[106.9] Ann client errors (0): []
+[106.9] Bob client errors (0): []
+[107.0] Cat client errors (0): []

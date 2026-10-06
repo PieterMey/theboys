@@ -1,0 +1,35 @@
+const nav = h.nav, pb = B.page;
+const { astar } = await import('file:///C:/Users/Pieter/repos/theboys/packages/shared/src/nav/index.ts');
+const { L, g } = await nav.grid(pb);
+const me = await nav.pose(pb);
+const ds = await nav.doorStates(pb);
+const cost = (x, z) => { const r = astar(g, me.p[0], me.p[2], x, z, { mode: 'walk', doorOpen: () => true, canOpen: (id) => L.doors[id].kind !== 'locked' && L.doors[id].kind !== 'vault' && L.doors[id].kind !== 'blocked' }); return r ? r.cost : Infinity; };
+const items = L.items.filter((i) => i.kind === 'switch' || i.kind === 'hiding');
+const sw = items.filter((i) => i.kind === 'switch').map((i) => ({ i, c: cost(i.x, i.z) })).sort((a, b) => a.c - b.c)[0].i;
+const lk = items.filter((i) => i.kind === 'hiding').map((i) => ({ i, c: cost(i.x, i.z) })).sort((a, b) => a.c - b.c)[0].i;
+log('switch', sw.id, sw.x, sw.z, sw.space, 'locker', lk.id, lk.x, lk.z);
+// light switch
+const [sx, sz] = await nav.standNear(pb, sw.x, sw.z, 0.9, sw.rot);
+const r1 = await nav.walkTo(pb, sx, sz, { timeoutMs: 40000, log: (...a) => log('B', ...a) });
+log('to switch', r1.ok, r1.end, r1.reason, JSON.stringify(r1.stuck));
+const a1 = await h.aimAt(pb, sw.id, sw.x, 1.25, sw.z);
+const before = await pb.evaluate((sp) => window.__ix.state().lights[sp], sw.space);
+await h.tap(pb, 'KeyE'); await h.sleep(800);
+const after = await pb.evaluate((sp) => window.__ix.state().lights[sp], sw.space);
+log('switch aim', a1, 'light', before, '->', after);
+await h.shot(pb, '49-light-switched');
+// locker
+const [lx, lz] = await nav.standNear(pb, lk.x, lk.z, 1.0, lk.rot);
+const r2 = await nav.walkTo(pb, lx, lz, { timeoutMs: 40000, log: (...a) => log('B', ...a) });
+log('to locker', r2.ok, r2.end, r2.reason, JSON.stringify(r2.stuck), 'doors', r2.doorsOpened);
+const a2 = await h.aimAt(pb, lk.id, lk.x, 1.1, lk.z);
+log('locker aim', a2);
+await h.tap(pb, 'KeyE'); await h.sleep(900);
+log('hidden?', await pb.evaluate(() => window.__ix.ui().hidden));
+await h.shot(pb, '50-in-locker');
+await h.tap(pb, 'KeyE'); await h.sleep(900);
+log('hidden after 2nd E?', await pb.evaluate(() => window.__ix.ui().hidden));
+// door close/open: first door opened on the way, else nearest door
+const dId = r2.doorsOpened[0] ?? r1.doorsOpened[0];
+log('door to test', dId);
+return { sw: sw.id, lk: lk.id, dId };

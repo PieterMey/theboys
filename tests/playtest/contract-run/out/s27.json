@@ -1,0 +1,10 @@
+{
+ "ms": 10472,
+ "error": null,
+ "logs": [
+  "gear after buy {\"bal\":251,\"gear\":{\"p-tDmuBdN26\":{\"walkie\":1,\"bottle\":3},\"pag1X0nY5s9\":{\"walkie\":1}}}",
+  "phase contract inv A [\"walkie\",\"walkie\",\"bottle\",\"bottle\"] inv B [\"walkie\",\"keycard\",\"walkie\",null]",
+  "monsters {\"frozen\":false,\"agents\":[{\"k\":\"hound\",\"st\":\"idle\",\"x\":6.5,\"z\":0.5},{\"k\":\"listener\",\"st\":\"dormant\",\"x\":22.5,\"z\":0.5}]}"
+ ],
+ "result": {}
+}

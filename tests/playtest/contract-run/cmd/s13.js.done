@@ -1,0 +1,14 @@
+const pb = B.page;
+const ps = await h.nav.pose(pb);
+const base = ps.yaw;
+const out = [];
+for (let dy = -0.8; dy <= 0.81; dy += 0.1) {
+  for (const pitch of [0.0, -0.15, 0.15]) {
+    await pb.evaluate(([y, p]) => window.__game.look(y, p), [base + dy, pitch]);
+    await h.sleep(90);
+    const t = await pb.evaluate(() => window.__ix.target());
+    if (t) out.push({ dy: Math.round(dy * 100) / 100, pitch, id: t.id, text: t.view && t.view.text });
+  }
+}
+const ints = await pb.evaluate(() => Object.entries(window.__ix.state().ints || {}).filter(([k]) => k.startsWith('lever')).map(([k, v]) => ({ k, v })));
+return { pose: ps, hits: out, ints };

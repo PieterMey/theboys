@@ -1,0 +1,10 @@
+const nav = h.nav, pg = A.page;
+await nav.face(pg, 17.4, 13.9, 0.5);
+await h.sleep(300);
+await h.tap(pg, 'KeyE');
+await h.sleep(1000);
+log('screen', (await h.st(pg)).screen);
+await h.shot(pg, '43-shop-open');
+const btns = await pg.evaluate(() => [...document.querySelectorAll('button')].map((b) => b.textContent.trim()).filter(Boolean).slice(0, 40));
+log('buttons', btns);
+return {};

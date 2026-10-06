@@ -1,0 +1,18 @@
+{
+ "ms": 9358,
+ "error": null,
+ "logs": [
+  "switch switch:14 10.7 23.9 15 locker hiding:8 15.645 23.5",
+  "to switch true [10.58,23.5]  []",
+  "switch aim {\"ok\":true,\"off\":[0,0],\"text\":\"Lights off\"} light true -> false",
+  "to locker true [14.51,23.49]  [] doors []",
+  "locker aim {\"ok\":true,\"off\":[0,0],\"text\":\"Hide in locker\"}",
+  "hidden? true",
+  "hidden after 2nd E? false",
+  "door to test "
+ ],
+ "result": {
+  "sw": "switch:14",
+  "lk": "hiding:8"
+ }
+}

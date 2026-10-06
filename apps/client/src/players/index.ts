@@ -18,7 +18,7 @@ import { loadRigLib } from './rig.ts';
 import { createViewModel } from './viewmodel.ts';
 import { EMOTE_ANIM, WHEEL, createPingMarkers, pushChat, ui, wheelPick } from './social.ts';
 import { rayGrid } from './collide.ts';
-import { ChatHud, CrosshairHud, EmoteWheelHud, StaminaHud } from './hud.tsx';
+import { ChatHud, CrosshairHud, EmoteWheelHud, ScreenHintHud, StaminaHud } from './hud.tsx';
 import type { FlashlightInfo, LevelServiceShape, PlayersService, V3 } from './types.ts';
 import { useLoose } from './types.ts';
 
@@ -195,7 +195,8 @@ export async function install(ctx: ClientContext): Promise<void> {
       if (k) emote(k);
     }
   });
-  ctx.bus.on('action:slot', ({ slot }) => {
+  // 1-4 while the wheel is open pick an emote (input.ts sends 'action:wheelKey' then, never 'action:slot')
+  ctx.bus.on('action:wheelKey', ({ slot }) => {
     if (!ui.wheelOpen.value) return;
     const k = WHEEL[slot];
     if (k) { ui.wheelSel.value = k; }
@@ -339,6 +340,8 @@ export async function install(ctx: ClientContext): Promise<void> {
   // ---------------- HUD ----------------
   ctx.ui.registerHud('bottom', StaminaHud, { id: 'players-stamina', order: 30 });
   ctx.ui.registerHud('center', CrosshairHud, { id: 'players-crosshair', order: 10 });
+  // untransformed slot: its position:fixed lines resolve against the viewport (spectator banner, click-to-look)
+  ctx.ui.registerHud('top-left', ScreenHintHud, { id: 'players-screen-hints', order: 80 });
   ctx.ui.registerHud('center', EmoteWheelHud, { id: 'players-emotes', order: 20 });
   ctx.ui.registerHud('bottom-left', ChatHud, { id: 'players-chat', order: 40 });
   ctx.bus.on('input:pointerlock', ({ locked }) => { ui.locked.value = locked; });

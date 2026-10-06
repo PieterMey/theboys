@@ -1,0 +1,48 @@
+const nav = h.nav, pg = A.page, pb = B.page;
+const t0 = Date.now();
+const events = [];
+const core = await pg.evaluate(() => window.__game.state().objectives.core);
+const cx = core.p[0], cz = core.p[2];
+// handles: pick two walkable points on opposite sides
+const { L } = await nav.grid(pg);
+const own = (x, z) => L.owner[Math.floor(z) * L.W + Math.floor(x)];
+let ha = [cx - 0.8, cz], hb = [cx + 0.8, cz];
+for (const [ux, uz] of [[1, 0], [0, 1]]) { const a = [cx - ux * 0.8, cz - uz * 0.8], b = [cx + ux * 0.8, cz + uz * 0.8]; if (own(a[0], a[1]) >= 0 && own(b[0], b[1]) >= 0) { ha = a; hb = b; break; } }
+await Promise.all([pg.mouse.click(800, 450), pb.mouse.click(800, 450)]);
+const [ra, rb] = await Promise.all([nav.walkTo(pg, ha[0], ha[1], { timeoutMs: 30000, sprint: true }), nav.walkTo(pb, hb[0], hb[1], { timeoutMs: 30000, sprint: true })]);
+log('back to core', ra.ok, ra.end, JSON.stringify(ra.stuck), rb.ok, rb.end, JSON.stringify(rb.stuck));
+log('aim', await h.aimAt(pg, core.id, cx, 0.3, cz), await h.aimAt(pb, core.id, cx, 0.3, cz));
+await h.shot(pg, '33-dropped-core-view');
+await h.tap(pg, 'KeyE'); await h.sleep(250); await h.tap(pb, 'KeyE'); await h.sleep(600);
+const st = await pg.evaluate(() => window.__game.state().objectives.core.state);
+log('regrab state', st);
+let fin = false;
+const trail = [];
+const follower = (async () => {
+  let holding = false;
+  while (!fin) {
+    const a = await nav.pose(pg), b = await nav.pose(pb);
+    const last = trail[trail.length - 1];
+    if (!last || Math.hypot(a.p[0] - last[0], a.p[2] - last[1]) > 0.15) trail.push([a.p[0], a.p[2]]);
+    // target: the trail point ~1.2 m behind Ann
+    let tgt = trail[0], need = 1.2;
+    for (let i = trail.length - 1; i > 0; i--) { const seg = Math.hypot(trail[i][0] - trail[i - 1][0], trail[i][1] - trail[i - 1][1]); if (seg >= need) { tgt = trail[i - 1]; break; } need -= seg; }
+    const d = Math.hypot(tgt[0] - b.p[0], tgt[1] - b.p[2]);
+    await pb.evaluate((y) => window.__game.look(y, -0.1), Math.atan2(tgt[0] - b.p[0], tgt[1] - b.p[2]));
+    if (d > 0.35 && !holding) { await pb.keyboard.down('KeyW'); holding = true; }
+    else if (d <= 0.25 && holding) { await pb.keyboard.up('KeyW'); holding = false; }
+    await h.sleep(50);
+  }
+  if (holding) await pb.keyboard.up('KeyW');
+})();
+const watcher = (async () => { let last = ''; while (!fin) { const c = await pg.evaluate(() => { const c = window.__game.state().objectives.core; return c.state; }); if (c !== last) { events.push({ t: Date.now() - t0, core: c }); last = c; } await h.sleep(150); } })();
+const r = await nav.walkTo(pg, 16, 28.4, { timeoutMs: 90000 });
+log('carry2', r.ok, r.end, JSON.stringify(r.stuck), 'ms', r.ms);
+await h.sleep(1200);
+fin = true;
+await Promise.all([follower, watcher]);
+log('events', events);
+await h.shot(pg, '34-core-at-van-ann');
+await h.shot(pb, '35-core-at-van-bob');
+const o = await pg.evaluate(() => { const o = window.__game.state().objectives; return { core: o.core.state, val: o.core.value, salvage: o.salvage, clock: o.clockMin }; });
+return o;

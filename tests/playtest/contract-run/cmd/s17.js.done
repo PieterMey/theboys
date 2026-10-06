@@ -1,0 +1,19 @@
+const nav = h.nav, pg = A.page, pb = B.page;
+const kp = [11.35, 1.35, 6.11];
+const [ax, az] = await nav.standNear(pg, kp[0], kp[2] + 0.2, 1.0, 0);
+const [bx, bz] = [ax + 1.2, az];
+const [ra, rb] = await Promise.all([nav.walkTo(pg, ax, az, { timeoutMs: 60000, log: (...a) => log('A', ...a) }), nav.walkTo(pb, bx, bz, { timeoutMs: 60000, keycard: true, log: (...a) => log('B', ...a) })]);
+log('to keypad', ra.ok, ra.end, JSON.stringify(ra.stuck), '|', rb.ok, rb.end, rb.reason, JSON.stringify(rb.stuck));
+log('Ann aim keypad', await h.aimAt(pg, 'keypad:0', kp[0], kp[1], kp[2]));
+await h.tap(pg, 'KeyE');
+await h.sleep(900);
+log('Ann screen', (await h.st(pg)).screen);
+await h.shot(pg, '25-keypad-open');
+for (const k of ['Digit2', 'Digit2', 'Digit8', 'Digit7']) { await h.tap(pg, k); await h.sleep(180); }
+await h.shot(pg, '26-keypad-typed');
+await h.tap(pg, 'Enter');
+await h.sleep(1500);
+const o = await pg.evaluate(() => { const o = window.__game.state().objectives; return { vaultOpen: o.vaultOpen, core: o.core && { state: o.core.state, p: o.core.p, carriers: o.core.carriers } }; });
+log('after code', o, 'screen', (await h.st(pg)).screen);
+await h.shot(pg, '27-after-code');
+return o;

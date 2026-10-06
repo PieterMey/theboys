@@ -1,0 +1,206 @@
+{
+ "screen": "none",
+ "phase": "hub",
+ "pose": {
+  "x": 13.8,
+  "z": 8.6,
+  "yaw": 0
+ },
+ "items": [
+  {
+   "id": "console:0",
+   "kind": "console",
+   "x": 15,
+   "z": 12.645,
+   "rot": 3.141592653589793
+  },
+  {
+   "id": "leave_lever:0",
+   "kind": "leave_lever",
+   "x": 14.18,
+   "z": 11.75,
+   "rot": 1.5707963267948966
+  },
+  {
+   "id": "deposit:0",
+   "kind": "deposit",
+   "x": 15,
+   "z": 10.75,
+   "rot": 0
+  },
+  {
+   "id": "spawn_player:0",
+   "kind": "spawn_player",
+   "x": 13.8,
+   "z": 8.6,
+   "rot": 0
+  },
+  {
+   "id": "spawn_player:1",
+   "kind": "spawn_player",
+   "x": 15,
+   "z": 8.6,
+   "rot": 0
+  },
+  {
+   "id": "spawn_player:2",
+   "kind": "spawn_player",
+   "x": 16.2,
+   "z": 8.6,
+   "rot": 0
+  },
+  {
+   "id": "spawn_player:3",
+   "kind": "spawn_player",
+   "x": 13.8,
+   "z": 7.5,
+   "rot": 0
+  },
+  {
+   "id": "spawn_player:4",
+   "kind": "spawn_player",
+   "x": 15,
+   "z": 7.5,
+   "rot": 0
+  },
+  {
+   "id": "spawn_player:5",
+   "kind": "spawn_player",
+   "x": 16.2,
+   "z": 7.5,
+   "rot": 0
+  },
+  {
+   "id": "prop:0",
+   "kind": "prop",
+   "x": 9,
+   "z": 4.1,
+   "rot": 0
+  },
+  {
+   "id": "kennel:0",
+   "kind": "kennel",
+   "x": 6,
+   "z": 13.4,
+   "rot": 3.141592653589793
+  },
+  {
+   "id": "spawn_hound:0",
+   "kind": "spawn_hound",
+   "x": 6,
+   "z": 16.5,
+   "rot": 3.141592653589793
+  },
+  {
+   "id": "mirror:0",
+   "kind": "mirror",
+   "x": 13,
+   "z": 11.2,
+   "rot": -1.5707963267948966
+  },
+  {
+   "id": "board:0",
+   "kind": "board",
+   "x": 16.27,
+   "z": 11.6,
+   "rot": 1.5707963267948966
+  },
+  {
+   "id": "shop:0",
+   "kind": "shop",
+   "x": 17.4,
+   "z": 13.9,
+   "rot": 1.5707963267948966
+  },
+  {
+   "id": "prop:1",
+   "kind": "prop",
+   "x": 24,
+   "z": 4.39,
+   "rot": 0
+  },
+  {
+   "id": "prop:2",
+   "kind": "prop",
+   "x": 19.4,
+   "z": 12.2,
+   "rot": 0
+  },
+  {
+   "id": "prop:3",
+   "kind": "prop",
+   "x": 20.1,
+   "z": 12.8,
+   "rot": 1.5707963267948966
+  },
+  {
+   "id": "prop:4",
+   "kind": "prop",
+   "x": 19.8,
+   "z": 14.3,
+   "rot": 1.5707963267948966
+  },
+  {
+   "id": "prop:5",
+   "kind": "prop",
+   "x": 18.7,
+   "z": 12,
+   "rot": 0
+  },
+  {
+   "id": "light:0",
+   "kind": "light",
+   "x": 5,
+   "z": 7.5,
+   "rot": 0
+  },
+  {
+   "id": "light:1",
+   "kind": "light",
+   "x": 24,
+   "z": 9,
+   "rot": 0
+  },
+  {
+   "id": "light:2",
+   "kind": "light",
+   "x": 17,
+   "z": 22.5,
+   "rot": 0
+  },
+  {
+   "id": "light:3",
+   "kind": "light",
+   "x": 9,
+   "z": 4.2,
+   "rot": 0
+  },
+  {
+   "id": "light:4",
+   "kind": "light",
+   "x": 15,
+   "z": 11.5,
+   "rot": 0
+  }
+ ],
+ "ls": {
+  "deadair.voice.base": "-22.1",
+  "deadair.render.reduceFlicker": "0",
+  "deadair.key": "14643cd3647c41262e4b9855b926d358",
+  "deadair.name": "Ann",
+  "deadair.voice.ptt": "0",
+  "deadair.profile": "{\"name\":\"Ann\",\"body\":\"m\",\"suit\":[\"#c0392b\",\"#2c3e50\"],\"helmet\":\"dome\",\"visor\":{\"glyphs\":\"A\",\"color\":\"#7dfcff\"},\"badge\":947}"
+ },
+ "lay": {
+  "seed": "hub",
+  "hash": "03736f5b",
+  "W": 30,
+  "H": 24
+ },
+ "perf": {
+  "fps": 119.7570080643964,
+  "frameMs": 6.384157152185937,
+  "drawCalls": 217
+ }
+}
+-- 3.1 s

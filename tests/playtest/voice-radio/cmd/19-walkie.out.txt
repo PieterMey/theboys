@@ -1,0 +1,31 @@
+{
+ "audS": 40,
+ "audQ": 255,
+ "pre": [
+  "max 0.0000 L -180 R -180 gate 0.00",
+  "max 0.0000 L -180 R -180 gate 0.00"
+ ],
+ "txState": {
+  "radio": 1,
+  "tx": true,
+  "hud": "TX · RADIO",
+  "meter": "SILENT● TX"
+ },
+ "during": {
+  "Shouter_walkie": "max 0.2167 L -19.8 R -19.8 gate 1.00",
+  "Quiet_noWalkie": "max 0.0000 L -180 R -180 gate 0.00"
+ },
+ "post": [
+  "max 0.0000 L -180 R -180 gate 0.00",
+  "max 0.0000 L -180 R -180 gate 0.00"
+ ],
+ "after": {
+  "radio": 0,
+  "hud": "RADIO · Q"
+ },
+ "shots": [
+  "C:\\Users\\Pieter\\repos\\theboys\\tests\\playtest\\voice-radio\\shots\\19-talker-tx.png",
+  "C:\\Users\\Pieter\\repos\\theboys\\tests\\playtest\\voice-radio\\shots\\19-shouter-rx.png"
+ ]
+}
+-- 21.7 s

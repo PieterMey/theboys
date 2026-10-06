@@ -1,0 +1,7 @@
+{
+ "text": "CONTRACT 1/3 · VARGA BROTHERS FOUNDRY · RISK 1\nLEFT EARLY\nHAULED THIS CONTRACT\n+0\nof 504 on site\nSCRIP LEDGER\nBalance before\t135\nSalvage hauled\t+0\n✓ Headcount at 04:00 must match headcount at 22:00. HR has asked us to stop \"rounding\".\t+110\n✗ Name a room on an open channel, make sure nobody is in it, and let it go and look. Liability would love to know if this works.\t0\nSpendable scrip\t245\nSHIFT QUOTA\n0 / 375 · 375 to go\nNO CASUALTIES\nEveryone made it back to the van. HR is suspicious.\nCAREER\nAnn LVL 1\n+90 XP\ncontract completed +25 · survived +40 · 1 Company Request +25\nBob LVL 1\n+90 XP\ncontract completed +25 · survived +40 · 1 Company Request +25\nIT HEARD → IT DID\nThe Listener logged nothing it could use. Either you were careful, or it is saving it for later.\nNext: contract 2 of 3. Visit the store before you pick.\nBACK TO THE VAN · 49 S",
+ "buttons": [
+  "BACK TO THE VAN · 49 s"
+ ]
+}
+-- 2.0 s

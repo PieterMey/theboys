@@ -1,0 +1,57 @@
+{
+ "A": {
+  "console": [
+   "429.2 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+   "429.2 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+   "429.2 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+   "429.3 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+   "429.4 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+   "429.5 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+   "429.5 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+   "429.7 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+   "429.7 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+   "429.8 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+   "429.8 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+   "429.9 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+   "429.9 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+   "429.9 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+   "430.0 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+   "430.0 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+   "430.1 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+   "430.1 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+   "430.2 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+   "430.2 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+   "430.3 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+   "430.3 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+   "430.4 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+   "430.4 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite.",
+   "430.4 pageerror: Failed to execute 'linearRampToValueAtTime' on 'AudioParam': The provided float value is non-finite."
+  ],
+  "gameErrors": [],
+  "perf": {
+   "fps": 2.763066492407607,
+   "frameMs": 406.44036588304056,
+   "drawCalls": 611
+  },
+  "pose": [
+   15.8,
+   0,
+   26.6
+  ]
+ },
+ "B": {
+  "console": [],
+  "gameErrors": [],
+  "perf": {
+   "fps": 3.9665367607574624,
+   "frameMs": 369.4642109356854,
+   "drawCalls": 604
+  },
+  "pose": [
+   17,
+   0,
+   26.6
+  ]
+ }
+}
+-- 1.4 s

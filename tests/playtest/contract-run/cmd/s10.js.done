@@ -1,0 +1,9 @@
+const { astar } = await import('file:///C:/Users/Pieter/repos/theboys/packages/shared/src/nav/index.ts');
+const pb = B.page;
+const { L, g } = await h.nav.grid(pb);
+const ds = await h.nav.doorStates(pb);
+const doors = L.doors.map((d) => ({ id: d.id, a: d.a, b: d.b, kind: d.kind, lock: d.lock, st: ds[d.id] && { o: ds[d.id].open, l: ds[d.id].locked } }));
+const all = astar(g, 16, 26.6, 28.652, 18.66, { mode: 'walk', doorOpen: () => true, canOpen: () => true });
+const items = (await pb.evaluate(() => window.__ix.layout().items.filter((i) => ['keycard','switch','hiding','light','console','leave_lever','deposit','note'].includes(i.kind)).map((i) => ({ id: i.id, k: i.kind, s: i.space, x: Math.round(i.x*10)/10, z: Math.round(i.z*10)/10 }))));
+const keycards = await pb.evaluate(() => Object.values(window.__ix.state().items).filter((i) => i.type === 'keycard').map((i) => ({ id: i.id, w: i.where, p: i.p })));
+return { allOpenCost: all && all.cost, doors: doors.filter((d) => d.a === 21 || d.b === 21 || d.kind !== 'door'), keycards, items };

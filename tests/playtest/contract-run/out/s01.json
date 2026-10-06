@@ -1,0 +1,13 @@
+{
+ "ms": 2303,
+ "error": null,
+ "logs": [],
+ "result": {
+  "phase": "hub",
+  "net": "idle",
+  "screen": "join",
+  "pending": [],
+  "shotp": "C:\\Users\\Pieter\\repos\\theboys\\tests\\playtest\\contract-run\\shots\\01-join-screen.png",
+  "url": "http://127.0.0.1:3202/?test=1&nobright=1"
+ }
+}

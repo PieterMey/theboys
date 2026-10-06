@@ -1,0 +1,843 @@
+{
+ "W": 40,
+ "H": 42,
+ "van": {
+  "x": 22,
+  "z": 36.5,
+  "yaw": 0,
+  "cab": {
+   "x": 21,
+   "y": 34,
+   "w": 2,
+   "h": 3
+  }
+ },
+ "entrance": 20,
+ "nSpaces": 29,
+ "spaces": [
+  {
+   "id": 0,
+   "kind": "corridor",
+   "type": "junction",
+   "cs": null,
+   "r": {
+    "x": 5,
+    "y": 8,
+    "w": 2,
+    "h": 2
+   },
+   "dist": 28.1
+  },
+  {
+   "id": 1,
+   "kind": "corridor",
+   "type": "corridor",
+   "cs": null,
+   "r": {
+    "x": 7,
+    "y": 8,
+    "w": 11,
+    "h": 2
+   },
+   "dist": 34.1
+  },
+  {
+   "id": 2,
+   "kind": "corridor",
+   "type": "junction",
+   "cs": null,
+   "r": {
+    "x": 18,
+    "y": 8,
+    "w": 2,
+    "h": 2
+   },
+   "dist": 40.1
+  },
+  {
+   "id": 3,
+   "kind": "corridor",
+   "type": "corridor",
+   "cs": null,
+   "r": {
+    "x": 20,
+    "y": 8,
+    "w": 10,
+    "h": 2
+   },
+   "dist": 47.1
+  },
+  {
+   "id": 4,
+   "kind": "corridor",
+   "type": "junction",
+   "cs": null,
+   "r": {
+    "x": 30,
+    "y": 8,
+    "w": 2,
+    "h": 2
+   },
+   "dist": 53.1
+  },
+  {
+   "id": 5,
+   "kind": "corridor",
+   "type": "junction",
+   "cs": null,
+   "r": {
+    "x": 5,
+    "y": 20,
+    "w": 2,
+    "h": 2
+   },
+   "dist": 15.7
+  },
+  {
+   "id": 6,
+   "kind": "corridor",
+   "type": "corridor",
+   "cs": null,
+   "r": {
+    "x": 7,
+    "y": 20,
+    "w": 11,
+    "h": 2
+   },
+   "dist": 8.7
+  },
+  {
+   "id": 7,
+   "kind": "corridor",
+   "type": "junction",
+   "cs": null,
+   "r": {
+    "x": 18,
+    "y": 20,
+    "w": 2,
+    "h": 2
+   },
+   "dist": 10.2
+  },
+  {
+   "id": 8,
+   "kind": "corridor",
+   "type": "corridor",
+   "cs": null,
+   "r": {
+    "x": 20,
+    "y": 20,
+    "w": 10,
+    "h": 2
+   },
+   "dist": 16.2
+  },
+  {
+   "id": 9,
+   "kind": "corridor",
+   "type": "junction",
+   "cs": null,
+   "r": {
+    "x": 30,
+    "y": 20,
+    "w": 2,
+    "h": 2
+   },
+   "dist": 65.7
+  },
+  {
+   "id": 10,
+   "kind": "corridor",
+   "type": "corridor",
+   "cs": null,
+   "r": {
+    "x": 5,
+    "y": 10,
+    "w": 2,
+    "h": 10
+   },
+   "dist": 21.1
+  },
+  {
+   "id": 11,
+   "kind": "corridor",
+   "type": "corridor",
+   "cs": null,
+   "r": {
+    "x": 30,
+    "y": 10,
+    "w": 2,
+    "h": 10
+   },
+   "dist": 58.7
+  },
+  {
+   "id": 12,
+   "kind": "hall",
+   "type": "greenhouse",
+   "cs": "GREENHOUSE",
+   "r": {
+    "x": 7,
+    "y": 10,
+    "w": 23,
+    "h": 10
+   },
+   "dist": 43.3
+  },
+  {
+   "id": 13,
+   "kind": "room",
+   "type": "foundry",
+   "cs": "FOUNDRY",
+   "r": {
+    "x": 0,
+    "y": 0,
+    "w": 6,
+    "h": 8
+   },
+   "dist": 50.7
+  },
+  {
+   "id": 14,
+   "kind": "hall",
+   "type": "library",
+   "cs": "LIBRARY",
+   "r": {
+    "x": 6,
+    "y": 0,
+    "w": 10,
+    "h": 8
+   },
+   "dist": 42.3
+  },
+  {
+   "id": 15,
+   "kind": "room",
+   "type": "gallery",
+   "cs": "GALLERY",
+   "r": {
+    "x": 16,
+    "y": 0,
+    "w": 6,
+    "h": 8
+   },
+   "dist": 44.9
+  },
+  {
+   "id": 16,
+   "kind": "hall",
+   "type": "chapel",
+   "cs": "CHAPEL",
+   "r": {
+    "x": 22,
+    "y": 0,
+    "w": 9,
+    "h": 8
+   },
+   "dist": 53.3
+  },
+  {
+   "id": 17,
+   "kind": "hall",
+   "type": "dock",
+   "cs": "DOCK",
+   "r": {
+    "x": 31,
+    "y": 0,
+    "w": 9,
+    "h": 8
+   },
+   "dist": 61.7
+  },
+  {
+   "id": 18,
+   "kind": "hall",
+   "type": "garage",
+   "cs": "GARAGE",
+   "r": {
+    "x": 0,
+    "y": 22,
+    "w": 8,
+    "h": 8
+   },
+   "dist": 21.1
+  },
+  {
+   "id": 19,
+   "kind": "room",
+   "type": "infirmary",
+   "cs": "INFIRMARY",
+   "r": {
+    "x": 8,
+    "y": 22,
+    "w": 5,
+    "h": 8
+   },
+   "dist": 16.7
+  },
+  {
+   "id": 20,
+   "kind": "hall",
+   "type": "lobby",
+   "cs": "LOBBY",
+   "r": {
+    "x": 13,
+    "y": 22,
+    "w": 9,
+    "h": 8
+   },
+   "dist": 0
+  },
+  {
+   "id": 21,
+   "kind": "hall",
+   "type": "kitchen",
+   "cs": "KITCHEN",
+   "r": {
+    "x": 22,
+    "y": 22,
+    "w": 12,
+    "h": 8
+   },
+   "dist": 87.8
+  },
+  {
+   "id": 22,
+   "kind": "room",
+   "type": "pumps",
+   "cs": "PUMPS",
+   "r": {
+    "x": 34,
+    "y": 22,
+    "w": 6,
+    "h": 8
+   },
+   "dist": 77.6
+  },
+  {
+   "id": 23,
+   "kind": "room",
+   "type": "nursery",
+   "cs": "NURSERY",
+   "r": {
+    "x": 0,
+    "y": 8,
+    "w": 5,
+    "h": 9
+   },
+   "dist": 25.9
+  },
+  {
+   "id": 24,
+   "kind": "room",
+   "type": "morgue",
+   "cs": "MORGUE",
+   "r": {
+    "x": 0,
+    "y": 17,
+    "w": 5,
+    "h": 5
+   },
+   "dist": 20.1
+  },
+  {
+   "id": 25,
+   "kind": "vault",
+   "type": "vault",
+   "cs": "VAULT",
+   "r": {
+    "x": 32,
+    "y": 8,
+    "w": 8,
+    "h": 6
+   },
+   "dist": 61.5
+  },
+  {
+   "id": 26,
+   "kind": "hall",
+   "type": "pit",
+   "cs": "PIT",
+   "r": {
+    "x": 32,
+    "y": 14,
+    "w": 8,
+    "h": 8
+   },
+   "dist": 67.1
+  },
+  {
+   "id": 27,
+   "kind": "outside",
+   "type": "lot",
+   "cs": null,
+   "r": {
+    "x": 0,
+    "y": 30,
+    "w": 40,
+    "h": 12
+   },
+   "dist": 11.8
+  },
+  {
+   "id": 28,
+   "kind": "room",
+   "type": "van",
+   "cs": "VAN",
+   "r": {
+    "x": 21,
+    "y": 34,
+    "w": 2,
+    "h": 3
+   },
+   "dist": 12.7
+  }
+ ],
+ "doors": [
+  {
+   "id": 0,
+   "a": 0,
+   "b": 1,
+   "x": 7,
+   "y": 8,
+   "dir": "v",
+   "len": 2,
+   "kind": "locked",
+   "lock": 1,
+   "open0": false
+  },
+  {
+   "id": 1,
+   "a": 5,
+   "b": 6,
+   "x": 7,
+   "y": 20,
+   "dir": "v",
+   "len": 2,
+   "kind": "open",
+   "lock": 0,
+   "open0": true
+  },
+  {
+   "id": 2,
+   "a": 1,
+   "b": 2,
+   "x": 18,
+   "y": 8,
+   "dir": "v",
+   "len": 2,
+   "kind": "open",
+   "lock": 0,
+   "open0": true
+  },
+  {
+   "id": 3,
+   "a": 6,
+   "b": 7,
+   "x": 18,
+   "y": 20,
+   "dir": "v",
+   "len": 2,
+   "kind": "fire",
+   "lock": 0,
+   "open0": false
+  },
+  {
+   "id": 4,
+   "a": 2,
+   "b": 3,
+   "x": 20,
+   "y": 8,
+   "dir": "v",
+   "len": 2,
+   "kind": "security",
+   "lock": 0,
+   "open0": true
+  },
+  {
+   "id": 5,
+   "a": 7,
+   "b": 8,
+   "x": 20,
+   "y": 20,
+   "dir": "v",
+   "len": 2,
+   "kind": "open",
+   "lock": 0,
+   "open0": true
+  },
+  {
+   "id": 6,
+   "a": 3,
+   "b": 4,
+   "x": 30,
+   "y": 8,
+   "dir": "v",
+   "len": 2,
+   "kind": "open",
+   "lock": 0,
+   "open0": true
+  },
+  {
+   "id": 7,
+   "a": 8,
+   "b": 9,
+   "x": 30,
+   "y": 20,
+   "dir": "v",
+   "len": 2,
+   "kind": "blocked",
+   "lock": 0,
+   "open0": false
+  },
+  {
+   "id": 8,
+   "a": 0,
+   "b": 10,
+   "x": 5,
+   "y": 10,
+   "dir": "h",
+   "len": 2,
+   "kind": "security",
+   "lock": 0,
+   "open0": true
+  },
+  {
+   "id": 9,
+   "a": 4,
+   "b": 11,
+   "x": 30,
+   "y": 10,
+   "dir": "h",
+   "len": 2,
+   "kind": "security",
+   "lock": 0,
+   "open0": true
+  },
+  {
+   "id": 10,
+   "a": 5,
+   "b": 10,
+   "x": 5,
+   "y": 20,
+   "dir": "h",
+   "len": 2,
+   "kind": "open",
+   "lock": 0,
+   "open0": true
+  },
+  {
+   "id": 11,
+   "a": 9,
+   "b": 11,
+   "x": 30,
+   "y": 20,
+   "dir": "h",
+   "len": 2,
+   "kind": "fire",
+   "lock": 0,
+   "open0": false
+  },
+  {
+   "id": 12,
+   "a": 1,
+   "b": 12,
+   "x": 9,
+   "y": 10,
+   "dir": "h",
+   "len": 2,
+   "kind": "door",
+   "lock": 0,
+   "open0": false
+  },
+  {
+   "id": 13,
+   "a": 0,
+   "b": 13,
+   "x": 5,
+   "y": 8,
+   "dir": "h",
+   "len": 1,
+   "kind": "blocked",
+   "lock": 0,
+   "open0": false
+  },
+  {
+   "id": 14,
+   "a": 1,
+   "b": 14,
+   "x": 13,
+   "y": 8,
+   "dir": "h",
+   "len": 2,
+   "kind": "door",
+   "lock": 0,
+   "open0": false
+  },
+  {
+   "id": 15,
+   "a": 1,
+   "b": 15,
+   "x": 16,
+   "y": 8,
+   "dir": "h",
+   "len": 1,
+   "kind": "door",
+   "lock": 0,
+   "open0": false
+  },
+  {
+   "id": 16,
+   "a": 3,
+   "b": 16,
+   "x": 23,
+   "y": 8,
+   "dir": "h",
+   "len": 2,
+   "kind": "door",
+   "lock": 0,
+   "open0": true
+  },
+  {
+   "id": 17,
+   "a": 4,
+   "b": 17,
+   "x": 31,
+   "y": 8,
+   "dir": "h",
+   "len": 1,
+   "kind": "door",
+   "lock": 0,
+   "open0": false
+  },
+  {
+   "id": 18,
+   "a": 5,
+   "b": 18,
+   "x": 5,
+   "y": 22,
+   "dir": "h",
+   "len": 1,
+   "kind": "door",
+   "lock": 0,
+   "open0": true
+  },
+  {
+   "id": 19,
+   "a": 6,
+   "b": 19,
+   "x": 9,
+   "y": 22,
+   "dir": "h",
+   "len": 1,
+   "kind": "door",
+   "lock": 0,
+   "open0": false
+  },
+  {
+   "id": 20,
+   "a": 6,
+   "b": 20,
+   "x": 14,
+   "y": 22,
+   "dir": "h",
+   "len": 2,
+   "kind": "door",
+   "lock": 0,
+   "open0": true
+  },
+  {
+   "id": 21,
+   "a": 8,
+   "b": 21,
+   "x": 26,
+   "y": 22,
+   "dir": "h",
+   "len": 2,
+   "kind": "blocked",
+   "lock": 0,
+   "open0": false
+  },
+  {
+   "id": 22,
+   "a": 10,
+   "b": 23,
+   "x": 5,
+   "y": 15,
+   "dir": "v",
+   "len": 1,
+   "kind": "door",
+   "lock": 0,
+   "open0": false
+  },
+  {
+   "id": 23,
+   "a": 10,
+   "b": 24,
+   "x": 5,
+   "y": 18,
+   "dir": "v",
+   "len": 1,
+   "kind": "door",
+   "lock": 0,
+   "open0": true
+  },
+  {
+   "id": 24,
+   "a": 11,
+   "b": 26,
+   "x": 32,
+   "y": 17,
+   "dir": "v",
+   "len": 2,
+   "kind": "door",
+   "lock": 0,
+   "open0": true
+  },
+  {
+   "id": 25,
+   "a": 21,
+   "b": 22,
+   "x": 34,
+   "y": 26,
+   "dir": "v",
+   "len": 1,
+   "kind": "door",
+   "lock": 0,
+   "open0": false
+  },
+  {
+   "id": 26,
+   "a": 20,
+   "b": 27,
+   "x": 17,
+   "y": 30,
+   "dir": "h",
+   "len": 2,
+   "kind": "exit",
+   "lock": 0,
+   "open0": true
+  },
+  {
+   "id": 27,
+   "a": 18,
+   "b": 19,
+   "x": 8,
+   "y": 23,
+   "dir": "v",
+   "len": 1,
+   "kind": "door",
+   "lock": 0,
+   "open0": true
+  },
+  {
+   "id": 28,
+   "a": 0,
+   "b": 23,
+   "x": 5,
+   "y": 8,
+   "dir": "v",
+   "len": 1,
+   "kind": "door",
+   "lock": 0,
+   "open0": false
+  },
+  {
+   "id": 29,
+   "a": 0,
+   "b": 14,
+   "x": 6,
+   "y": 8,
+   "dir": "h",
+   "len": 1,
+   "kind": "blocked",
+   "lock": 0,
+   "open0": false
+  },
+  {
+   "id": 30,
+   "a": 22,
+   "b": 26,
+   "x": 38,
+   "y": 22,
+   "dir": "h",
+   "len": 1,
+   "kind": "door",
+   "lock": 0,
+   "open0": false
+  },
+  {
+   "id": 31,
+   "a": 13,
+   "b": 14,
+   "x": 6,
+   "y": 4,
+   "dir": "v",
+   "len": 1,
+   "kind": "door",
+   "lock": 0,
+   "open0": false
+  },
+  {
+   "id": 32,
+   "a": 16,
+   "b": 17,
+   "x": 31,
+   "y": 6,
+   "dir": "v",
+   "len": 1,
+   "kind": "door",
+   "lock": 0,
+   "open0": false
+  },
+  {
+   "id": 33,
+   "a": 11,
+   "b": 25,
+   "x": 32,
+   "y": 11,
+   "dir": "v",
+   "len": 2,
+   "kind": "vault",
+   "lock": 0,
+   "open0": false
+  },
+  {
+   "id": 34,
+   "a": 5,
+   "b": 24,
+   "x": 5,
+   "y": 20,
+   "dir": "v",
+   "len": 1,
+   "kind": "door",
+   "lock": 0,
+   "open0": false
+  },
+  {
+   "id": 35,
+   "a": 2,
+   "b": 12,
+   "x": 18,
+   "y": 10,
+   "dir": "h",
+   "len": 1,
+   "kind": "door",
+   "lock": 0,
+   "open0": true
+  },
+  {
+   "id": 36,
+   "a": 27,
+   "b": 28,
+   "x": 21,
+   "y": 34,
+   "dir": "h",
+   "len": 2,
+   "kind": "open",
+   "lock": 0,
+   "open0": true
+  }
+ ]
+}
+-- 0.1 s

@@ -1,0 +1,7 @@
+const pg = A.page;
+const fr = await pg.evaluate(() => window.__game.dbg('monsters.freeze', { on: true }));
+log('freeze', fr);
+const s = await h.st(pg);
+const L = await pg.evaluate(() => { const L = window.__ix.layout(); return { W: L.W, H: L.H, van: L.van, spawns: L.spawns, kind: L.kind, seed: L.seed, spaces: L.spaces.map((s) => ({ id: s.id, kind: s.kind, type: s.type, cs: s.callsign, r: s.rect })) }; });
+const o = s.objectives;
+return { players: s.players.map((p) => ({ id: p.id, p: p.p, yaw: p.yaw })), van: L.van, spawns: L.spawns, WH: [L.W, L.H], spaces: L.spaces, levers: o.levers, keypad: o.keypad, core: o.core && { p: o.core.p, state: o.core.state }, deposit: o.deposit, leave: o.leaveLever, loot: o.loot && o.loot.map((l) => ({ id: l.id, name: l.name, v: l.value, p: l.p, where: l.where })), lootMode: o.lootMode, code: o.code, notes: o.notes.map((n) => ({ id: n.id, t: n.title, p: n.p })) };

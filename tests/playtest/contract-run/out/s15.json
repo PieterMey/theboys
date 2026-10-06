@@ -1,0 +1,11 @@
+{
+ "ms": 19852,
+ "error": null,
+ "logs": [
+  "Ann screen after Esc none",
+  "Ann to lever1 true [20.5,1.43]  [] []",
+  "Ann aim {\"ok\":true,\"off\":[0,0],\"text\":\"Pull breaker (partner pulls the other within 1 s)\"}",
+  "Bob aim {\"ok\":true,\"off\":[0,0],\"text\":\"Pull breaker (partner pulls the other within 1 s)\"}"
+ ],
+ "result": {}
+}

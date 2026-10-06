@@ -1,0 +1,6 @@
+const pg = A.page, pb = B.page;
+const det = async (p) => p.evaluate(() => window.__ix.state()).then((s) => { const me = Object.keys(s.inventories); return Object.fromEntries(me.map((id) => [id, s.inventories[id].map((iid) => iid && { id: iid, t: s.items[iid].type, n: s.items[iid].count })])); });
+await h.shot(pg, '45-ann-c2-start');
+const keycards = await pg.evaluate(() => { const s = window.__ix.state(); return Object.values(s.items).filter((i) => i.type === 'keycard').map((i) => ({ id: i.id, w: i.where, h: i.holder, p: i.p })); });
+const locked = await pg.evaluate(() => Object.entries(window.__ix.state().doors).filter(([k, d]) => d.locked && d.kind === 'locked').map(([k]) => k));
+return { inv: await det(pg), keycards, lockedDoors: locked };

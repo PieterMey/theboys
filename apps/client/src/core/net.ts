@@ -81,6 +81,7 @@ export function createNet(world: World, bus: Bus, onError: (msg: string) => void
   let crewCode: string | null = null;
   let resume: string | undefined;
   let rtt = 0;
+  const rttWindow: number[] = [];
   let lastWelcome: WelcomeMsg | null = null;
   let wantOnline = false;
   let backoff = 250;
@@ -200,7 +201,11 @@ export function createNet(world: World, bus: Bus, onError: (msg: string) => void
         return;
       case 'pong': {
         const sample = performance.now() - m.c;
-        rtt = rtt ? rtt * 0.8 + sample * 0.2 : sample;
+        // median of the last 5 samples: one sample inflated by a long frame (shader compile at join) must not
+        // show a scary "1000 MS" for the next half minute the way an exponential average did
+        rttWindow.push(sample);
+        if (rttWindow.length > 5) rttWindow.shift();
+        rtt = [...rttWindow].sort((a, b) => a - b)[rttWindow.length >> 1];
         rttSample.ms = sample;
         rttSample.at = performance.now();
         world.observeServerTime(m.s + sample / 2);

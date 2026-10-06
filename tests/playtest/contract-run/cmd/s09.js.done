@@ -1,0 +1,19 @@
+const nav = h.nav, pg = A.page;
+const ps = await nav.pose(pg);
+log('Ann pose now', ps);
+const [sx, sz] = await nav.standNear(pg, 27.358, 23.564, 1.0);
+const r = await nav.walkTo(pg, sx, sz, { timeoutMs: 40000 });
+log('walk back', r.ok, r.end, r.stuck);
+await nav.face(pg, 27.358, 23.564, 0.1);
+const samples = [];
+for (let i = 0; i < 8; i++) {
+  const t = await pg.evaluate(() => { const c = window.__ix.camera(); const tg = window.__ix.target(); const s = window.__game.state(); const me = s.players.find((p) => p.id === s.me); return { d: c && c.d.map((v) => Math.round(v * 100) / 100), tg: tg && tg.id, locked: !!document.pointerLockElement }; });
+  samples.push(t);
+  await h.sleep(250);
+}
+log('samples', samples);
+await h.tap(pg, 'KeyE');
+await h.sleep(800);
+log('inv', await pg.evaluate(() => window.__ix.inventory()));
+await h.shot(pg, '16-ann-pickup-retry');
+return {};

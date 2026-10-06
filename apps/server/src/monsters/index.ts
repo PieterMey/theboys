@@ -8,6 +8,7 @@ import type { DirectorEventKind } from '@dead-air/shared/messages/monsters.ts';
 import type { Crew, PlayerPose, ServerContext, ServerPlayer } from '../core/types.ts';
 import { SYSTEM_ORDER } from '../core/types.ts';
 import { emitNoise, onNoise, onProxText } from '../players/noise.ts';
+import { isTaunt } from '../ai/text.ts';
 import { bindMonstersImpl, listener as listenerApi } from './api.ts';
 import type { HeardUtterance, ListenerIntent, MonstersImpl } from './api.ts';
 import { bindExternal, boundApis, holdingCrowbar, isAlive } from './ext.ts';
@@ -102,6 +103,7 @@ export function install(ctx: ServerContext): void | Promise<void> {
       durSec: Number.isFinite(durMs) && durMs > 0 ? durMs / 1000 : 2,
       x: Array.isArray(u.pos) ? Number(u.pos[0]) : undefined,
       z: Array.isArray(u.pos) ? Number(u.pos[1]) : undefined,
+      taunt: u.taunt === true,
     });
     return !!line;
   };
@@ -162,7 +164,7 @@ export function install(ctx: ServerContext): void | Promise<void> {
     const f = soundFlood(rt.cm.grid, e.x, e.z, e.radiusM, rt.cm.doorOpen);
     const hearsIt = !inCab(rt.cm.layout, e.x, e.z) && fieldAt(rt.cm.grid, f, L.x, L.z) <= e.radiusM;
     const room = rt.cm.layout.owner[Math.floor(e.z) * rt.cm.layout.W + Math.floor(e.x)] ?? -1;
-    listenerHeardUtterance(rt, L, { segId: `text:${e.player.id}:${e.t}`, speaker: e.player.id, text: e.text, room, via: 'text', band: BAND.talk, heard: hearsIt, durSec: 1, x: e.x, z: e.z });
+    listenerHeardUtterance(rt, L, { segId: `text:${e.player.id}:${e.t}`, speaker: e.player.id, text: e.text, room, via: 'text', band: BAND.talk, heard: hearsIt, durSec: 1, x: e.x, z: e.z, taunt: isTaunt(e.text) });
   });
 
   // ---- systems + hooks ----
@@ -312,6 +314,7 @@ export function install(ctx: ServerContext): void | Promise<void> {
       segId: a.segId ?? `dbg:${now}`, speaker: a.speaker ?? player.id, text: String(a.text ?? ''), band: a.band ?? BAND.talk,
       room: a.room ?? null, startedAt: now - 1500, endedAt: now, via: a.via,
       hearers: a.listener === undefined ? undefined : { listener: a.listener },
+      taunt: a.taunt === true || isTaunt(String(a.text ?? '')),
     });
     return { ok };
   });

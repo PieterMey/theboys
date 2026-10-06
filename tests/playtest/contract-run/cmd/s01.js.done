@@ -1,0 +1,3 @@
+const s = await h.st(A.page);
+const shotp = await h.shot(A.page, '01-join-screen');
+return { phase: s.phase, net: s.net, screen: s.screen, pending: s.pending, shotp, url: A.page.url() };

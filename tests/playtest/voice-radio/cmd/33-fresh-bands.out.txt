@@ -1,0 +1,33 @@
+{
+ "talk_en": [
+  "0-5s base -30.0: silent 10, shout 19, talk 12",
+  "5-10s base -30.0: shout 23, whisper 2, silent 15, talk 9",
+  "10-15s base -27.8: talk 11, shout 26, silent 12",
+  "15-20s base -26.2: silent 17, talk 14, shout 18",
+  "20-25s base -24.5: talk 29, shout 8, silent 13",
+  "25-30s base -23.7: talk 26, silent 18, shout 5",
+  "30-35s base -22.9: silent 9, talk 38, shout 2",
+  "35-40s base -22.5: talk 25, silent 15"
+ ],
+ "whisper": [
+  "0-5s base -30.0: talk 29, silent 16, whisper 5",
+  "5-10s base -31.7: talk 30, silent 19, whisper 1",
+  "10-15s base -32.8: talk 33, whisper 3, silent 13",
+  "15-20s base -33.9: talk 34, silent 14, whisper 1",
+  "20-25s base -34.3: talk 29, silent 18, whisper 2",
+  "25-30s base -34.7: talk 38, silent 12",
+  "30-35s base -34.9: silent 14, talk 23, whisper 1",
+  "35-40s base -35.1: talk 23, silent 10, whisper 2"
+ ],
+ "shout": [
+  "0-5s base -30.0: silent 8, shout 17, whisper 4, scream 13",
+  "5-10s base -30.0: scream 21, talk 2, silent 12, whisper 5, shout 10",
+  "10-15s base -22.3: shout 24, scream 10, talk 2, silent 12, whisper 1",
+  "15-20s base -18.8: shout 30, silent 14, whisper 3, talk 3",
+  "20-25s base -16.2: whisper 1, shout 28, talk 9, silent 12",
+  "25-30s base -14.3: shout 13, talk 22, silent 14",
+  "30-35s base -12.3: silent 9, talk 37, shout 2",
+  "35-40s base -11.4: whisper 3, silent 12, talk 28"
+ ]
+}
+-- 47.3 s

@@ -1,0 +1,12 @@
+{
+ "tForm": 13361,
+ "st": {
+  "phase": "hub",
+  "net": "idle",
+  "screen": "join",
+  "pending": []
+ },
+ "html": "DEAD AIR\n\nNIGHT SHIFT SALVAGE · THE COMPANY APPRECIATES YOUR DISCRETION\n\nCALLSIGN\nCREW CODE\nMICROPHONE\nDefault microphone\nMIC GAIN\n100%\nTRANSCRIBE MY SPEECH ON THE HOST PC (TEXT ONLY REACHES THE AI). OFF = LOUDNESS ONLY.\nALLOW MICROPHONE\nChrome will ask for permission. Without a mic you can still listen and type.\nVoice mimicry · coming soon (always off tonight)\nSome content is AI-generated (work orders, HR memos, the Listener's choices). Speech is transcribed on the host PC; only text goes to Claude/JEV, never audio.\nRETURNING CONTRACTOR? RECLAIM YOUR BADGE\nJOIN CREW\nCREATE CREW\n\nChrome or Edge · wired headset · the monsters hear what your friends hear",
+ "console": []
+}
+-- 19.5 s

@@ -1,0 +1,367 @@
+{
+ "ms": 9310,
+ "error": null,
+ "logs": [],
+ "result": [
+  {
+   "B": {
+    "cam": {
+     "o": [
+      21.07,
+      1.62,
+      15.46
+     ],
+     "yaw": -2.02,
+     "pitch": 0.15
+    },
+    "srv": {
+     "p": [
+      21.07,
+      0,
+      15.46
+     ],
+     "yaw": -2.02
+    },
+    "net": {
+     "status": "joined",
+     "rtt": 38,
+     "jitterMs": 32,
+     "interpDelayMs": 106,
+     "snapHz": 19.9,
+     "corrections": 0
+    },
+    "locked": true,
+    "screen": "none"
+   },
+   "A": {
+    "cam": {
+     "o": [
+      15.55,
+      1.62,
+      29.49
+     ],
+     "yaw": 0.17,
+     "pitch": -0.62
+    },
+    "srv": {
+     "p": [
+      15.55,
+      0,
+      29.49
+     ],
+     "yaw": 0.17
+    },
+    "net": {
+     "status": "joined",
+     "rtt": 1,
+     "jitterMs": 30,
+     "interpDelayMs": 99,
+     "snapHz": 20,
+     "corrections": 0
+    },
+    "locked": false,
+    "screen": "console"
+   }
+  },
+  {
+   "B": {
+    "cam": {
+     "o": [
+      21.07,
+      1.62,
+      15.46
+     ],
+     "yaw": -2.02,
+     "pitch": 0.15
+    },
+    "srv": {
+     "p": [
+      21.07,
+      0,
+      15.46
+     ],
+     "yaw": -2.02
+    },
+    "net": {
+     "status": "joined",
+     "rtt": 38,
+     "jitterMs": 29,
+     "interpDelayMs": 102,
+     "snapHz": 20.1,
+     "corrections": 0
+    },
+    "locked": true,
+    "screen": "none"
+   },
+   "A": {
+    "cam": {
+     "o": [
+      15.55,
+      1.62,
+      29.49
+     ],
+     "yaw": 0.17,
+     "pitch": -0.62
+    },
+    "srv": {
+     "p": [
+      15.55,
+      0,
+      29.49
+     ],
+     "yaw": 0.17
+    },
+    "net": {
+     "status": "joined",
+     "rtt": 1,
+     "jitterMs": 26,
+     "interpDelayMs": 96,
+     "snapHz": 20,
+     "corrections": 0
+    },
+    "locked": false,
+    "screen": "console"
+   }
+  },
+  {
+   "B": {
+    "cam": {
+     "o": [
+      21.07,
+      1.62,
+      15.46
+     ],
+     "yaw": -2.02,
+     "pitch": 0.15
+    },
+    "srv": {
+     "p": [
+      21.07,
+      0,
+      15.46
+     ],
+     "yaw": -2.02
+    },
+    "net": {
+     "status": "joined",
+     "rtt": 38,
+     "jitterMs": 33,
+     "interpDelayMs": 98,
+     "snapHz": 20,
+     "corrections": 0
+    },
+    "locked": true,
+    "screen": "none"
+   },
+   "A": {
+    "cam": {
+     "o": [
+      15.55,
+      1.62,
+      29.49
+     ],
+     "yaw": 0.17,
+     "pitch": -0.62
+    },
+    "srv": {
+     "p": [
+      15.55,
+      0,
+      29.49
+     ],
+     "yaw": 0.17
+    },
+    "net": {
+     "status": "joined",
+     "rtt": 1,
+     "jitterMs": 24,
+     "interpDelayMs": 93,
+     "snapHz": 19.9,
+     "corrections": 0
+    },
+    "locked": false,
+    "screen": "console"
+   }
+  },
+  {
+   "B": {
+    "cam": {
+     "o": [
+      21.07,
+      1.62,
+      15.46
+     ],
+     "yaw": -2.02,
+     "pitch": 0.15
+    },
+    "srv": {
+     "p": [
+      21.07,
+      0,
+      15.46
+     ],
+     "yaw": -2.02
+    },
+    "net": {
+     "status": "joined",
+     "rtt": 25,
+     "jitterMs": 32,
+     "interpDelayMs": 97,
+     "snapHz": 20,
+     "corrections": 0
+    },
+    "locked": true,
+    "screen": "none"
+   },
+   "A": {
+    "cam": {
+     "o": [
+      15.55,
+      1.62,
+      29.49
+     ],
+     "yaw": 0.17,
+     "pitch": -0.62
+    },
+    "srv": {
+     "p": [
+      15.55,
+      0,
+      29.49
+     ],
+     "yaw": 0.17
+    },
+    "net": {
+     "status": "joined",
+     "rtt": 1,
+     "jitterMs": 23,
+     "interpDelayMs": 91,
+     "snapHz": 20,
+     "corrections": 0
+    },
+    "locked": false,
+    "screen": "console"
+   }
+  },
+  {
+   "B": {
+    "cam": {
+     "o": [
+      21.07,
+      1.62,
+      15.46
+     ],
+     "yaw": -2.02,
+     "pitch": 0.15
+    },
+    "srv": {
+     "p": [
+      21.07,
+      0,
+      15.46
+     ],
+     "yaw": -2.02
+    },
+    "net": {
+     "status": "joined",
+     "rtt": 25,
+     "jitterMs": 32,
+     "interpDelayMs": 98,
+     "snapHz": 19.9,
+     "corrections": 0
+    },
+    "locked": true,
+    "screen": "none"
+   },
+   "A": {
+    "cam": {
+     "o": [
+      15.55,
+      1.62,
+      29.49
+     ],
+     "yaw": 0.17,
+     "pitch": -0.62
+    },
+    "srv": {
+     "p": [
+      15.55,
+      0,
+      29.49
+     ],
+     "yaw": 0.17
+    },
+    "net": {
+     "status": "joined",
+     "rtt": 1,
+     "jitterMs": 18,
+     "interpDelayMs": 89,
+     "snapHz": 20,
+     "corrections": 0
+    },
+    "locked": false,
+    "screen": "console"
+   }
+  },
+  {
+   "B": {
+    "cam": {
+     "o": [
+      21.07,
+      1.62,
+      15.46
+     ],
+     "yaw": -2.02,
+     "pitch": 0.15
+    },
+    "srv": {
+     "p": [
+      21.07,
+      0,
+      15.46
+     ],
+     "yaw": -2.02
+    },
+    "net": {
+     "status": "joined",
+     "rtt": 25,
+     "jitterMs": 46,
+     "interpDelayMs": 108,
+     "snapHz": 20,
+     "corrections": 0
+    },
+    "locked": true,
+    "screen": "none"
+   },
+   "A": {
+    "cam": {
+     "o": [
+      15.55,
+      1.62,
+      29.49
+     ],
+     "yaw": 0.17,
+     "pitch": -0.62
+    },
+    "srv": {
+     "p": [
+      15.55,
+      0,
+      29.49
+     ],
+     "yaw": 0.17
+    },
+    "net": {
+     "status": "joined",
+     "rtt": 1,
+     "jitterMs": 24,
+     "interpDelayMs": 89,
+     "snapHz": 20.1,
+     "corrections": 0
+    },
+    "locked": false,
+    "screen": "console"
+   }
+  }
+ ]
+}

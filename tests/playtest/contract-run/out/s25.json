@@ -1,0 +1,8 @@
+{
+ "ms": 4087,
+ "error": null,
+ "logs": [
+  "hits [{\"y\":0.4,\"off\":0,\"t\":\"shop:0\",\"text\":\"Company store\",\"near\":\"shop\"},{\"y\":0.4,\"off\":0.2,\"t\":\"shop:0\",\"text\":\"Company store\",\"near\":\"shop\"},{\"y\":0.4,\"off\":-0.2,\"t\":\"shop:0\",\"text\":\"Company store\",\"near\":\"shop\"},{\"y\":0.4,\"off\":0.4,\"t\":\"shop:0\",\"text\":\"Company store\",\"near\":\"shop\"},{\"y\":0.4,\"off\":-0.4,\"t\":\"shop:0\",\"text\":\"Company store\",\"near\":\"shop\"},{\"y\":0.8,\"off\":0,\"t\":\"shop:0\",\"text\":\"Company store\",\"near\":\"shop\"},{\"y\":0.8,\"off\":0.2,\"t\":\"shop:0\",\"text\":\"Company store\",\"near\":\"shop\"},{\"y\":0.8,\"off\":-0.2,\"t\":\"shop:0\",\"text\":\"Company store\",\"near\":\"shop\"},{\"y\":0.8,\"off\":0.4,\"t\":null,\"text\":null,\"near\":\"shop\"},{\"y\":0.8,\"off\":-0.4,\"t\":null,\"text\":null,\"near\":\"shop\"},{\"y\":1.1,\"off\":0,\"t\":null,\"text\":null,\"near\":\"shop\"},{\"y\":1.1,\"off\":0.2,\"t\":null,\"text\":null,\"near\":\"shop\"},{\"y\":1.1,\"off\":-0.2,\"t\":null,\"text\":null,\"near\":\"shop\"},{\"y\":1.1,\"off\":0.4,\"t\":null,\"text\":null,\"near\":\"shop\"},{\"y\":1.1,\"off\":-0.4,\"t\":null,\"text\":null,\"near\":\"shop\"},{\"y\":1.4,\"off\":0,\"t\":null,\"text\":null,\"near\":\"shop\"},{\"y\":1.4,\"off\":0.2,\"t\":null,\"text\":null,\"near\":\"shop\"},{\"y\":1.4,\"off\":-0.2,\"t\":null,\"text\":null,\"near\":\"shop\"},{\"y\":1.4,\"off\":0.4,\"t\":null,\"text\":null,\"near\":\"shop\"},{\"y\":1.4,\"off\":-0.4,\"t\":null,\"text\":null,\"near\":\"shop\"}]"
+ ],
+ "result": {}
+}

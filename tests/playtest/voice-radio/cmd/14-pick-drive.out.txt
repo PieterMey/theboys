@@ -1,0 +1,6 @@
+{
+ "phase": "drive",
+ "screen": "drive",
+ "s": "C:\\Users\\Pieter\\repos\\theboys\\tests\\playtest\\voice-radio\\shots\\14-after-drive.png"
+}
+-- 41.8 s

@@ -21,12 +21,24 @@ export function StaminaHud(_p: HudProps) {
   );
 }
 
+/** centre dot (the 'center' slot is centred with a transform, so the dot at its 50%/50% is the screen centre) */
 export function CrosshairHud(_p: HudProps) {
+  if (!ui.inGame.value || ui.spectating.value.on) return null;
+  return (
+    <div style={{ position: 'fixed', left: '50%', top: '50%', width: '4px', height: '4px', margin: '-2px 0 0 -2px', borderRadius: '50%', background: 'rgba(255,255,255,0.55)', boxShadow: '0 0 3px rgba(0,0,0,0.9)', pointerEvents: 'none' }} />
+  );
+}
+
+/**
+ * Screen-anchored lines (spectator banner, "click to look"). Registered in the untransformed 'top-left' slot: inside a
+ * transformed slot (center/top/bottom) position:fixed resolves against the slot box, which put them mid-screen.
+ */
+export function ScreenHintHud(_p: HudProps) {
   if (!ui.inGame.value) return null;
   const spec = ui.spectating.value;
   if (spec.on) {
     return (
-      <div style={{ position: 'fixed', top: '14%', left: 0, right: 0, textAlign: 'center', whiteSpace: 'nowrap', pointerEvents: 'none' }}>
+      <div data-testid="players-spectating" style={{ position: 'fixed', top: '14%', left: 0, right: 0, textAlign: 'center', whiteSpace: 'nowrap', pointerEvents: 'none' }}>
         <div style={{ font: `700 13px ${mono}`, letterSpacing: '0.35em', color: '#9fd7ff', textShadow: '0 0 8px #000' }}>STATIC // SPECTATING</div>
         <div style={{ font: `500 12px ${mono}`, color: '#d9d4c6', marginTop: '6px', textShadow: '0 0 6px #000' }}>
           {spec.target ? `following ${spec.target}` : 'no living crew in range'} · click to cycle
@@ -34,15 +46,11 @@ export function CrosshairHud(_p: HudProps) {
       </div>
     );
   }
+  if (ui.locked.value) return null;
   return (
-    <>
-      <div style={{ position: 'fixed', left: '50%', top: '50%', width: '4px', height: '4px', margin: '-2px 0 0 -2px', borderRadius: '50%', background: 'rgba(255,255,255,0.55)', boxShadow: '0 0 3px rgba(0,0,0,0.9)', pointerEvents: 'none' }} />
-      {!ui.locked.value && (
-        <div style={{ position: 'fixed', left: 0, right: 0, top: '58%', textAlign: 'center', whiteSpace: 'nowrap', font: `600 12px ${mono}`, letterSpacing: '0.25em', color: 'rgba(230,224,206,0.8)', textShadow: '0 0 6px #000', pointerEvents: 'none' }}>
-          CLICK TO LOOK AROUND
-        </div>
-      )}
-    </>
+    <div style={{ position: 'fixed', left: 0, right: 0, top: '58%', textAlign: 'center', whiteSpace: 'nowrap', font: `600 12px ${mono}`, letterSpacing: '0.25em', color: 'rgba(230,224,206,0.8)', textShadow: '0 0 6px #000', pointerEvents: 'none' }}>
+      CLICK TO LOOK AROUND
+    </div>
   );
 }
 

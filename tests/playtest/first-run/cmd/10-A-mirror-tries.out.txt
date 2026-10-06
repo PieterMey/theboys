@@ -1,0 +1,12 @@
+[
+ "at (14.38,11.20) pitch=0: target=none | NOT arrived (stuck?) at 14.38,11.20: (14",
+ "at (14.38,11.20) pitch=-0.3: target=none | NOT arrived (stuck?) at 14.38,11.20: (14",
+ "at (14.38,11.20) pitch=-0.7: target=none | NOT arrived (stuck?) at 14.38,11.20: (14",
+ "at (14.38,11.20) pitch=0: target=none | NOT arrived (stuck?) at 14.38,11.20: (14",
+ "at (14.38,11.20) pitch=-0.3: target=none | NOT arrived (stuck?) at 14.38,11.20: (14",
+ "at (14.38,11.20) pitch=-0.7: target=none | NOT arrived (stuck?) at 14.38,11.20: (14",
+ "at (14.38,11.20) pitch=0: target=none | arrived: (14.38,11.20) d=0.08",
+ "at (14.38,11.20) pitch=-0.3: target=none | arrived: (14.38,11.20) d=0.08",
+ "at (14.38,11.20) pitch=-0.7: target=none | arrived: (14.38,11.20) d=0.08"
+]
+-- 10.8 s

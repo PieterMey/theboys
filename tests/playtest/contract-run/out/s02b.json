@@ -1,0 +1,24 @@
+{
+ "ms": 73132,
+ "error": null,
+ "logs": [
+  "crew JBLS"
+ ],
+ "result": {
+  "code": "JBLS",
+  "players": [
+   {
+    "n": "Ann",
+    "leader": true,
+    "ready": false
+   },
+   {
+    "n": "Bob",
+    "leader": false,
+    "ready": false
+   }
+  ],
+  "errA": [],
+  "errB": []
+ }
+}

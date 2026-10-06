@@ -12,7 +12,7 @@ import type { Profile } from '@dead-air/shared/profile.ts';
 import { randomProfile } from '@dead-air/shared/profile.ts';
 import { los } from '@dead-air/shared/nav/index.ts';
 import type { ClientContext } from '../core/context.ts';
-import { badgeTexture, buildHelmet, buildPlaceholderBody, nameplateTexture } from './cosmetics.ts';
+import { badgeTexture, buildHelmet, buildPlaceholderBody, jointMaterial, nameplateTexture, suitMaterial } from './cosmetics.ts';
 import type { HelmetParts } from './cosmetics.ts';
 import type { RigLib, RigTemplate } from './rig.ts';
 import type { LevelServiceShape, V3 } from './types.ts';
@@ -89,13 +89,10 @@ function buildRigModel(tpl: RigTemplate, profile: Profile): { model: THREE.Objec
     mesh.frustumCulled = false;
     const remap = (m: THREE.Material): THREE.Material => {
       const src = m as THREE.MeshStandardMaterial;
-      const nm = new THREE.MeshStandardNodeMaterial();
-      nm.name = src.name;
       const isMain = src.name === 'M_Main' || !/joint/i.test(src.name);
-      nm.color.copy(isMain ? primary : secondary);
-      nm.roughness = isMain ? 0.74 : 0.5;
-      nm.metalness = isMain ? 0.02 : 0.25;
-      if (src.normalMap) nm.normalMap = src.normalMap;
+      // look pass (③): woven work suit with hi-vis tape + dark rubber joints instead of flat plastic colour slots
+      const nm = isMain ? suitMaterial(primary, mesh.geometry, src.normalMap) : jointMaterial(secondary);
+      nm.name = src.name;
       return nm;
     };
     mesh.material = Array.isArray(mesh.material) ? mesh.material.map(remap) : remap(mesh.material);

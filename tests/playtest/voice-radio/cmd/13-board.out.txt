@@ -1,0 +1,10 @@
+{
+ "screen": "board",
+ "btns": [
+  "CLOSE [ESC]",
+  "READY UP",
+  "HOLD TO DRIVE NOW"
+ ],
+ "s": "C:\\Users\\Pieter\\repos\\theboys\\tests\\playtest\\voice-radio\\shots\\13-board.png"
+}
+-- 3.1 s

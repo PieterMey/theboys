@@ -1,0 +1,53 @@
+{
+ "log": [
+  "0.9s A ready: [\"Ann:true\",\"Bob:false\"]",
+  "5.4s A drive/drive",
+  "18.1s drive shot1",
+  "18.5s A contract/none",
+  "18.5s arrived"
+ ],
+ "arrA": {
+  "phase": "contract",
+  "screen": "none",
+  "pose": {
+   "p": [
+    16.8,
+    0,
+    26.6
+   ],
+   "yaw": 3.141592653589793,
+   "pitch": 0,
+   "stance": 0,
+   "anim": 0,
+   "stamina": 1,
+   "speed": 0,
+   "light": true,
+   "dead": false,
+   "eye": 1.62
+  },
+  "layout": {
+   "seed": "PLAY1-000-7696",
+   "hash": "bf2fc5b4",
+   "W": 32,
+   "H": 36
+  }
+ },
+ "arrB": {
+  "p": [
+   18,
+   0,
+   26.6
+  ],
+  "yaw": 3.141592653589793,
+  "pitch": 0,
+  "stance": 0,
+  "anim": 0,
+  "stamina": 1,
+  "speed": 0,
+  "light": true,
+  "dead": false,
+  "eye": 1.62
+ },
+ "hud": []
+}
+-- 21.5 s

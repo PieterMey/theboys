@@ -1,0 +1,31 @@
+{
+ "stormAfterToneLeft": {
+  "c0": 1048,
+  "c1": 1048
+ },
+ "id": "p17v-qARqY6",
+ "last": {
+  "Talker": {
+   "Shouter": "connected/host",
+   "Quiet": "connected/host",
+   "Tone2": "connected/host"
+  },
+  "Tone2": {
+   "Talker": "connected/host",
+   "Quiet": "connected/host",
+   "Shouter": "connected/host"
+  },
+  "Shouter": {
+   "Talker": "connected/host",
+   "Quiet": "connected/host",
+   "Tone2": "connected/host"
+  },
+  "Quiet": {
+   "Talker": "connected/host",
+   "Shouter": "connected/host",
+   "Tone2": "connected/host"
+  }
+ },
+ "rounds": 2
+}
+-- 60.0 s

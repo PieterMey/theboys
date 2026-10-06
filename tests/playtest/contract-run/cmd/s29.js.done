@@ -1,0 +1,31 @@
+const nav = h.nav, pg = A.page, pb = B.page;
+const { astar } = await import('file:///C:/Users/Pieter/repos/theboys/packages/shared/src/nav/index.ts');
+await Promise.all([pg.mouse.click(800, 450), pb.mouse.click(800, 450)]);
+await h.sleep(400);
+const ixs = async (p) => p.evaluate(() => { const s = window.__ix.state(); const me = window.__game.me(); return { inv: s.inventories[me].map((id) => id && [s.items[id].type, s.items[id].count]), active: s.active[me] }; });
+// 1) bottle: slot 3, LMB throw
+await h.tap(pg, 'Digit3'); await h.sleep(300);
+log('Ann slot3', await ixs(pg));
+await pg.evaluate(() => window.__game.look(Math.PI, 0.25));
+await h.sleep(200);
+await pg.mouse.down(); await h.sleep(80); await pg.mouse.up();
+await h.sleep(250);
+await h.shot(pg, '46-bottle-thrown');
+await h.sleep(1200);
+log('after throw', await ixs(pg), 'thrown dyn?', await pg.evaluate(() => Object.values(window.__ix.state().items).filter((i) => i.type === 'bottle' && i.where !== 'held').map((i) => ({ w: i.where, p: i.p }))));
+// 2) drop the duplicate walkie: slot 2, G
+await h.tap(pg, 'Digit2'); await h.sleep(250);
+await h.tap(pg, 'KeyG'); await h.sleep(700);
+log('after G', await ixs(pg));
+await h.shot(pg, '47-after-drop');
+// 3) Bob crouch-walk
+const b0 = await nav.pose(pb);
+await pb.keyboard.down('KeyC'); await h.sleep(300);
+const crouchCam = (await nav.pose(pb));
+const camY = await pb.evaluate(() => window.__ix.camera().o[1]);
+await pb.keyboard.down('KeyW'); await h.sleep(1500); await pb.keyboard.up('KeyW');
+const b1 = await nav.pose(pb);
+await h.shot(pb, '48-bob-crouch');
+await pb.keyboard.up('KeyC');
+log('crouch: camY', camY, 'moved', Math.hypot(b1.p[0] - b0.p[0], b1.p[2] - b0.p[2]).toFixed(2), 'm in 1.5 s');
+return {};

@@ -1,0 +1,15 @@
+const nav = h.nav, pg = A.page;
+const ps = await nav.pose(pg);
+const hits = [];
+for (const y of [0.4, 0.8, 1.1, 1.4]) for (const off of [0, 0.2, -0.2, 0.4, -0.4]) {
+  const yaw = Math.atan2(17.4 - ps.p[0], 13.9 - ps.p[2]) + off;
+  const pitch = Math.atan2(y - 1.6, Math.hypot(17.4 - ps.p[0], 13.9 - ps.p[2]));
+  await pg.evaluate(([a, b]) => window.__game.look(a, b), [yaw, pitch]);
+  await h.sleep(110);
+  const t = await pg.evaluate(() => window.__ix.target());
+  const near = await pg.evaluate(() => window.__meta.near());
+  if (t || near) hits.push({ y, off, t: t && t.id, text: t && t.view && t.view.text, near: near && near.kind });
+}
+log('hits', hits);
+await h.shot(pg, '42b-shop-aim');
+return {};

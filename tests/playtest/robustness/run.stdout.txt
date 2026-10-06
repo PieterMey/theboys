@@ -1,0 +1,191 @@
+[17:24:34] server up pid 71032 (initial)
+[17:24:34] ---- join 4 chrome + 2 bots
+[17:25:12] Ann joined as prEhtEiOoJB
+[17:25:18] Bob joined as p2PI6u6_S1j
+[17:25:23] Cat joined as pJ0ajQxJ8j1
+[17:25:30] Dan joined as pSF5BTmaEH9
+[17:25:36] roster after 6: *Ann
+[17:25:55] ---- join 4 chrome + 2 bots done in 81.1 s
+[17:25:55] ---- 7th player refused
+[17:26:47] Eve (7th) sees: crew is full (6) screen= join net= idle
+[17:26:47] Eve errors: ["console: server: crew_full: crew is full (6)","game: server: crew_full: crew is full (6)"]
+[17:26:51] Bot7 (7th) result: Bot7: crew_full: crew is full (6)
+[17:26:51] ---- 7th player refused done in 56.5 s
+[17:26:51] ---- hub: spam keys on Cat
+[17:26:59] Cat after spam: screen= menu ready= true errors= []
+[17:27:01] Cat cleaned: screen= none ready= false
+[17:27:01] ---- hub: spam keys on Cat done in 9.3 s
+[17:27:01] ---- hub: R toggles ready once (double handler?)
+[17:27:03] Dan ready after R: true, after 2nd R: false
+[17:27:03] ---- hub: R toggles ready once (double handler?) done in 2.6 s
+[17:27:03] ---- hub: two players pick different orders at once
+[17:27:05] screens: board board
+[17:27:05] orders visible: Ann 3 Bob 3
+[17:27:07] picked: wo1-0-RBST-000-5239 orders: wo1-0-RBST-000-5239:Varga Brothers Foundry:r1:ok, wo1-1-RBST-001-9645:The Gilded Lantern Hotel, Service Levels:r1:ok, wo1-2-RBST-002-3472:Corrigan Shoe Factory:r2:locked
+[17:27:07] Bob toasts: ["Ann picked Varga Brothers Foundry. Waiting for Ann, Bob, Cat, Dan, Bot5, Bot6 to ready up.","Ann picked Varga Brothers Foundry. Waiting for Ann, Bob, Cat, Dan, Bot5, Bot6 to ready up."] Ann toasts: ["Ann picked Varga Brothers Foundry. Waiting for Ann, Bob, Cat, Dan, Bot5, Bot6 to ready up.","Ann picked Varga Brothers Foundry. Waiting for Ann, Bob, Cat, Dan, Bot5, Bot6 to ready up."]
+[17:27:07] ---- hub: two players pick different orders at once done in 4.2 s
+[17:27:07] ---- hub: leader leaves (closes tab)
+[17:27:10] roster after Ann left: Ann(away) *Bob Cat Dan Bot5 Bot6
+[17:27:10] Bob board footer: You are the crew leader: click a contract to pick it. The van leaves when everyone is READY (0/5), or hold DRIVE for 3 s.
+READY UP
+HOLD TO DRIVE NOW
+[17:27:12] after Bob click as new leader: picked= wo1-1-RBST-001-9645
+[17:27:50] roster after Ann returned: *Ann Bob Cat Dan Bot5 Bot6
+[17:27:50] picked after Ann returned: wo1-1-RBST-001-9645
+[17:28:27] ---- hub: leader leaves (closes tab) done in 79.3 s
+[17:28:27] ---- hub: C crouches (no Ctrl needed)
+[17:28:29] Dan stance while holding C: 1
+[17:28:29] ---- hub: C crouches (no Ctrl needed) done in 1.9 s
+[17:28:29] ---- server restart mid-hub
+[17:28:29] before restart: picked wo1-1-RBST-001-9645 shift {"index":0,"contract":0,"quota":625,"hauled":0,"balance":150,"gear":{},"quotasMet":0,"quotaLocked":false}
+[17:28:30] server killed
+[17:28:36] server up pid 84876 (restart mid-hub)
+[17:28:40] client net after restart: joined,joined,joined,joined in 3757 ms
+[17:28:40] Bot5 reconnect: rejoined RBST as pLrCF9y0ilF
+[17:28:40] Bot6 reconnect: rejoined RBST as pkHnGE7ruE8
+[17:28:43] roster after hub restart: *Ann Bob Dan Cat Bot5 Bot6
+[17:28:44] after restart: picked null shift {"index":0,"contract":0,"quota":625,"hauled":0,"balance":150,"gear":{},"quotasMet":0,"quotaLocked":false}
+[17:28:45] Ann screen=none errors= ["console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED"]
+[17:28:45] Bob screen=none errors= ["console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED"]
+[17:28:47] Cat screen=none errors= ["console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED"]
+[17:28:47] Dan screen=none errors= ["console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED"]
+[17:28:47] ---- server restart mid-hub done in 18.7 s
+[17:28:47] ---- ready up -> drive -> contract
+[17:28:50] picked: wo1-0-RBST-000-5239
+[17:28:55] phase: drive
+[17:29:09] phase: contract after 17286 ms
+[17:29:15] Ann in contract: screen=none pos=31.8,0.0,38.6 fps=13
+[17:29:15] Bob in contract: screen=none pos=33.0,0.0,38.6 fps=12
+[17:29:16] Cat in contract: screen=none pos=34.2,0.0,38.6 fps=14
+[17:29:16] Dan in contract: screen=none pos=31.8,0.0,37.5 fps=14
+[17:29:16] ---- ready up -> drive -> contract done in 29.0 s
+[17:29:16] ---- contract: leader kicks Bot6 from the roster UI
+[17:29:16] nethud count visible: 1 6/6
+[17:29:20] roster after kick: *Ann Bob Dan Cat Bot5
+[17:29:20] Bot6 errors: [{"code":"kicked","msg":"removed by Ann"}]
+[17:29:20] ---- contract: leader kicks Bot6 from the roster UI done in 4.0 s
+[17:29:20] ---- contract: Fay joins mid-contract
+[17:30:06] Fay mid-contract: phase contract screen join pos [34.2,0,37.5] van {"van":{"x":33,"z":42.5,"yaw":0,"cab":{"x":32,"y":40,"w":2,"h":3}},"kind":"facility"} alive true
+[17:30:06] Fay items: [null,null,null,null]
+[17:30:40] Fay errors: []
+[17:30:40] ---- contract: Fay joins mid-contract done in 80.0 s
+[17:30:40] ---- contract: Cat reloads the page
+[17:30:41] Cat before reload: id pJ0ajQxJ8j1 held ["null:undefined","null:undefined","null:undefined","null:undefined"] pos ["34.2","0.0","38.6"]
+[17:31:22] Cat after reload: id pJ0ajQxJ8j1 same id true held ["null:undefined","null:undefined","null:undefined","null:undefined"] phase contract pos ["34.2","0.0","38.6"]
+[17:31:55] Cat errors: ["console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED"]
+[17:31:55] ---- contract: Cat reloads the page done in 74.9 s
+[17:31:55] ---- contract: Dan tries to close the tab (beforeunload guard)
+[17:31:57] Dan close: dialog= beforeunload:  page closed? false
+[17:31:57] ---- contract: Dan tries to close the tab (beforeunload guard) done in 1.6 s
+[17:31:57] ---- contract: spam E/LMB/Q/G/1-4 on Bob
+[17:31:57] Bob pointer lock engaged: true
+[17:32:06] Bob after spam: screen none errors ["console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED"]
+[17:32:07] ---- contract: spam E/LMB/Q/G/1-4 on Bob done in 10.3 s
+[17:32:07] ---- contract: Bob hides the tab for 60 s
+[17:32:08] Bob visibility after switching tab: visible
+[17:32:08] Bob page frozen via CDP
+[17:33:08] during hide, roster says Bob: {"id":"p2PI6u6_S1j","name":"Bob","connected":true,"isLeader":false,"ready":false,"alive":true}
+[17:33:12] Bob after return: net joined phase contract snapHz 18 rtt 1 screen menu seen0 [33,0,38.6]
+[17:33:17] Bob +3s: net joined snapHz 19.8 rtt 271 interp 190 jitter 125
+[17:33:18] Bob errors: ["console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED"]
+[17:33:18] ---- contract: Bob hides the tab for 60 s done in 70.8 s
+[17:33:18] ---- contract: leader leaves mid-contract
+[17:33:20] roster after Ann left mid-contract: *Ann Bob Dan Cat Bot5 Fay
+[17:33:20] ---- contract: leader leaves mid-contract done in 2.7 s
+[17:33:20] ---- contract: everyone dies (wipe -> results)
+[17:33:21] kill Ann: {"ok":true}
+[17:33:22] kill Bob: {"ok":true}
+[17:33:23] kill Dan: {"ok":true}
+[17:33:25] kill Cat: {"ok":true}
+[17:33:30] kill Bot5: {"ok":true}
+[17:33:32] kill Fay: {"ok":true}
+[17:33:37] phase after all connected dead: results roster *Ann Bob Dan Cat Bot5 Fay
+[17:33:38] phase results after 0 s more
+[17:33:45] results text: CONTRACT 1/3 · VARGA BROTHERS FOUNDRY · RISK 1
+CREW LOST
+HAULED THIS CONTRACT
++0
+of 838 on site
+SCRIP LEDGER
+Balance before	150
+Salvage hauled	+0
+✗ Minimum recovery: 150 scrip. The Company will not be explaining a shortfall twice.	0
+✗ Headcount at 04:00 must match headcount at 22:00. HR has asked us to stop "rounding".	0
+Badge not recovered: Ann (10% fine)	−15
+Badge not recovered: Bob (10% fine)	−
+[17:33:45] drone after results (Bob): {"drone":false,"fear":0}
+[17:33:45] ---- contract: everyone dies (wipe -> results) done in 24.4 s
+[17:33:45] ---- results: new leader continues
+[17:33:45] results buttons: BACK TO THE VAN · 47 S
+[17:33:49] phase after continue: hub toasts []
+[17:33:51] ---- results: new leader continues done in 6.1 s
+[17:33:51] ---- server restart mid-contract
+[17:34:21] phase before restart: contract
+[17:34:33] drone in contract (Bob): {"drone":true,"fear":0}
+[17:34:35] server killed mid-contract
+[17:34:38] Bob net during outage: reconnecting nethud RECONNECTING
+CREW
+RBST
+5/6
+COPY INVITE
+[17:34:43] server up pid 83256 (restart mid-contract)
+[17:34:45] clients after restart: Bob:joined:hub Cat:joined:hub Dan:joined:hub Fay:joined:hub in 2579 ms
+[17:34:45] Bot5 reconnect: ok hub
+[17:34:50] Bob after contract restart: phase hub screen none layout {"seed":"hub","hash":"03736f5b","W":30,"H":24} objectives false
+[17:34:51] drone after restart (Bob): {"drone":true,"fear":0}
+[17:34:51] HUD text: CREW RBST
+5/6
+FayL1
+DIRECT
+· · ·
+DanL1
+DIRECT
+· · ·
+CatL1
+DIRECT
+· · ·
+★ BobL1
+YOU
+· · ·
+Bot5L1 · LOUD ONLY
+LINKING
+· · ·
+Pick a work order at the board [B].
+READY UP [R]
+COPY INVITE
+B BOARD
+R READY
+E USE
+ESC MENU
+CLICK TO LOOK AROUND
+VOICE LINKING 3/4
+stay in Discord until everyone shows DIRECT or RELAY
+LINK
+56 MS
+SHIFT 1 · CONTRACT 2/3
+0 / 625 QUOTA
+SCRIP 60 · QUOTAS MET 0
+TALK
+1
+empty
+2
+empty
+3
+empty
+4
+empty
+RENDER WEBGPU · ULTRA
+[17:34:51] roster: Fay Dan Cat *Bob Bot5
+[17:34:51] Bob errors: ["console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED"]
+[17:34:51] Cat errors: ["console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED"]
+[17:34:51] Dan errors: ["console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED"]
+[17:34:51] Fay errors: ["console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED"]
+[17:34:51] ---- server restart mid-contract done in 60.5 s
+[17:34:51] ---- soak: 8 min of activity
+[17:42:56] ---- soak: 8 min of activity done in 484.2 s
+[17:42:56] Ann final errors: ["console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED"]
+[17:43:25] Bob final errors: ["console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED"]
+[17:44:53] Cat final errors: ["console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED"]
+[17:46:01] Dan final errors: ["console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED"]
+[17:46:43] Fay final errors: ["console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","console: WebSocket connection to 'ws://127.0.0.1:3205/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED"]
+[17:47:06] done

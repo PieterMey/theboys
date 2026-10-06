@@ -1,0 +1,5 @@
+const pb = B.page, pg = A.page;
+const snap = async (p) => p.evaluate(() => { const c = window.__ix.camera(); const s = window.__game.state(); const me = s.players.find((x) => x.id === s.me); return { cam: c && { o: c.o.map((v) => Math.round(v * 100) / 100), yaw: Math.round(Math.atan2(c.d[0], c.d[2]) * 100) / 100, pitch: Math.round(Math.asin(c.d[1]) * 100) / 100 }, srv: me && { p: me.p.map((v) => Math.round(v * 100) / 100), yaw: Math.round(me.yaw * 100) / 100 }, net: s.diag && s.diag.net, locked: !!document.pointerLockElement, screen: s.screen }; });
+const series = [];
+for (let i = 0; i < 6; i++) { series.push({ B: await snap(pb), A: await snap(pg) }); await h.sleep(1500); }
+return series;

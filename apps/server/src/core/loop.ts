@@ -65,7 +65,10 @@ export function startLoop(ctx: ServerContext, internals: Internals, crews: CrewC
       tickAll(STEP_MS / 1000);
     }
     if (snapAcc >= SNAP_MS) {
-      snapAcc = snapAcc >= 2 * SNAP_MS ? 0 : snapAcc - SNAP_MS;
+      // keep at most one interval of debt: a late frame sends now and the next one right after, so loop jitter
+      // (15.6 ms Windows timers, GC, a busy host) no longer silently drops snapshots (measured 16 Hz under load);
+      // a long stall still yields at most one extra snapshot, never a burst
+      snapAcc = Math.min(snapAcc - SNAP_MS, SNAP_MS);
       try { sendSnapshots(); } catch (e) { warn('snapshot failed', e instanceof Error ? (e.stack ?? e.message) : e); }
     }
     if (sweepAcc >= 1000) {

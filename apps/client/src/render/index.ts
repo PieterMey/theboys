@@ -39,6 +39,8 @@ export interface RenderTestApi {
   hitch(): number;
   /** override the active view's camera */
   camera(pos: V3, look: V3): void;
+  /** test-only: the live scene + renderer (look-dev experiments from Playwright) */
+  three(): { scene: THREE.Scene; renderer: THREE.WebGPURenderer; camera: THREE.PerspectiveCamera; THREE: typeof THREE };
 }
 
 declare global {
@@ -50,7 +52,14 @@ declare global {
 type Cfg = {
   exposure: number;
   ambient: { sky: string; ground: string; intensity: number };
-  fog: { color: string; density: number; height: number };
+  /** indoor fog + the outdoor (lot) variant the camera blends to when it stands in an open space */
+  fog: { color: string; density: number; height: number; outdoorColor?: string; outdoorDensity?: number };
+  /** cold moonlight, outdoors only: extra hemisphere sky intensity + colour while the camera stands in the lot */
+  moon?: { color: string; intensity: number; dir?: number[] };
+  /** cyan point light riding the Core canister (candela at full glow) */
+  core?: { intensity: number; distance?: number };
+  /** dark-adaptation fill light that follows the camera (candela, range m, decay) */
+  adapt?: { color: string; intensity: number; distance: number; decay: number };
   flashlight: FlashCfg;
   fixture: FixtureCfg;
 } & PipeCfg;
@@ -59,6 +68,9 @@ const DEFAULTS: Cfg = {
   exposure: 1,
   ambient: { sky: '#7a8aa0', ground: '#14120e', intensity: 0.3 },
   fog: { color: '#06080a', density: 0.085, height: 3.4 },
+  moon: { color: '#8ea4c8', intensity: 0.55 },
+  core: { intensity: 3.2, distance: 7 },
+  adapt: { color: '#a9b8cc', intensity: 0.4, distance: 9, decay: 1.3 },
   flashlight: { angle: 0.42, penumbra: 0.7, decay: 1.6, distance: 28, intensity1: 260, intensity2: 380, color1: '#ffe3bd', color2: '#e4eeff', bias: -0.0004, normalBias: 0.02, shadowRadius: 3, near: 0.12, cone: 0.07 },
   fixture: { color: '#d9f2c4', intensity: 12, distance: 9, decay: 2, halo: 0.55, tube: 3.2 },
   volume: { density: 1.4, noiseScale: 0.55, drift: 0.06, strength: 1, blur: 0.3 },
@@ -113,7 +125,7 @@ export async function install(ctx: ClientContext): Promise<void> {
   const poolFixtures = Math.max(...PRESET_NAMES.map((n) => table[n].fixtures).filter((f) => f <= Math.max(preset.fixtures, 8)));
 
   const dbg0 = new Set((ctx.params.get('rdebug') ?? '').split(',').filter(Boolean));
-  if (!dbg0.has('nodyn')) renderer.lighting = new DynamicLighting({ maxPointLights: poolFixtures, maxSpotLights: 8, maxHemisphereLights: 2, maxDirectionalLights: 2 });
+  if (!dbg0.has('nodyn')) renderer.lighting = new DynamicLighting({ maxPointLights: poolFixtures + 2, maxSpotLights: 8, maxHemisphereLights: 2, maxDirectionalLights: 2 });
   renderer.toneMapping = THREE.AgXToneMapping;
   renderer.toneMappingExposure = Number(lsGet('deadair.render.exposure')) || cfg.exposure;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -126,10 +138,14 @@ export async function install(ctx: ClientContext): Promise<void> {
   container.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(cfg.fog.color);
+  const fogIn = new THREE.Color(cfg.fog.color);
+  const fogOut = new THREE.Color(cfg.fog.outdoorColor ?? cfg.fog.color);
+  const fogCol = fogIn.clone();
+  scene.background = fogCol;
   const fogDensity = uniform(cfg.fog.density);
   const fogHeight = uniform(cfg.fog.height);
-  scene.fogNode = fog(tslColor(new THREE.Color(cfg.fog.color)), exponentialHeightFogFactor(fogDensity, fogHeight));
+  const fogColor = uniform(fogCol);
+  scene.fogNode = fog(fogColor, exponentialHeightFogFactor(fogDensity, fogHeight));
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 120);
   camera.position.set(0, 1.6, 3);
   scene.add(camera);
@@ -137,9 +153,34 @@ export async function install(ctx: ClientContext): Promise<void> {
   // minimum ambient floor: never pure black on uncalibrated monitors
   const hemi = new THREE.HemisphereLight(cfg.ambient.sky, cfg.ambient.ground, cfg.ambient.intensity);
   scene.add(hemi);
+  // moonlight for the lot: the hemisphere's sky term blends to a cold moon sky outdoors (a DirectionalLight would add
+  // DynamicLighting's directional uniform arrays: 13 > 12 fragment uniform buffers on Medium/Low, both backends)
+  const moonCfg = cfg.moon ?? DEFAULTS.moon!;
+  const skyIn = new THREE.Color(cfg.ambient.sky);
+  const skyMoon = new THREE.Color(moonCfg.color);
+  let outdoorK = 0;
 
   const flash = createFlashlightPool(scene, cfg.flashlight, poolShadowed, poolUnshadowed, preset.shadowMap, VOL_LAYER);
   const fixtures = createFixturePool(scene, cfg.fixture, poolFixtures);
+  // the Core lights its surroundings (the vault, then the carriers + corridor walls on the way out): one fixed
+  // unshadowed point light that follows the objectives track's 'canister' object and pulses with its glow
+  const coreLight = new THREE.PointLight(0x46ecff, 0, cfg.core?.distance ?? 7, 2);
+  coreLight.castShadow = false;
+  coreLight.name = 'core-glow';
+  coreLight.position.set(0, -420, 0);
+  scene.add(coreLight);
+  let coreObj: THREE.Object3D | null = null;
+  let coreSeek = 0;
+  const coreTmp = new THREE.Vector3();
+  // dark adaptation: a faint cold fill riding just above the camera (short, soft falloff). The first metres around
+  // you stay readable in a blackout (silhouettes, door frames, a shape right next to you) while depth falls to black.
+  // Visual only: the server's lit-checks never see it.
+  const adaptCfg = cfg.adapt ?? DEFAULTS.adapt!;
+  const adapt = new THREE.PointLight(adaptCfg.color, 0, adaptCfg.distance, adaptCfg.decay);
+  adapt.castShadow = false;
+  adapt.name = 'dark-adaptation';
+  adapt.position.set(0, -430, 0);
+  scene.add(adapt);
   const pipe = createPipeline(renderer, scene, camera, cfg, VOL_LAYER);
   const dbg = new Set((ctx.params.get('rdebug') ?? '').split(',').filter(Boolean));
   pipe.build(preset, dbg);
@@ -321,7 +362,10 @@ export async function install(ctx: ClientContext): Promise<void> {
     const L = backdropActive ? null : ctx.world.layout;
     if (L && L !== volLayout) {
       volLayout = L;
-      pipe.setVolumeBounds(new THREE.Box3(new THREE.Vector3(-2, 0, -2), new THREE.Vector3(L.W + 2, (L.wallH || 3) + 0.3, L.H + 2)));
+      // rays stop at the scene depth (ceilings indoors), so the box can rise high enough for beams swung up outdoors
+      const outdoor = Array.isArray(L.spaces) && L.spaces.some((s) => s.open);
+      const top = Math.max((L.wallH || 3) + 0.3, outdoor ? 7.5 : 0);
+      pipe.setVolumeBounds(new THREE.Box3(new THREE.Vector3(-2, 0, -2), new THREE.Vector3(L.W + 2, top, L.H + 2)));
     }
     if (backdropActive && testView) {
       if (sceneMode === 'test') setCam(testView.cam, testView.look);
@@ -333,6 +377,24 @@ export async function install(ctx: ClientContext): Promise<void> {
     }
     test?.update(t);
     camera.updateMatrixWorld();
+    // outdoors (lot / van) vs inside the building: moon on/off, thinner bluish fog outside (smooth ~0.6 s blend)
+    {
+      let out = 0;
+      const lay = backdropActive ? null : ctx.world.layout;
+      if (lay && Array.isArray(lay.owner)) {
+        const cx = Math.floor(camera.position.x), cz = Math.floor(camera.position.z);
+        const own = cx >= 0 && cz >= 0 && cx < lay.W && cz < lay.H ? lay.owner[cz * lay.W + cx] : -1;
+        const sp = own >= 0 ? lay.spaces[own] : null;
+        out = own < 0 ? (lay.kind === 'hub' ? 1 : 0) : sp && (sp.open || sp.type === 'van') ? 1 : 0;
+      }
+      outdoorK += (out - outdoorK) * Math.min(1, dt * 3.5);
+      hemi.color.copy(skyIn).lerp(skyMoon, outdoorK);
+      hemi.intensity = cfg.ambient.intensity + moonCfg.intensity * outdoorK;
+      fogDensity.value = cfg.fog.density + ((cfg.fog.outdoorDensity ?? cfg.fog.density) - cfg.fog.density) * outdoorK;
+      fogCol.copy(fogIn).lerp(fogOut, outdoorK);
+      // open air: thinner dust than a sealed corridor (the own beam would otherwise glow like a fog bank)
+      pipe.volDensity.value = cfg.volume.density * (1 - 0.6 * outdoorK);
+    }
     let list = flashlightList();
     if (warmFrames > 0) {
       // warm-up: every slot sees real geometry so shadow/volume pipelines get created now, not mid-game
@@ -343,7 +405,26 @@ export async function install(ctx: ClientContext): Promise<void> {
     }
     flash.update(list, camera, t, dt, { activeShadowed: Math.min(preset.shadowed, poolShadowed), volumetric: preset.volumetric, reduceFlicker });
     if (warmFrames > 0) for (const s of flash.slots) s.light.intensity = Math.max(s.light.intensity * 1e-4, 1e-4);
-    fixtures.update(fixtureSource(), camera, t, { max: Math.min(preset.fixtures, poolFixtures), reduceFlicker });
+    fixtures.update(fixtureSource(), camera, t, { max: Math.min(preset.fixtures, poolFixtures), reduceFlicker, outdoor: outdoorK });
+    {
+      // Core glow light: find the canister (re-scan twice a second while missing or detached)
+      if ((!coreObj || !coreObj.parent) && (coreSeek -= dt) <= 0) { coreSeek = 0.5; coreObj = backdropActive ? null : scene.getObjectByName('canister') ?? null; }
+      let k = 0;
+      if (coreObj && coreObj.parent) {
+        let vis = true;
+        for (let o: THREE.Object3D | null = coreObj; o; o = o.parent) if (!o.visible) { vis = false; break; }
+        const glow = coreObj.getObjectByName('glow') as THREE.Mesh | undefined;
+        const ei = (glow?.material as { emissiveIntensity?: number } | undefined)?.emissiveIntensity;
+        k = vis ? (typeof ei === 'number' ? Math.min(1.6, ei / 3.2) : 1) : 0;
+        (glow ?? coreObj).getWorldPosition(coreTmp);
+        coreLight.position.copy(coreTmp);
+      }
+      coreLight.intensity = (cfg.core?.intensity ?? 2.2) * k;
+      // chest height: far enough from the 3 m ceiling that it never paints a hot patch overhead
+      adapt.position.set(camera.position.x, camera.position.y - 0.2, camera.position.z);
+      adapt.intensity = backdropActive ? 0 : adaptCfg.intensity * (1 - 0.5 * outdoorK);
+      if (k === 0) coreLight.position.set(0, -420, 0);
+    }
     warmGroup.visible = warmFrames > 0;
 
     renderer.info.reset();
@@ -397,6 +478,7 @@ export async function install(ctx: ClientContext): Promise<void> {
       camera(pos, l) {
         if (testView) testView = { ...testView, cam: pos, look: l };
       },
+      three: () => ({ scene, renderer, camera, THREE }),
     };
   }
 }

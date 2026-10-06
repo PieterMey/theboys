@@ -1,0 +1,24 @@
+{
+ "samples": [
+  "6.82s net=joined screen=join btn=ENTERING THE LOT… fps=45",
+  "37.06s net=joined screen=none btn=null fps=29"
+ ],
+ "screenAfter": "none",
+ "pose": {
+  "x": 16.2,
+  "z": 8.6,
+  "yaw": 0
+ },
+ "ls": [
+  "deadair.voice.base",
+  "deadair.render.reduceFlicker",
+  "deadair.key",
+  "deadair.name",
+  "deadair.voice.ptt",
+  "deadair.profile"
+ ],
+ "console": [
+  "225.1 warning: THREE.KTX2Loader: Multiple active KTX2 loaders may cause performance issues. Use a single KTX2Loader instance, or call .dispose() on old instances."
+ ]
+}
+-- 55.2 s

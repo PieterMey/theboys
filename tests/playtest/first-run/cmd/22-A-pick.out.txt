@@ -1,0 +1,15 @@
+{
+ "footer": [
+  "CLOSE [ESC]",
+  "READY UP",
+  "HOLD TO DRIVE NOW"
+ ],
+ "metaPicked": "wo1-0-PLAY1-000-7696",
+ "Bhud": "CREW PLAY1\n2/6\n★ AnnL1\nDIRECT\n· · ·\nBobL1\nYOU\n· · ·\nORDER: VARGA BROTHERS FOUNDRY · waiting for Ann, Bob\nREADY UP [R]\nCOPY INVITE\nB BOARD\nR READY\nE USE\nESC MENU",
+ "afterLocked": "wo1-0-PLAY1-000-7696",
+ "toasts": [
+  "Ann picked Varga Brothers Foundry. Waiting for Ann, Bob to ready up.",
+  "Ann picked Varga Brothers Foundry. Waiting for Ann, Bob to ready up."
+ ]
+}
+-- 2.6 s

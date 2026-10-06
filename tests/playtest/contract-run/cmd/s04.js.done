@@ -1,0 +1,19 @@
+const pg = A.page, pb = B.page;
+await pg.mouse.click(420, 300);
+await h.sleep(800);
+const m = await pg.evaluate(() => window.__meta.meta());
+log('picked', m.picked);
+await h.shot(pg, '06-board-picked');
+await pg.getByText('READY UP', { exact: true }).click();
+await h.sleep(600);
+await h.shot(pb, '07-bob-hub-after-pick');
+// Bob: click canvas (pointer lock), then R
+await pb.mouse.click(800, 450);
+await h.sleep(300);
+await h.tap(pb, 'KeyR');
+await h.sleep(1500);
+const s = await h.st(pg);
+log('phase', s.phase, 'screen', s.screen, s.crew.players.map((p) => p.name + ':' + p.ready));
+await h.shot(pg, '08-ann-after-ready');
+await h.shot(pb, '09-bob-after-ready');
+return { phase: s.phase };

@@ -1,0 +1,11 @@
+const ids = h.state.ids;
+await h.place(P.Relay.page, 30.5, 36.5, Math.PI / 2);
+await h.place(P.Tone2.page, 32.0, 36.5, -Math.PI / 2);
+await h.place(P.Quiet.page, 31.2, 37.6, Math.PI);
+await h.sleep(2500);
+const a = await h.measure(P.Relay.page, ids.Tone2, 3500);
+const b = await h.measure(P.Quiet.page, ids.Relay, 3500);
+const bandRelay = await h.bandHist(P.Relay.page, 4000);
+const fmt = (m) => `max ${m.max.toFixed(4)} rms ${h.dB(Math.hypot(m.l, m.r) / Math.SQRT2)} dB gate ${m.maxGain.toFixed(2)} band ${m.band}`;
+const shot = await h.shot(P.Relay.page, '25-relay-player');
+return { relayHearsTone2: fmt(a), quietHearsRelay: fmt(b), bandRelay, shot };

@@ -1,0 +1,14 @@
+const pg = A.page, pb = B.page;
+await h.shot(pb, '38-bob-results');
+await pg.getByText('BACK TO THE VAN').click();
+await h.sleep(800);
+const s1 = await h.st(pg);
+log('after Ann click: phase', s1.phase, 'screen', s1.screen);
+await h.shot(pg, '39-ann-after-back');
+await pb.getByText('BACK TO THE VAN').click().catch((e) => log('bob back click', String(e).slice(0, 120)));
+await pg.waitForFunction(() => window.__game.state().phase === 'hub', undefined, { timeout: 70000 }).catch(() => log('no hub'));
+await h.sleep(3000);
+const m = await pg.evaluate(() => window.__meta.meta());
+log('hub shift', m.shift);
+await h.shot(pg, '40-hub-after-contract');
+return {};

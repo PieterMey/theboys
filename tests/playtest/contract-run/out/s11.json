@@ -1,0 +1,13 @@
+{
+ "ms": 12657,
+ "error": null,
+ "logs": [
+  "Ann to van true [16.26,27.66] []",
+  "Bob walk keycard true [29.48,22.5]  []",
+  "Ann target {\"id\":\"deposit:0\",\"text\":\"Deposit loot\",\"key\":\"E\",\"enabled\":true}",
+  "Bob target {\"id\":\"it1\",\"text\":\"Pick up Keycard\",\"key\":\"E\",\"enabled\":true}",
+  "Bob inv [\"walkie\",\"keycard\",null,null]",
+  "salvage after deposit {\"count\":1,\"total\":6,\"value\":31} inv [\"walkie\",null,null,null]"
+ ],
+ "result": {}
+}

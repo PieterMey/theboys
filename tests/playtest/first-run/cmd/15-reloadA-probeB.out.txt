@@ -1,0 +1,13 @@
+{
+ "B": [
+  "spot 13.6,10 -> at 14.38,10.00 dist=1.83 0:- -0.4:- -0.8:-",
+  "spot 13.6,12.4 -> at 14.38,12.07 dist=1.63 0:Leave now (everyone in the van) -0.4:Leave now (everyone in the van) -0.8:Leave now (everyone in the van)",
+  "spot 14.2,10.3 -> at 14.38,10.29 dist=1.65 0:- -0.4:- -0.8:-"
+ ],
+ "A_joinFormAfter": 22882,
+ "A": {
+  "screen": "join",
+  "net": "idle"
+ }
+}
+-- 23.8 s

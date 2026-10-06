@@ -1,0 +1,60 @@
+{
+ "lv": [
+  -140,
+  -140,
+  -140,
+  -32,
+  -17,
+  -21,
+  -43,
+  -76,
+  -87,
+  -19,
+  -23,
+  -26,
+  -18,
+  -25,
+  -60,
+  -95,
+  -132,
+  -140,
+  -140,
+  -140,
+  -140,
+  -140,
+  -88,
+  -16,
+  -20,
+  -33,
+  -68,
+  -102,
+  -22,
+  -24
+ ],
+ "ms": {
+  "autoGainControl": false,
+  "channelCount": 1,
+  "deviceId": "default",
+  "echoCancellation": true,
+  "groupId": "e64c8ac275cd1af9bc4185385a1f00b5a2f7fcc16c68dfb118e3be8c8af65878",
+  "latency": 0.01,
+  "noiseSuppression": true,
+  "sampleRate": 48000,
+  "sampleSize": 16,
+  "voiceIsolation": false,
+  "label": "Fake Default Audio Input"
+ },
+ "logs": [
+  "17:47:10 mic live: {\"autoGainControl\":false,\"channelCount\":1,\"deviceId\":\"default\",\"echoCancellation\":true,\"groupId\":\"e64c8ac275cd1af9bc4185385a1f00b5a2f7fcc16c68dfb118e3be8c8af65878\",\"latency\":0.01,\"noiseSuppression\":true,\"sampleRate\":48000,\"sampleSize\":16,\"voiceIsolation\":false,\"label\":\"Fake Default Audio Input\"}",
+  "17:47:11 peer pT21aCqwhqG: got offer sid=97338c231445 state=stable collision=false polite=true",
+  "17:47:11 remote stream from pT21aCqwhqG",
+  "17:47:11 peer pI02_7VSqTt: got offer sid=07f593da07db state=stable collision=false polite=true",
+  "17:47:11 remote stream from pI02_7VSqTt"
+ ],
+ "ac": "no audio el",
+ "quietSees": {
+  "pI02_7VSqTt": "connected/host band 2 rms 0.000",
+  "p777JwwzSvx": "connected/host band 2 rms 0.064"
+ }
+}
+-- 4.7 s

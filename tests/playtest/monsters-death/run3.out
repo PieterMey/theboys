@@ -1,0 +1,69 @@
+[133.2] joined Ann=p8cKYCxHicP Bob=pE9eBzSderh Cat=pC8EO2uylIk
+[134.3] pointer locked after click? true
+[222.3] contract; worst frame 2533.2000000000116
+[223.9] callsigns 8:GALLERY:hall:19x11 9:FOUNDRY:hall:11x6 10:FURNACE:hall:10x6 11:VAULT:vault:5x6 12:STORES:room:5x6 13:MORGUE:room:5x6 14:PUMPS:room:6x6 15:OFFICE:room:5x6 16:LOBBY:hall:10x6 17:MAILROOM:room:5x6 18:LIBRARY:hall:10x6 19:BOILER:hall:5x15 20:GREENHOUSE:hall:8x8 21:GARAGE:hall:8x7 23:VAN:room:2x3
+[229.6] test room 8 GALLERY hall rect {"x":7,"y":8,"w":19,"h":11}
+[232.7] ================ A. BOTTLE
+[248.6] shot A1-bottle-lure-bob.png (Bob)
+[255.4] A bottle thrown (Bob LMB) hound0 states: 2.1s:idle@16.8,12.39 -> 4.7s:sniff@20.85,10.16
+[257.7] A thrown [] cues interaction.fx:{"kind":"throw","p":[9.379999999999999,1.62,13.5],"pid":"pE9eBzSderh","item":"bottle"} ; interaction.fx:{"kind":"smash","p":[20.850338688232227,0.05,10.156695729338791],"pid":"pE9eBzSderh","item":"bottle","id":"thrown:20"} ; monsters.cue:{"id":"hound0","kind":"hound","cue":"huff","p":[15.69,0,12.09],"radius":8} ; monsters.cue:{"id":"hound0","kind":"hound","cue":"sniff","p":[20.85,0,10.16],"radius":8} ; monsters.cue:{"id":"hound0","kind":"hound","cue":"sniff","p":[20.85,0,10.16],"radius":6} ; monsters.cue:{"id":"hound0","kind":"hound","cue":"sniff","p":[20.85,0,10.16],"radius":6} ; monsters.cue:{"id":"hound0","kind":"hound","cue":"sniff","p":[20.85,0,10.16],"radius":6}
+[258.2] A bob inventory after ["walkie","bottle",null,null]
+[258.2] ================ F. LISTENER STT/WAKE
+[264.6] F stt before {"fakeListener":null,"listener":{"x":16.5,"z":17.91,"active":false,"at":1748474.1879},"players":[]}
+[267.5] F stt during {"fakeListener":null,"listener":{"x":16.5,"z":17.91,"active":false,"at":1751308.0981},"players":[{"id":"pC8EO2uylIk","open":{"segId":1,"samples":25760,"hearers":["p8cKYCxHicP","pE9eBzSderh"],"listener":true},"queued":0,"busy":false}]}
+[273.2] F utterances after 1s [{"segId":1,"crew":"MDTQ","speaker":"pC8EO2uylIk","speakerName":"Cat","text":"meat in boiler","norm":"meat in boiler","lang":"en","band":2,"room":"GALLERY","roomId":8,"pos":[16.5,13.5],"startedAt":1791308693377.2942,"endedAt":1791308695478.6282,"viaRadio":false,"kind":"voice","via":"voice","callsigns":["BOILER"],"names":[],"digits":[],"meaningful":true,"taunt":false,"hearers":{"players":["p8cKYCxHicP","pE9eBzSderh"],"listener":true,"walkies":[],"listenerDistM":4},"sttMs":2380},{"segId":2,"crew":"MDTQ","speaker":"pC8EO2uylIk","speakerName":"Cat","text":"boiler, meat in boiler","norm":"boiler meat in boiler","lang":"en","band":2,"room":"GALLERY","roomId":8,"pos":[16.5,13.5],"startedAt":1791308696085.4023,"endedAt":1791308698977.0056,"viaRadio":false,"kind":"voice","via":"voice","callsigns":["BOILER"],"names":[],"digits":[],"meaningful":true,"taunt":false,"hearers":{"players":["p8cKYCxHicP"
+[275.0] F listener memory [{"text":"meat in boiler","speaker":"Cat","callsigns":["BOILER"],"meaningful":true,"used":false},{"text":"boiler, meat in boiler","speaker":"Cat","callsigns":["BOILER"],"meaningful":true,"used":false}] state dormant dormant true
+[280.1] shot F1-wake-flicker-ann.png (Ann)
+[284.3] F after wake {"state":"vent","intent":"investigate_room","targetSpace":19,"ts":"BOILER"} log [{"line":"it heard \"boiler, meat in boiler\" -> searched BOILER","action":"investigate_room","target":"BOILER","source":"jev","valid":true,"t":115}]
+[284.3] F events monsters.wake:{"ms":1600} ; monsters.led:{"to":["p8cKYCxHicP","pE9eBzSderh"],"ms":1600} ; monsters.telegraph:{"space":19,"ms":1200,"squelch":["p8cKYCxHicP","pE9eBzSderh"],"callsign":"BOILER"} ; monsters.intercept:{"text":"INTERCEPT: \"…BOILER…\"","quote":"boiler, meat in boiler","speaker":"Cat","callsign":"BOILER","action":"investigate_room","at":1791308704488.5107}
+[284.9] F INTERCEPT text visible on Ann page []
+[287.0] F decision log (req) {"lines":["it heard \"boiler, meat in boiler\" -> searched BOILER"]}
+[287.0] ================ G. GRAB
+[287.0] G distance Ann-Bob 19.8
+[291.2] G grab started=true after 1577 ms monsters.grab:{"id":"listener0","victim":"pE9eBzSderh","until":1791308717844.8757,"state":"start","p":[25.2,0,18.2]} ; monsters.cue:{"id":"listener0","kind":"listener","cue":"scream","p":[24.3,0,17.7],"radius":22}
+[293.2] shot G1-grab-victim-bob.png (Bob)
+[293.5] G1 bob HUD ix-deathcard: INCIDENT REPORT · CONTRACTOR DECEASED listener heard "boiler, meat in boiler" Cat's voice, 22 s ago YOU ARE NOW STATIC · A MEDKIT AT YOUR BODY (30 S) OR YOUR BA | nethud: LINK 880 MS CREW MDTQ 3/6 COPY INVITE | band-meter: SILENT PTT [V] | ix-inventory: LMB throw (15 m smash: Hound bait) 1 Walkie 2 x2 Bottle 3 empty 4 empty | ix-radio: RADIO · Q | ix-battery: LIGHT 98% | hud-chip: RENDER WEBGL2 · LOW
+[299.8] G outcome: killed at +6101 ms; shove prompt first seen at +-1 ms; ann now at 9.7,0.0,9.9 (bob 25.2,18.2); bob alive=false
+[299.8] G kill/death events interaction.death:{"pid":"pE9eBzSderh","name":"Bob","cause":{"killer":"listener","reason":"heard \"boiler, meat in boiler\"","detail":"Cat's voice, 22 s ago"},"p":[24.955617957091153,0,18.064232198383973]} ; monsters.kill:{"victim":"pE9eBzSderh","killer":"listener","reason":"heard \"boiler, meat in boiler\"","detail":"Cat's voice, 22 s ago","p":[24.96,0,18.06]}
+[302.0] shot G3-after-grab-bob.png (Bob)
+[302.4] G3 bob HUD players-spectating: STATIC // SPECTATING following Ann · click to cycle | nethud: LINK 1142 MS CREW MDTQ 3/6 COPY INVITE | band-meter: SILENT PTT [V] | ix-spec: MEDKIT REVIVE WINDOW 22 S · OR A TEAMMATE CARRIES YOUR BADGE TO THE VAN | hud-chip: RENDER WEBGL2 · LOW
+[306.6] G4 listener after the grab listener0 states: 2.0s:out@24.3,17.7
+[306.6] ================ E. BADGE / SPECTATE / DEAD VOICE
+[319.5] shot E0-death-card-cat.png (Cat)
+[319.5] E0 cat HUD players-spectating: STATIC // SPECTATING following Ann · click to cycle | ix-deathcard: INCIDENT REPORT · CONTRACTOR DECEASED HOUND heard your SPRINT 9 m YOU ARE NOW STATIC · A MEDKIT AT YOUR BODY (30 S) OR YOUR BADGE IN THE VAN BRINGS YOU BACK | nethud: LINK 560 MS CREW MDTQ 3/6 COPY INVITE | band-meter: SILENT PTT [V] | hud-chip: RENDER WEBGPU · ULTRA
+[325.3] C0 cat spectating {"on":true,"target":"p8cKYCxHicP"} plates ["p8cKYCxHicP:0.00","pE9eBzSderh:0.00"]
+[326.9] shot C0-spectate-cat.png (Cat)
+[328.0] C1 after a real click {"on":true,"target":"p8cKYCxHicP"} locked true
+[329.6] C2 after LMB-equivalent {"on":true,"target":"pE9eBzSderh"}
+[331.6] shot C2-spectate-after-cycle-cat.png (Cat)
+[333.6] C3 after 2nd LMB {"on":true,"target":"p8cKYCxHicP"}
+[343.1] D dead voice samples:
+  cat<-ann g=1 rms=0.0000014687188825389854 band=0 | bob<-ann g=0 rms=0 band=-1
+  cat<-ann g=1 rms=0.004486617968024201 band=3 | bob<-ann g=0 rms=0 band=-1
+  cat<-ann g=1 rms=0.14492074882721082 band=3 | bob<-ann g=0 rms=0 band=-1
+  cat<-ann g=1 rms=0.0000013136580944477033 band=3 | bob<-ann g=0 rms=0 band=-1
+  cat<-ann g=1 rms=0.2180181522700294 band=0 | bob<-ann g=0 rms=0 band=-1
+  cat<-ann g=1 rms=0.0031975456708189707 band=3 | bob<-ann g=0 rms=0 band=-1
+[348.4] D control (living Bob talking, heard by the dead):
+  cat<-bob g=0 rms=0 | ann<-bob g=0 rms=0
+  cat<-bob g=0.9198770931530164 rms=0.09185684122472249 | ann<-bob g=0 rms=0
+  cat<-bob g=0.9198770931530164 rms=0.04272931219581881 | ann<-bob g=0 rms=0
+  cat<-bob g=0.9198770931530164 rms=0.001207452258563365 | ann<-bob g=0 rms=0
+[351.7] E badge {"id":"it22","type":"badge","value":0,"where":"world","owner":"pC8EO2uylIk","name":"Cat's badge","p":[14.47,0,13.7],"rot":0}
+[352.6] E aim [1.5707963267948966,-1.0121970114513341]
+[353.2] E target when aiming at the badge {"id":"body:pC8EO2uylIk","kind":"body","p":[14.72,0.3,13.5],"prompt":"Cat's body (take the badge to the van)","enabled":false,"r":0.6,"ref":"pC8EO2uylIk","view":{"id":"body:pC8EO2uylIk","text":"Cat's body","key":null,"enabled":false,"sub":"carry their badge to the van deposit"}}
+[355.5] shot E1-aim-at-badge-bob.png (Bob)
+[357.9] E bob inventory after E [null,null,null,null]
+[360.1] E retry from offset 0,1: target body:pC8EO2uylIk body Cat's body
+[361.9] E retry from offset 1,0: target body:pC8EO2uylIk body Cat's body
+[363.9] E retry from offset 0,-1: target body:pC8EO2uylIk body Cat's body
+[364.5] E bob inventory after retries [null,null,null,null]
+[364.5] ================ H. MANNEQUIN
+[371.1] start risk 2 ["hound0","listener0"]
+[378.9] spawn {"ok":false,"reason":"no mannequin this contract (risk >= 2 or contractIndex >= 2)"}
+[383.8] shot H1-mannequin-watched-lit-ann.png (Ann)
+[392.1] H2 two watchers (blinks due ~5 s) mannequin0 states: 
+[393.6] H ERROR TypeError: Cannot read properties of undefined (reading 'state')
+[394.1] Ann client errors (0): []
+[394.2] Bob client errors (0): []
+[394.5] Cat client errors (0): []

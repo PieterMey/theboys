@@ -1,0 +1,26 @@
+{
+ "r": {
+  "ok": true,
+  "ms": 655
+ },
+ "tl": [
+  "t+4s Quiet->Talker new | Talker->Quiet new | rebuilds Quiet 30 Talker 32",
+  "t+8s Quiet->Talker new | Talker->Quiet new | rebuilds Quiet 48 Talker 50",
+  "t+12s Quiet->Talker new | Talker->Quiet connecting | rebuilds Quiet 55 Talker 56",
+  "t+16s Quiet->Talker new | Talker->Quiet new | rebuilds Quiet 59 Talker 61",
+  "t+20s Quiet->Talker new | Talker->Quiet new | rebuilds Quiet 65 Talker 67",
+  "t+24s Quiet->Talker new | Talker->Quiet connecting | rebuilds Quiet 92 Talker 93"
+ ],
+ "lastQuietLogs": [
+  "17:52:07 peer pI02_7VSqTt: new remote session -> rebuilding the connection",
+  "17:52:07 peer pI02_7VSqTt: got answer sid=13ba29644f7a state=stable collision=false polite=false",
+  "17:52:07 peer pI02_7VSqTt: setRemoteDescription failed: Failed to execute 'setRemoteDescription' on 'RTCPeerConnection': Failed to set remote answer sdp: Called in wrong state: stable",
+  "17:52:07 peer pI02_7VSqTt: new remote session -> rebuilding the connection",
+  "17:52:07 peer pI02_7VSqTt: got answer sid=c3ee9ec13ebb state=stable collision=false polite=false",
+  "17:52:07 peer pI02_7VSqTt: setRemoteDescription failed: Failed to execute 'setRemoteDescription' on 'RTCPeerConnection': Failed to set remote answer sdp: Called in wrong state: stable",
+  "17:52:07 peer pI02_7VSqTt: new remote session -> rebuilding the connection",
+  "17:52:07 peer pI02_7VSqTt: got answer sid=0079de27eccd state=stable collision=false polite=false",
+  "17:52:07 peer pI02_7VSqTt: setRemoteDescription failed: Failed to execute 'setRemoteDescription' on 'RTCPeerConnection': Failed to set remote answer sdp: Called in wrong state: stable"
+ ]
+}
+-- 25.6 s

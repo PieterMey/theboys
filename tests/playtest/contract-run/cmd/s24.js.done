@@ -1,0 +1,16 @@
+const nav = h.nav, pg = A.page;
+const items = await pg.evaluate(() => window.__meta.layoutItems());
+const shop = items.find((i) => i.kind === 'shop');
+log('shop', shop);
+const [sx, sz] = await nav.standNear(pg, shop.x, shop.z, 1.1, shop.rot);
+const r = await nav.walkTo(pg, sx, sz, { timeoutMs: 30000 });
+log('to shop', r.ok, r.end, r.reason, JSON.stringify(r.stuck));
+await nav.face(pg, shop.x, shop.z, 1.0);
+await h.sleep(400);
+const t = await pg.evaluate(() => window.__ix.target());
+log('target', t && t.view);
+await h.tap(pg, 'KeyE');
+await h.sleep(1000);
+log('screen', (await h.st(pg)).screen);
+await h.shot(pg, '42-shop');
+return {};

@@ -66,6 +66,11 @@ const NO_SHADOW_ITEMS = new Set(['switch', 'note', 'intercom', 'keypad', 'vent',
 /** named item parts other tracks may animate / restyle: never merged */
 const ITEM_KEEP = new Set(['led', 'screen', 'screen0', 'screen1', 'screen2', 'toggle', 'glow', 'placeholder']);
 
+/** same generated level (content hash + seed + kind), whatever object it arrived in */
+function sameLayout(a: LevelLayout | null, b: LevelLayout | null): boolean {
+  return !!a && !!b && a.hash === b.hash && a.seed === b.seed && a.kind === b.kind && a.W === b.W && a.H === b.H;
+}
+
 export function install(ctx: ClientContext): void {
   const done = ctx.readiness.require('level');
   const mats = new LevelMaterials();
@@ -174,7 +179,8 @@ export function install(ctx: ClientContext): void {
     doorVis = L.doors.map((d) => {
       const v = buildDoor(L, d, mats);
       if (v) {
-        v.group.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
+        // door geometry is built per door (never shared): free it with the layout (materials are shared, kept)
+        v.group.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; disposable.push(m.geometry); } });
         doorRoot.add(v.group);
       }
       return v;
@@ -193,12 +199,13 @@ export function install(ctx: ClientContext): void {
       groups[it.space]?.add(o);
     }
     // stencils
-    for (const st of buildStencils(L)) groups[st.space]?.add(st.mesh);
+    // (stencil planes and exterior meshes are per-layout geometry too; their textures/materials are cached and kept)
+    for (const st of buildStencils(L)) { groups[st.space]?.add(st.mesh); disposable.push(st.mesh.geometry); }
     // exterior (attached to the outdoor lot space)
     const lot = L.spaces.find((s) => s.open && s.type === 'lot') ?? L.spaces.find((s) => s.open);
     if (lot) {
       for (const o of buildExterior(L, geo.fences, mats).outdoor) {
-        o.traverse((c) => { const m = c as THREE.Mesh; if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
+        o.traverse((c) => { const m = c as THREE.Mesh; if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; disposable.push(m.geometry); } });
         groups[lot.id].add(o);
       }
     }
@@ -307,7 +314,10 @@ export function install(ctx: ClientContext): void {
 
   ctx.world.subscribe(() => {
     const w = ctx.world;
-    if (w.layout !== layout && ctx.services.use('three')) rebuild(w.layout);
+    // every 'phase' event and every (re)connect Welcome carries a freshly decoded copy of the SAME layout (drive keeps
+    // the hub, results keep the facility): rebuilding on object identity froze the client for seconds on each of them
+    // (shader compiles) and leaked the old door/stencil/prop GPU resources. Rebuild only when the content changes.
+    if (w.layout !== layout && !sameLayout(w.layout, layout) && ctx.services.use('three')) rebuild(w.layout);
     if (w.full !== lastFull) { lastFull = w.full; applyInteractionDoors(false); }
   });
 
