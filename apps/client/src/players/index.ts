@@ -77,13 +77,14 @@ export async function install(ctx: ClientContext): Promise<void> {
     state: input.state,
     setInput: input.setInput,
     teleport(x, z, yaw) {
+      if (!Number.isFinite(x) || !Number.isFinite(z)) { log(`ignored non-finite teleport (${x}, ${z})`); return; }
       me.pos.set(x, 0, z);
       me.vel.set(0, 0, 0);
-      if (yaw !== undefined) me.yaw = yaw;
+      if (yaw !== undefined && Number.isFinite(yaw)) me.yaw = yaw;
     },
     look(yaw, pitch) {
-      me.yaw = yaw;
-      me.pitch = Math.max(-1.48, Math.min(1.48, pitch));
+      if (Number.isFinite(yaw)) me.yaw = yaw;
+      if (Number.isFinite(pitch)) me.pitch = Math.max(-1.48, Math.min(1.48, pitch));
     },
   });
 
@@ -142,22 +143,34 @@ export async function install(ctx: ClientContext): Promise<void> {
   const isDead = () => forcedSpectate ?? (ctx.world.phase === 'contract' && aliveFlag() === false);
   const livingTeammates = () => (ctx.world.crew?.players ?? []).filter((p) => p.id !== meId() && p.alive && p.connected && avatars.get(p.id)).map((p) => p.id);
 
-  const syncFromServer = (force: boolean) => {
+  let synced = false;
+  const syncFromServer = (force: boolean, why: string) => {
     const id = meId();
     const hash = ctx.world.layout?.hash ?? null;
     if (!force && hash === lastLayoutHash) return;
+    const sameLevel = synced && hash !== null && hash === lastLayoutHash;
     lastLayoutHash = hash;
     const s = id ? ctx.world.players.get(id)?.latest() : null;
-    if (s) {
+    if (s && Number.isFinite(s.p[0]) && Number.isFinite(s.p[2])) {
+      const d = Math.hypot(s.p[0] - me.pos.x, s.p[2] - me.pos.z);
+      if (sameLevel) {
+        // re-welcome on the same level (silent reconnect / resume): never rotate the view; only adopt the server
+        // position when it really moved us (the next poses validate server-side, net.correct handles drift)
+        if (d > 2) { me.pos.set(s.p[0], 0, s.p[2]); me.vel.set(0, 0, 0); }
+        log(`${why}: same level, kept view (server pose ${d.toFixed(2)} m away${d > 2 ? ', position adopted' : ''})`);
+        return;
+      }
       me.pos.set(s.p[0], 0, s.p[2]);
-      me.yaw = s.yaw;
+      if (Number.isFinite(s.yaw)) me.yaw = s.yaw;
       me.pitch = 0;
       me.vel.set(0, 0, 0);
+      log(`${why}: pose from server (${s.p[0].toFixed(1)}, ${s.p[2].toFixed(1)}) yaw ${s.yaw.toFixed(2)}`);
     }
+    synced = true;
     me.stamina = 1;
   };
-  ctx.bus.on('net:welcome', () => syncFromServer(true));
-  ctx.bus.on('world:phase', () => syncFromServer(false));
+  ctx.bus.on('net:welcome', () => syncFromServer(true, 'welcome'));
+  ctx.bus.on('world:phase', () => syncFromServer(false, 'phase'));
 
   // ---------------- flashlight ----------------
   const setLight = (on: boolean) => {
@@ -311,12 +324,12 @@ export async function install(ctx: ClientContext): Promise<void> {
     },
     flashlightOn: () => me.light && me.lightEnabled && !me.dead,
     setFlashlight: (on) => setLight(on),
-    setSpeedMult(mult) { me.speedMult = Math.max(0, Math.min(2, mult)); },
+    setSpeedMult(mult) { me.speedMult = Number.isFinite(mult) ? Math.max(0, Math.min(2, mult)) : 1; },
     setCarry(id) { me.carry = id; },
     setHidden(hidden, at, yaw) {
       me.hidden = hidden;
       me.hiddenAt = hidden && at ? at : null;
-      if (hidden && yaw !== undefined) me.yaw = yaw;
+      if (hidden && yaw !== undefined && Number.isFinite(yaw)) me.yaw = yaw;
     },
     playAnim(anim, ms) { me.animOverride = { anim, until: performance.now() + ms }; },
     freeze(reason, on) { if (on) me.frozen.add(reason); else me.frozen.delete(reason); },

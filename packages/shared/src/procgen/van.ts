@@ -27,10 +27,18 @@ export function addVanItems(van: VanInfo, vanSpace: number, add: AddItem): void 
   add('deposit', vanSpace, c.x + c.w / 2, c.y + 0.75, { y: 0, data: { r: 0.9 } });
 }
 
-/** 6 player spawns in two rows of three behind the rear doors, facing `yaw` (default: toward the facility, -Z). */
-export function addVanSpawns(van: VanInfo, lotSpace: number, add: AddItem, yaw = Math.PI): void {
+/**
+ * 6 player spawns in two rows of three behind the rear doors, facing `yaw` (default: toward the facility, -Z).
+ * opts.lookAt turns every spawn toward that point (the facility entrance door / the open van), so the first view is
+ * never a blank wall; opts.spacing spreads the columns (hub: off the van's side-wall lines).
+ */
+export function addVanSpawns(van: VanInfo, lotSpace: number, add: AddItem, yaw = Math.PI, opts: { lookAt?: { x: number; z: number }; spacing?: number } = {}): void {
   const c = van.cab;
+  const sp = opts.spacing ?? 1.2;
   for (let r = 0; r < 2; r++) for (let i = 0; i < 3; i++) {
-    add('spawn_player', lotSpace, c.x + c.w / 2 + (i - 1) * 1.2, c.y - 1.4 - r * 1.1, { rot: yaw, data: { idx: r * 3 + i } });
+    const x = c.x + c.w / 2 + (i - 1) * sp, z = c.y - 1.4 - r * 1.1;
+    const la = opts.lookAt;
+    const rot = la ? Math.round(Math.atan2(la.x - x, la.z - z) * 1e4) / 1e4 : yaw;
+    add('spawn_player', lotSpace, x, z, { rot, data: { idx: r * 3 + i } });
   }
 }

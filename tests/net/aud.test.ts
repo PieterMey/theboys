@@ -61,11 +61,13 @@ test('closed door costs +6 m, open door +1 m (octile path)', () => {
   assert.equal(open.b, undefined);
 });
 
-test('van cab is sealed: exactly one endpoint inside -> 255; both inside -> audible', () => {
+// playtest fix: the cab is NOT sealed for player-to-player voice (normal path distance through the open rear
+// doorway); it stays a sanctuary for monster hearing only (apps/server/src/monsters/runtime.ts)
+test('van cab is not sealed for player voice: inside <-> outside uses the path distance; both inside -> audible', () => {
   const inCab = player('c', 9.5, 3.5), outside = player('d', 8.5, 3.5), inCab2 = player('e', 10.5, 4.5);
   const crew = crewWith(twoRooms(), [inCab, outside, inCab2]);
-  assert.equal(audOf(crew, outside).c, 255);
-  assert.equal(audOf(crew, inCab).d, 255);
+  const io = audOf(crew, outside).c, oi = audOf(crew, inCab).d;
+  assert.ok(io < 255 && oi < 255 && io <= 3 && oi <= 3, `inside <-> 1 m outside audible (got ${io}, ${oi})`);
   const both = audOf(crew, inCab).e;
   assert.ok(both <= 2, `both inside: near (got ${both})`);
 });

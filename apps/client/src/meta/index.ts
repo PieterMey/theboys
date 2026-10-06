@@ -113,15 +113,25 @@ export function install(ctx: ClientContext): void {
     resetMirror(ctx);
     syncPhaseScreen();
   });
+  // one-time brightness check in the van: armed on welcome, opened by the per-frame system on the first frame the
+  // screen is 'none' in the hub (the join screen can stay up for up to ~25 s after welcome while the level builds)
+  let brightPending = false;
+  const maybeBrightness = (): void => {
+    if (!brightPending) return;
+    if (settings().brightnessDone || ctx.params.has('nobright')) { brightPending = false; return; }
+    if (ctx.world.phase !== 'hub' || ui.screen.value.name !== 'none') return;
+    brightPending = false;
+    openScreen(ctx, 'brightness', { first: true });
+  };
   ctx.bus.on('net:welcome', ({ resumed }) => {
     resetMirror(ctx);
     if (!resumed) runPendingClaim(ctx);
     if (!resumed && ctx.world.phase === 'hub') setTimeout(() => sfx(ctx, 'vo.pa_welcome'), 2500);
+    if (!settings().brightnessDone && !ctx.params.has('nobright')) brightPending = true;
     setTimeout(() => {
       syncPhaseScreen();
       void applySettings(ctx);
-      // one-time brightness check in the van
-      if (!settings().brightnessDone && ctx.world.phase === 'hub' && ui.screen.value.name === 'none' && !ctx.params.has('nobright')) openScreen(ctx, 'brightness', { first: true });
+      maybeBrightness();
     }, 600);
   });
   ctx.bus.on('audio:unlocked', () => { void applySettings(ctx, ['master', 'voice', 'sfx']); });
@@ -163,7 +173,7 @@ export function install(ctx: ClientContext): void {
       return;
     }
     if (typing || e.repeat) return;
-    if (e.code === 'KeyR' && ctx.world.phase === 'hub' && cur === 'none' && ctx.net.status === 'joined') {
+    if (e.code === 'KeyR' && ctx.world.phase === 'hub' && (cur === 'none' || cur === 'board') && ctx.net.status === 'joined') {
       const me = ctx.world.crew?.players.find((p) => p.id === ctx.world.me);
       void ctx.net.req('meta.ready', { ready: !me?.ready }).catch(() => {});
       return;
@@ -187,6 +197,7 @@ export function install(ctx: ClientContext): void {
     order: SYS.ui,
     update(dt) {
       const cur = ui.screen.value.name;
+      if (brightPending && cur === 'none') maybeBrightness();
       if (cur !== lastScreen) {
         const frozen = cur !== 'none';
         try { players(ctx)?.freeze?.('meta-screen', frozen); } catch { /* optional */ }

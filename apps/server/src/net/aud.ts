@@ -3,7 +3,8 @@
 // - One flood per speaker, from the speaker's cell, reused while cell + door state are unchanged.
 // - Active speakers (band > 0 or spoke within BAND_HOLD_MS) refresh immediately; silent ones at most every
 //   audSilentRefreshMs (2 Hz) - their field may be a little stale, which only matters once they speak.
-// - Van cab sealed: exactly one of (speaker, receiver) inside layout.van.cab -> 255.
+// - Van cab NOT sealed for player-to-player voice: the normal path distance through the open rear doorway
+//   (the van stays a sanctuary for MONSTER hearing only; apps/server/src/monsters/runtime.ts has its own cab check).
 // - Receivers in a solid cell (spectator cameras clip walls) read the best neighbouring cell + 1 m.
 // - No layout / point outside the grid -> rounded Euclidean distance (255 beyond range).
 import { BAND_HOLD_MS, PATH } from '@dead-air/shared/constants.ts';
@@ -130,7 +131,6 @@ export function audDistance(crew: Crew, receiverId: string, speakerId: string, c
 }
 
 function pairDistance(st: AudCrewState, r: AudCrewState['points'][number], s: AudCrewState['points'][number], range: number): number {
-  if (r.sealed !== s.sealed) return UNREACH;
   const g = st.grid;
   const f = st.fields.get(s.id);
   if (g && f && r.cell >= 0) return round(readField(g, f.field, r.cell), range);

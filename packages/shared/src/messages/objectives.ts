@@ -77,6 +77,10 @@ export interface ObjCore {
   p: Vec3;
   yaw: number;
   drops: number;
+  /** carried: carrier separation (m), set while it is above the soft-tether warning distance */
+  sep?: number;
+  /** carried + stretched: carriers moving away from their partner (their client slows them down) */
+  slow?: string[];
 }
 
 export interface ObjKeypad {
@@ -158,6 +162,8 @@ export interface ObjContractResult extends ContractResult {
   /** players left behind at departure */
   leftBehind: string[];
   durationSec: number;
+  /** false = left almost at once with nothing hauled (no 'everyone survives' reward; meta grants reduced XP) */
+  participated?: boolean;
 }
 
 export type LeverResult = 'waiting' | 'success' | 'fail' | 'cooldown' | 'nopower';

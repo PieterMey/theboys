@@ -14,8 +14,10 @@
   "carryCapacity": 2,
   "coreValue": [300, 500],
   "coreDropLossFrac": 0.15,
-  "coreLeashM": 3.2,
-  "coreLeashGraceSec": 0.5,
+  "coreLeashM": 4.5,
+  "coreLeashGraceSec": 2.0,
+  "coreLeashWarnM": 2.2,
+  "coreLeashSlowMin": 0.35,
   "coreHandleOffsetM": 0.75,
   "coreGrabRangeM": 2.2,
   "leverWindowSec": 1.0,
@@ -33,5 +35,6 @@
     "LURE_IT_WITH_A_LIE": 150
   },
   "coreReminderMin": 240,
-  "soloAssist": true
+  "soloAssist": true,
+  "minParticipationSec": 120
 }

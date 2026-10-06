@@ -15,6 +15,8 @@ export interface Noise {
   source: string;
   /** voice band for kind 'voice' / 'radio' */
   band?: number;
+  /** crew time the sound stream this noise belongs to started (one utterance / one burst of steps = one sound); set in processNoise */
+  start?: number;
 }
 
 export interface Agent {
@@ -72,6 +74,8 @@ export interface HoundAgent extends Agent {
   /** cause for the next kill */
   causeKind: string;
   causeDist: number;
+  /** crew time of the last DISTINCT heard sound (start of the current alert/investigation episode) */
+  heardAt?: number;
 }
 
 export interface MannequinAgent extends Agent {
@@ -190,6 +194,10 @@ export interface CrewMonsters {
   sightAcc: number;
   /** doors a monster just opened: that monster ignores the resulting door noise */
   selfNoise: { x: number; z: number; until: number; agent: string }[];
+  /** per source+class sound streams (voice utterance / step burst): start + last heard crew time */
+  streams?: Map<string, { start: number; last: number }>;
+  /** per player: last sampled position + crew time they last moved (non-creeping) or were louder than a whisper */
+  activity?: Map<string, { x: number; z: number; movedAt: number; loudAt: number }>;
   /** callsigns present in the layout */
   callsigns: string[];
   /** space id -> callsign */

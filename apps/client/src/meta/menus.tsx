@@ -49,7 +49,7 @@ function Toggle({ label, on, disabled, note, onChange }: { label: string; on: bo
   );
 }
 
-function SettingsTab({ ctx }: { ctx: ClientContext }) {
+export function SettingsTab({ ctx }: { ctx: ClientContext }) {
   const [s, setS] = useState<MetaSettings>(settings());
   const [devs, setDevs] = useState<{ deviceId: string; label: string }[]>([]);
   const r = render(ctx);
@@ -67,6 +67,8 @@ function SettingsTab({ ctx }: { ctx: ClientContext }) {
   const [gain, setGain] = useState(v?.micGain?.() ?? s.micGain ?? 1);
   const [ptt, setPtt] = useState(v?.pushToTalk?.() ?? s.ptt);
   const [tx, setTx] = useState(v?.transcribe?.() ?? true);
+  const [crouchT, setCrouchT] = useState(!!pl?.settings?.().crouchToggle);
+  const [invY, setInvY] = useState(!!pl?.settings?.().invertY);
   return (
     <div>
       <h3 class="m-h3">Video</h3>
@@ -97,6 +99,8 @@ function SettingsTab({ ctx }: { ctx: ClientContext }) {
       <Toggle label="Transcribe my speech" on={tx} note="on the host PC; text only goes to the AI. Off = loudness only" onChange={(x) => { setTx(x); v?.setTranscribe?.(x); }} />
       <h3 class="m-h3" style={{ marginTop: '18px' }}>Controls</h3>
       <Range label="Mouse sensitivity" min={0.0005} max={0.006} step={0.0001} value={sens} fmt={(x) => (x * 1000).toFixed(1)} onChange={(x) => set({ sensitivity: x }, ['sensitivity'])} />
+      <Toggle label="Crouch (C): toggle instead of hold" on={crouchT} disabled={!pl?.setSettings} onChange={(x) => { setCrouchT(x); try { pl?.setSettings?.({ crouchToggle: x }); } catch { /* players mid-init */ } }} />
+      <Toggle label="Invert mouse Y" on={invY} disabled={!pl?.setSettings} onChange={(x) => { setInvY(x); try { pl?.setSettings?.({ invertY: x }); } catch { /* players mid-init */ } }} />
     </div>
   );
 }
@@ -260,9 +264,9 @@ export function KennelScreen({ ctx }: ScreenProps) {
   const band = lvl?.band ?? v?.band?.() ?? 0;
   const k = lvl ? Math.max(0, Math.min(1, (lvl.db + 70) / 65)) : band / 4;
   return (
-    <div class="m-screen">
-      <button class="m-close" onClick={() => closeScreen(ctx)}>DONE [ESC]</button>
-      <div class="m-wrap narrow">
+    <div class="m-screen m-kennel-screen">
+      <div class="m-wrap narrow m-kennel-side">
+        <button class="m-close" onClick={() => closeScreen(ctx)}>DONE [ESC]</button>
         <div class="m-top">
           <div>
             <div class="m-kicker">TRAINING KENNEL · MIC CALIBRATION</div>

@@ -12,6 +12,8 @@ export interface NetBalance {
   audSilentRefreshMs: number;
   sessionSaveDebounceMs: number;
   invitePollMs: number;
+  /** band > 0 with no 'loud' message for this long -> treated as silent (client resends every 500 ms) */
+  loudStaleMs: number;
 }
 
 const DEFAULTS: NetBalance = {
@@ -25,6 +27,7 @@ const DEFAULTS: NetBalance = {
   audSilentRefreshMs: 500,
   sessionSaveDebounceMs: 150,
   invitePollMs: 3000,
+  loudStaleMs: 1500,
 };
 
 export function netBalance(ctx: ServerContext): NetBalance {

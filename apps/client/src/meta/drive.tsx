@@ -35,9 +35,10 @@ export function DriveScreen({ ctx }: ScreenProps) {
     budget -= line.length + 10;
   }
   const visible = shown.slice(-4);
-  const driveMs = Number((ctx.balance.meta as Record<string, unknown> | undefined)?.driveSec ?? 6) * 1000;
   const left = d ? Math.max(0, d.endsAt - ctx.world.serverNow()) : 0;
-  const pct = d ? Math.min(100, Math.max(0, 100 - (left / driveMs) * 100)) : Math.min(100, el * 16);
+  // the progress bar is a compositor (transform) animation over the time left when the screen opened, so it keeps
+  // moving while the main thread is busy building the level
+  const [span] = useState(() => (d ? Math.max(1000, d.endsAt - ctx.world.serverNow()) : 6000));
   const per = meta?.shift.contractsPerShift ?? 3;
   return (
     <div class="m-screen m-solid">
@@ -59,9 +60,9 @@ export function DriveScreen({ ctx }: ScreenProps) {
         <div class="m-radio">
           {visible.map((l, i) => <p key={i} class={i === visible.length - 1 ? 'cur' : ''}>{l}</p>)}
         </div>
-        <div class="m-progress"><i style={{ width: `${pct}%` }} /></div>
+        <div class="m-progress"><i class="anim" style={{ animationDuration: `${span}ms` }} /></div>
         <div class="m-row" style={{ justifyContent: 'space-between', marginTop: '8px' }}>
-          <span class="m-small m-dim">ARRIVING {left > 0 ? `IN ${(left / 1000).toFixed(0)} s` : 'NOW'} · 22:00 · THE VAN LEAVES AT 04:00</span>
+          <span class="m-small m-dim">ARRIVING {left > 0 ? `IN ${Math.ceil(left / 1000)} s` : 'NOW'} · 22:00 · THE VAN LEAVES AT 04:00 · READ THE RULES</span>
           <span class="m-small m-dim">QUOTA {meta?.shift.hauled ?? 0}/{meta?.shift.quota ?? 0}</span>
         </div>
       </div>

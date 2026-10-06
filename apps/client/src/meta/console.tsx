@@ -22,6 +22,44 @@ interface ObjLike {
   blackout?: boolean;
   salvage?: { count: number; total: number; value: number };
   dead?: string[];
+  levers?: { id: string; p: [number, number, number]; space: number; zone?: number; down?: boolean }[];
+  keypad?: { id: string; p: [number, number, number]; space?: number; zone?: number; enabled?: boolean; door?: number } | null;
+  core?: { id?: string; p: [number, number, number]; state?: string; carriers?: string[] } | null;
+}
+
+interface Marker { x: number; z: number; space: number }
+
+/** breaker / keypad / Core positions: (a)'s objectives slice when present, else the layout's item slots */
+function objMarkers(L: LevelLayout, o: ObjLike | null): { levers: (Marker & { down: boolean })[]; keypad: (Marker & { on: boolean }) | null; core: (Marker & { state: string }) | null } {
+  const items = L.kind === 'facility' ? L.items : [];
+  const levers = o?.levers?.length
+    ? o.levers.map((l) => ({ x: l.p[0], z: l.p[2], space: l.space, down: !!l.down }))
+    : items.filter((i) => i.kind === 'lever').map((i) => ({ x: i.x, z: i.z, space: i.space, down: false }));
+  const kpi = items.find((i) => i.kind === 'keypad');
+  const kp = o?.keypad ?? null;
+  const powered = kp ? !!kp.enabled || !!(kp.zone !== undefined && o?.power?.[kp.zone]) : false;
+  const keypad = kp ? { x: kp.p[0], z: kp.p[2], space: kp.space ?? spaceAt(L, kp.p[0], kp.p[2]), on: powered } : kpi ? { x: kpi.x, z: kpi.z, space: kpi.space, on: false } : null;
+  const ci = items.find((i) => i.kind === 'core');
+  const c = o?.core ?? null;
+  const core = c && c.state !== 'none' ? { x: c.p[0], z: c.p[2], space: spaceAt(L, c.p[0], c.p[2]), state: c.state ?? o?.coreState ?? 'vault' }
+    : !c && ci && o?.coreState !== 'none' ? { x: ci.x, z: ci.z, space: ci.space, state: o?.coreState ?? 'vault' } : null;
+  return { levers, keypad, core };
+}
+
+function callsignOf(L: LevelLayout, space: number): string {
+  const sp = L.spaces.find((x) => x.id === space);
+  if (sp?.callsign) return sp.callsign;
+  if (sp?.type === 'van') return 'VAN';
+  if (sp?.kind === 'vault') return 'VAULT';
+  // corridors / halls have no callsign: name a neighbouring room through a door (the vault first)
+  const nb = L.doors.map((d) => (d.a === space ? d.b : d.b === space ? d.a : -1)).filter((o) => o >= 0);
+  if (nb.some((o) => L.spaces.find((x) => x.id === o)?.kind === 'vault')) return 'BY THE VAULT';
+  for (const d of L.doors) {
+    const o = d.a === space ? d.b : d.b === space ? d.a : -1;
+    const n = o >= 0 ? L.spaces.find((x) => x.id === o) : undefined;
+    if (n?.callsign) return `BY ${n.callsign}`;
+  }
+  return sp ? sp.kind.toUpperCase() : '?';
 }
 
 export interface ConsoleMirror {
@@ -180,7 +218,7 @@ export function ConsoleScreen({ ctx }: ScreenProps) {
         g.lineCap = 'butt';
         g.lineWidth = sec ? Math.max(4, v.s * 0.38) : Math.max(2.5, v.s * 0.22);
         g.strokeStyle = d.kind === 'open' ? '#06160a' : locked ? '#d23b2e' : open ? (sec ? '#4fd16a' : '#2f7a3c') : sec ? '#f0b43c' : '#b08a2e';
-        if (d.kind === 'vault') g.strokeStyle = obj?.vaultOpen ? '#4fd16a' : '#f0b43c';
+        if (d.kind === 'vault') g.strokeStyle = (mirror.obj ?? obj)?.vaultOpen ? '#4fd16a' : '#f0b43c';
         g.beginPath();
         g.moveTo(a, b);
         g.lineTo(c, e);
@@ -196,6 +234,71 @@ export function ConsoleScreen({ ctx }: ScreenProps) {
           g.textAlign = 'center';
           g.fillText(open ? 'OPEN' : 'SHUT', mx, my - 14);
         }
+      }
+      // objective markers: twin breakers, keypad (vault door), the Core
+      const oNow = mirror.obj ?? (ctx.world.full?.objectives as unknown as ObjLike | null) ?? null;
+      const mk = objMarkers(L, oNow);
+      const label = (t: string, x: number, y: number, col: string) => {
+        g.font = "800 11px 'Big Shoulders Stencil Display', Impact, sans-serif";
+        g.textAlign = 'center';
+        g.lineWidth = 3;
+        g.strokeStyle = 'rgba(2, 4, 3, 0.9)';
+        g.strokeText(t, x, y);
+        g.fillStyle = col;
+        g.fillText(t, x, y);
+      };
+      const pulseM = 0.5 + 0.5 * Math.sin(now / 300);
+      for (const lv of mk.levers) {
+        const [lx, ly] = P(lv.x, lv.z);
+        const col = lv.down ? '#4fd16a' : '#f0b43c';
+        const r = Math.max(6, v.s * 0.42);
+        g.fillStyle = 'rgba(2, 4, 3, 0.85)';
+        g.fillRect(lx - r, ly - r, r * 2, r * 2);
+        g.strokeStyle = col;
+        g.lineWidth = 2;
+        g.strokeRect(lx - r, ly - r, r * 2, r * 2);
+        // lever handle (down = thrown)
+        g.beginPath();
+        g.moveTo(lx, ly + r * 0.55);
+        g.lineTo(lx + r * 0.5, lv.down ? ly + r * 0.55 : ly - r * 0.6);
+        g.stroke();
+        if (!lv.down) {
+          g.strokeStyle = `rgba(240, 180, 60, ${0.25 + 0.45 * pulseM})`;
+          g.lineWidth = 1.5;
+          g.strokeRect(lx - r - 4, ly - r - 4, r * 2 + 8, r * 2 + 8);
+        }
+        label('BREAKER', lx, ly - r - 9, col);
+      }
+      if (mk.keypad) {
+        const [kx, ky] = P(mk.keypad.x, mk.keypad.z);
+        const col = oNow?.vaultOpen ? '#4fd16a' : mk.keypad.on ? '#9dff6b' : '#f0b43c';
+        const r = Math.max(5, v.s * 0.36);
+        g.fillStyle = 'rgba(2, 4, 3, 0.85)';
+        g.fillRect(kx - r, ky - r, r * 2, r * 2);
+        g.strokeStyle = col;
+        g.lineWidth = 2;
+        g.strokeRect(kx - r, ky - r, r * 2, r * 2);
+        g.fillStyle = col;
+        const dot = Math.max(1.5, r * 0.25);
+        for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) g.fillRect(kx - r * 0.6 + i * r * 0.5, ky - r * 0.6 + j * r * 0.5, dot, dot);
+        label(oNow?.vaultOpen ? 'VAULT OPEN' : 'KEYPAD', kx, ky - r - 9, col);
+      }
+      if (mk.core && mk.core.state !== 'van') {
+        const [cx, cy] = P(mk.core.x, mk.core.z);
+        const col = mk.core.state === 'carried' ? '#9dff6b' : mk.core.state === 'dropped' ? '#ff9a4d' : '#7fd3ff';
+        const r = Math.max(6, v.s * 0.45);
+        g.fillStyle = col;
+        g.shadowColor = col;
+        g.shadowBlur = 10;
+        g.beginPath();
+        g.moveTo(cx, cy - r);
+        g.lineTo(cx + r, cy);
+        g.lineTo(cx, cy + r);
+        g.lineTo(cx - r, cy);
+        g.closePath();
+        g.fill();
+        g.shadowBlur = 0;
+        label(mk.core.state === 'dropped' ? 'CORE (DROPPED)' : 'CORE', cx, cy + r + 12, col);
       }
       // players
       const dead = new Set(mirror.dead.length ? mirror.dead : (obj?.dead ?? []));
@@ -222,8 +325,11 @@ export function ConsoleScreen({ ctx }: ScreenProps) {
         g.lineTo(px + Math.sin(sp.yaw) * 11, py + Math.cos(sp.yaw) * 11);
         g.stroke();
         g.font = '700 10px Consolas, monospace';
-        g.fillStyle = isDead ? '#777' : '#d9f5dc';
         g.textAlign = 'left';
+        g.lineWidth = 3;
+        g.strokeStyle = 'rgba(2, 4, 3, 0.9)';
+        g.strokeText(`${pl.name}${isDead ? ' (STATIC)' : ''}`, px + 9, py - 8);
+        g.fillStyle = isDead ? '#777' : '#d9f5dc';
         g.fillText(`${pl.name}${isDead ? ' (STATIC)' : ''}`, px + 9, py - 8);
       }
       // monster blips: only within 6 m of a living player
@@ -335,6 +441,11 @@ export function ConsoleScreen({ ctx }: ScreenProps) {
   const code = obj?.code ?? null;
   const kp = (obj as { keypad?: { enabled?: boolean; zone?: number } | null } | null)?.keypad ?? null;
   const powered = kp ? !!kp.enabled || !!(kp.zone !== undefined && obj?.power?.[kp.zone]) : obj?.power ? Object.values(obj.power).some(Boolean) : false;
+  const mk = L ? objMarkers(L, obj) : null;
+  const breakerRooms = L && mk ? [...new Set(mk.levers.map((l) => callsignOf(L, l.space)))] : [];
+  const breakerLine = mk && mk.levers.length ? `BREAKERS: ${breakerRooms.join(' + ')}` : '';
+  const keypadLine = L && mk?.keypad ? `KEYPAD: ${callsignOf(L, mk.keypad.space)}` : '';
+  const coreLine = L && mk?.core ? `CORE: ${mk.core.state === 'van' ? 'IN THE VAN' : mk.core.state === 'carried' ? 'CARRIED' : callsignOf(L, mk.core.space)}` : '';
   return (
     <div class="m-console">
       <div class="m-con-map">
@@ -345,6 +456,9 @@ export function ConsoleScreen({ ctx }: ScreenProps) {
           <span><i style={{ background: '#f0b43c' }} />security shut</span>
           <span><i style={{ background: '#d23b2e' }} />locked</span>
           <span><i style={{ background: '#ff4d4d', borderRadius: '50%' }} />contact (6 m)</span>
+          {breakerLine && <span><i style={{ background: 'transparent', border: '2px solid #f0b43c' }} />{breakerLine}</span>}
+          {keypadLine && <span><i style={{ background: 'transparent', border: '2px solid #9dff6b' }} />{keypadLine}</span>}
+          {coreLine && <span><i style={{ background: '#7fd3ff', transform: 'rotate(45deg)' }} />{coreLine}</span>}
         </div>
       </div>
       <div class="m-con-side">
@@ -359,6 +473,8 @@ export function ConsoleScreen({ ctx }: ScreenProps) {
           <div class="m-small" style={{ lineHeight: 1.8 }}>
             <div>POWER {powered ? <b style={{ color: '#9dff6b' }}>ON</b> : <b style={{ color: '#f0b43c' }}>OFF</b>} · VAULT {obj?.vaultOpen ? <b style={{ color: '#9dff6b' }}>OPEN</b> : 'SEALED'} · CORE {(obj?.coreState ?? '-').toUpperCase()}</div>
             <div>SALVAGE {obj?.salvage ? `${obj.salvage.count}/${obj.salvage.total}` : '-'} · IN VAN <b style={{ color: '#9dff6b' }}>{obj?.hauled ?? 0}</b> SCRIP{obj?.blackout ? ' · BLACKOUT' : ''}</div>
+            {breakerLine && <div><b style={{ color: powered ? '#9dff6b' : '#f0b43c' }}>{breakerLine}</b>{!powered ? <span style={{ color: '#5f8f65' }}> · pull both within 1 s</span> : null}</div>}
+            {keypadLine && <div>{keypadLine}{coreLine ? ` · ${coreLine}` : ''}</div>}
           </div>
         </div>
         <div class="m-con-box">

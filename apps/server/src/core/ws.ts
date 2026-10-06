@@ -9,6 +9,7 @@ import { BAND, NET } from '@dead-air/shared/constants.ts';
 import type { ServerContext, PlayerPose, PoseMsg } from './types.ts';
 import type { Internals } from './context.ts';
 import type { Conn, CrewCore } from './crews.ts';
+import { LEAVE_CLOSE_CODE } from './crews.ts';
 import { rateLimited } from './log.ts';
 
 const fin = (v: unknown, d = 0): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -141,10 +142,10 @@ export function attachWs(http: HttpServer, ctx: ServerContext, internals: Intern
         warn('bad frame', e instanceof Error ? e.message : e);
       }
     });
-    ws.on('close', () => {
+    ws.on('close', (code: number) => {
       clearTimeout(helloTimer);
       conns.delete(ws);
-      crews.handleClose(conn);
+      crews.handleClose(conn, code === LEAVE_CLOSE_CODE);
     });
     ws.on('error', (e) => warn('socket error', e.message));
   });

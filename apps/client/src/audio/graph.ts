@@ -131,10 +131,25 @@ export function listenerPose(ctx: ClientContext): ListenerPose | null {
   return { pos: [s.p[0], s.p[1] + 1.6, s.p[2]], fwd: [Math.sin(yaw), 0, Math.cos(yaw)], up: [0, 1, 0], src: 'server' };
 }
 
-/** Smoothly move ac.listener (AudioParam ramps, never .value jumps during playback). */
+const fin3 = (v: ArrayLike<number> | null | undefined): boolean =>
+  !!v && Number.isFinite(v[0]) && Number.isFinite(v[1]) && Number.isFinite(v[2]);
+
+/** AudioParam ramps throw on non-finite values (and a throw mid-update kills the caller's frame): skip those. */
+export function rampTo(p: AudioParam, v: number, t: number): void {
+  if (!Number.isFinite(v) || !Number.isFinite(t)) return;
+  try { p.linearRampToValueAtTime(v, t); } catch { /* ignore */ }
+}
+export function targetTo(p: AudioParam, v: number, t: number, tc: number): void {
+  if (!Number.isFinite(v) || !Number.isFinite(t) || !Number.isFinite(tc) || tc <= 0) return;
+  try { p.setTargetAtTime(v, t, tc); } catch { /* ignore */ }
+}
+
+/** Smoothly move ac.listener (AudioParam ramps, never .value jumps during playback). Non-finite poses are skipped. */
 export function applyListener(ac: AudioContext, lp: ListenerPose, rampSec = 0.06): void {
+  if (!fin3(lp.pos) || !fin3(lp.fwd) || !fin3(lp.up)) return;
   const L = ac.listener;
   const t = ac.currentTime + rampSec;
+  if (!Number.isFinite(t)) return;
   if (L.positionX) {
     L.positionX.linearRampToValueAtTime(lp.pos[0], t);
     L.positionY.linearRampToValueAtTime(lp.pos[1], t);
@@ -152,7 +167,9 @@ export function applyListener(ac: AudioContext, lp: ListenerPose, rampSec = 0.06
 }
 
 export function setPannerPos(p: PannerNode, ac: AudioContext, pos: V3, rampSec = 0.06): void {
+  if (!fin3(pos)) return;
   const t = ac.currentTime + rampSec;
+  if (!Number.isFinite(t)) return;
   p.positionX.linearRampToValueAtTime(pos[0], t);
   p.positionY.linearRampToValueAtTime(pos[1], t);
   p.positionZ.linearRampToValueAtTime(pos[2], t);

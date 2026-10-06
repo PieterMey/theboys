@@ -191,8 +191,18 @@ export function mannequinTick(rt: Rt, m: MannequinAgent, dt: number): void {
 
 export function scheduleBlink(rt: Rt, pid: string, inSec?: number): void {
   const lo = num(rt.mannequin, 'blinkMinSec', 18), hi = num(rt.mannequin, 'blinkMaxSec', 30);
-  const next = rt.cm.time + (inSec ?? lo + rt.cm.rng.next() * (hi - lo));
-  rt.cm.blinks.set(pid, { next, end: next + num(rt.mannequin, 'blinkMs', 350) / 1000, sent: false });
+  const len = num(rt.mannequin, 'blinkMs', 350) / 1000;
+  const sep = num(rt.mannequin, 'blinkSeparationSec', 0.5);
+  let next = rt.cm.time + (inSec ?? lo + rt.cm.rng.next() * (hi - lo));
+  // two watchers are safe: never let two living players' blinks fall within `sep` of each other (push this one back)
+  const alive = new Set(rt.alive().map((p) => p.id));
+  const others = [...rt.cm.blinks.entries()].filter(([id, b]) => id !== pid && alive.has(id) && b.end > rt.cm.time).map(([, b]) => b);
+  for (let guard = 0; guard < 24; guard++) {
+    const clash = others.find((b) => next < b.end + sep && next + len > b.next - sep);
+    if (!clash) break;
+    next = clash.end + sep + 0.01;
+  }
+  rt.cm.blinks.set(pid, { next, end: next + len, sent: false });
 }
 
 /** per-player visor blink schedule (only while a mannequin is in play) */

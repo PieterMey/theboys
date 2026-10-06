@@ -45,7 +45,8 @@ export function generateHub(): LevelLayout {
   const items = new ItemList();
   const a = items.add;
   addVanItems(van, vanId, a);
-  addVanSpawns(van, lot, a, 0);
+  // face into the lit, open van (the console + crew), spread off the van's side-wall lines
+  addVanSpawns(van, lot, a, 0, { lookAt: { x: van.cab.x + van.cab.w / 2, z: van.cab.y + 1.6 }, spacing: 1.6 });
   // facility facade with its (closed, decorative) entrance in the hub
   a('prop', lot, HUB.entranceX + 1, BD + HALF_T + 0.02, { y: 0, rot: 0, data: { prop: 'entrance_door', w: 2, closed: true } });
   // training kennel: interaction point at the front fence, chained hound inside

@@ -98,6 +98,7 @@ export function Prompt() {
   return (
     <div class={`obj-prompt${p.enabled ? '' : ' off'}${p.carry ? ' carry' : ''}`}>
       {p.carry ? <><span class="obj-carry-dot" /> CARRYING THE CORE · stay together · <kbd>E</kbd> let go</> : <><kbd>E</kbd> {p.text}</>}
+      {p.carry && p.warn ? <div class="obj-carry-warn" style={{ color: '#ff5a4a', fontWeight: 700, marginTop: '4px', letterSpacing: '0.08em' }}>{p.warn}</div> : null}
     </div>
   );
 }

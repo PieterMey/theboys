@@ -9,6 +9,7 @@
   "audSilentRefreshMs": 500,
   "sessionSaveDebounceMs": 150,
   "invitePollMs": 3000,
+  "loudStaleMs": 1500,
   "interpMinMs": 80,
   "interpMaxMs": 250
 }

@@ -59,6 +59,11 @@ export interface Net {
   readonly rttSample: { ms: number; at: number };
 }
 
+/** no welcome within this long -> the join rejects (JoinScreen shows the error + RELOAD) */
+const JOIN_TIMEOUT_MS = 30_000;
+/** close code for a deliberate leave: the server releases the held slot at once (apps/server/src/core/crews.ts) */
+const LEAVE_CLOSE_CODE = 4100;
+
 const LS = { key: 'deadair.key', name: 'deadair.name', profile: 'deadair.profile', admin: 'deadair.admin' } as const;
 
 function lsGet(k: string): string | null {
@@ -163,8 +168,12 @@ export function createNet(world: World, bus: Bus, onError: (msg: string) => void
         world.me = m.you;
         world.crew = m.crew;
         world.observeServerTime(m.serverTime);
+        const fromPhase = world.phase;
         world.applyFull(m.state);
         setStatus('joined');
+        // a welcome can change the phase (reconnect after a server restart / a drop across a phase change):
+        // every phase change emits world:phase so per-phase audio/UI/render state resets (contract drone in the van)
+        if (resumed && fromPhase !== m.state.phase) bus.emit('world:phase', { from: fromPhase, to: m.state.phase });
         schedulePose();
         schedulePing();
         bus.emit('net:welcome', { you: m.you, resumed });
@@ -220,7 +229,7 @@ export function createNet(world: World, bus: Bus, onError: (msg: string) => void
         }
         lastError = { code: m.code, msg: m.msg };
         // expected, user-facing outcomes are shown by the net track's screens, not logged as errors
-        if (m.code !== 'stale_build' && m.code !== 'kicked' && m.code !== 'unknown_crew') onError(`server: ${m.code}: ${m.msg}`);
+        if (m.code !== 'stale_build' && m.code !== 'kicked' && m.code !== 'unknown_crew' && m.code !== 'crew_full' && m.code !== 'bad_password') onError(`server: ${m.code}: ${m.msg}`);
         else console.warn(`server: ${m.code}: ${m.msg}`);
         if (m.code === 'stale_build' || m.code === 'kicked' || m.code === 'unknown_crew') setStatus('failed');
         for (const fn of errSubs) {
@@ -251,6 +260,10 @@ export function createNet(world: World, bus: Bus, onError: (msg: string) => void
         onMessage(decodeMsg<ServerMsg>(new Uint8Array(ev.data)));
       } catch (e) {
         onError(`bad server frame: ${e instanceof Error ? e.message : e}`);
+        if (joinWaiter && status !== 'joined') {
+          joinWaiter.reject(new JoinError('server', `could not enter the game (${e instanceof Error ? e.message : e}): reload the page`));
+          joinWaiter = null;
+        }
       }
     };
     sock.onclose = () => {
@@ -292,7 +305,13 @@ export function createNet(world: World, bus: Bus, onError: (msg: string) => void
       wantOnline = true;
       joinWaiter?.reject(new JoinError('closed', 'superseded'));
       return new Promise<WelcomeMsg>((resolve, reject) => {
-        joinWaiter = { resolve, reject };
+        const waiter = { resolve, reject };
+        joinWaiter = waiter;
+        setTimeout(() => {
+          if (joinWaiter !== waiter) return;
+          joinWaiter = null;
+          reject(new JoinError('closed', 'joining timed out: reload the page'));
+        }, JOIN_TIMEOUT_MS);
         if (ws) ws.close();
         ws = null;
         connect();
@@ -300,7 +319,7 @@ export function createNet(world: World, bus: Bus, onError: (msg: string) => void
     },
     leave() {
       wantOnline = false;
-      ws?.close();
+      ws?.close(LEAVE_CLOSE_CODE, 'leave');
     },
     req(r, a, timeoutMs = 10_000) {
       return new Promise((resolve, reject) => {

@@ -131,6 +131,28 @@ try {
     let mid: [number, number] | null = null;
     const f6 = soundFlood(g, hw.x, hw.z, 10, doorOpen);
     for (let c = 0; c < f6.length && !mid; c++) if (f6[c] >= 5.5 && f6[c] <= 7.5 && g.owner[c] >= 0) mid = [(c % g.W) + 0.5, Math.floor(c / g.W) + 0.5];
+
+    // ---------------- 2b. one sound = one utterance; freezing after the growl is survivable ----------------
+    const freezeRun = async (band: number, ms: number) => {
+      await a.dbg('monsters.place', { id: 'hound0', x: hw.x, z: hw.z, state: 'idle' });
+      await a.dbg('monsters.tp', { x: mid![0], z: mid![1] });
+      await sleep(500);
+      const t0 = performance.now();
+      const seen: string[] = [];
+      const note = async () => { const s = (await hound()).state; if (seen[seen.length - 1] !== s) seen.push(s); };
+      a.loud(band);
+      for (let t = 0; t < ms; t += 100) { await sleep(100); await note(); }
+      a.loud(BAND.silent);
+      for (let i = 0; i < 60; i++) { await sleep(150); await note(); }
+      const killed = a.eventsOf('monsters.kill', t0).some((e) => (e.d as { victim: string }).victim === a.id);
+      return { seen, killed };
+    };
+    {
+      const r = await freezeRun(BAND.shout, 1200);
+      check('one continuous 1.2 s shout = ONE sound: alert, never a charge', r.seen.includes('alert') && !r.seen.includes('windup') && !r.seen.includes('charge') && !r.killed, r.seen.join('>'));
+      const r2 = await freezeRun(BAND.talk, 400);
+      check('one short word, then frozen + silent: investigated, sniffed, survived', r2.seen.includes('alert') && r2.seen.includes('investigate') && !r2.seen.includes('windup') && !r2.killed, r2.seen.join('>'));
+    }
     await a.dbg('monsters.place', { id: 'hound0', x: hw.x, z: hw.z, state: 'idle' });
     await a.dbg('monsters.tp', { x: mid![0], z: mid![1] });
     const t1 = performance.now();

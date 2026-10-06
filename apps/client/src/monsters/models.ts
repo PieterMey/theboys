@@ -307,6 +307,21 @@ const EYE_MAT = (() => {
   return m;
 })();
 const EYE_GEO = new THREE.SphereGeometry(1, 10, 8);
+const HALO_MAT = new THREE.MeshBasicNodeMaterial({ color: 0xffc98a, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false });
+
+/** kennel (hub) hound: a soft additive glow around the blind eyes so it reads behind the fence in the dark (no extra lights) */
+export function addKennelGlow(m: MonsterModel): void {
+  const eyes: THREE.Mesh[] = [];
+  m.root.traverse((o) => { const e = o as THREE.Mesh; if (e.isMesh && e.material === EYE_MAT) eyes.push(e); });
+  for (const e of eyes) {
+    const halo = new THREE.Mesh(EYE_GEO, HALO_MAT);
+    halo.scale.setScalar(3.2);
+    halo.castShadow = false;
+    halo.frustumCulled = false;
+    halo.renderOrder = 2;
+    e.add(halo);
+  }
+}
 
 /** milky, faintly glowing blind eyes parented to the head bone (they catch the dark first) */
 function addBlindEyes(root: THREE.Object3D, head: THREE.Object3D, body: THREE.Object3D): void {

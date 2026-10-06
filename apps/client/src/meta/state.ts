@@ -100,8 +100,8 @@ interface RenderLike {
   setReduceFlicker?(on: boolean): void;
 }
 interface PlayersLike {
-  settings?(): { sensitivity: number };
-  setSettings?(p: { sensitivity?: number }): void;
+  settings?(): { sensitivity: number; crouchToggle?: boolean; invertY?: boolean };
+  setSettings?(p: { sensitivity?: number; crouchToggle?: boolean; invertY?: boolean }): void;
   freeze?(reason: string, on: boolean): void;
   localPose?(): { p: [number, number, number]; yaw: number } | null;
   locked?(): boolean;

@@ -220,6 +220,7 @@ export function view(crew: Crew, player: ServerPlayer | null): MetaState {
     achievements: crewAchievements(crew),
     serverInteract: A.has('interaction', 'onInteract'),
     contractsDone: s.contractsDone,
+    continued: continuedIds(crew),
     holdUntil: s.holdUntil > ctxOf().now() ? s.holdUntil : 0,
   };
   if (player) {
@@ -317,6 +318,12 @@ export function attachPlayer(crew: Crew, player: ServerPlayer): void {
   p.saveId = sv.id;
   if (!sv.keys.includes(player.key)) store.bindKey(player.key, sv);
   const prof = sanitizeProfile({ ...player.profile, badge: sv.profile.badge }, sv.level, { ...sv.profile, name: player.name });
+  // distinct visor colours on join: if a crewmate already wears this one, take the first free colour this level allows
+  const taken = new Set([...crew.players.values()].filter((o) => o.id !== player.id).map((o) => o.profile?.visor?.color));
+  if (taken.has(prof.visor.color)) {
+    const free = VISOR_COLORS.find((c, i) => !taken.has(c) && visorUnlockLevel(i) <= sv.level);
+    if (free) prof.visor = { ...prof.visor, color: free };
+  }
   player.profile = { ...prof, name: player.name };
   player.level = sv.level;
   if (sv.name !== player.name || JSON.stringify(sv.profile) !== JSON.stringify(player.profile)) {
@@ -541,6 +548,9 @@ function setPhase(crew: Crew, phase: Crew['phase'], layout?: LevelLayout | null)
   }
 }
 
+/** aim heights (m) for hub interactables whose layout y is the floor (same values as (b)'s KIND_Y) */
+const HUB_ITEM_Y: Record<string, number> = { console: 0.95, board: 1.4, shop: 1.0, mirror: 1.4, kennel: 1.0 };
+
 function hubInteractables(crew: Crew): void {
   const L = crew.layout;
   if (!L) return;
@@ -549,7 +559,7 @@ function hubInteractables(crew: Crew): void {
   };
   const list = L.items
     .filter((it) => it.kind in prompts && (L.kind === 'hub' || it.kind === 'console'))
-    .map((it) => ({ id: it.id, kind: it.kind, p: [it.x, it.y ?? 1, it.z] as [number, number, number], prompt: prompts[it.kind], enabled: true }));
+    .map((it) => ({ id: it.id, kind: it.kind, p: [it.x, it.y && it.y > 0 ? it.y : (HUB_ITEM_Y[it.kind] ?? 1.1), it.z] as [number, number, number], prompt: prompts[it.kind], enabled: true }));
   if (list.length) A.call('interaction', 'registerInteractables', crew, list);
 }
 
@@ -614,7 +624,9 @@ export function startDrive(crew: Crew, order: WorkOrder): void {
     return;
   }
   A.call('monsters', 'stopMonsters', crew);
-  s.driveEndsAt = ctx.now() + num(mb().driveSec, 6) * 1000;
+  // the drive screen is where the monster rules are taught: the crew's very first contract gets longer to read them
+  const firstEver = s.shift.index === 0 && s.shift.contract === 0;
+  s.driveEndsAt = ctx.now() + (firstEver ? num(mb().firstDriveSec, 16) : num(mb().driveSec, 12)) * 1000;
   setPhase(crew, 'drive');
   saveCrew(crew);
   markDirty(crew);
@@ -646,18 +658,54 @@ export function startContract(crew: Crew): void {
   }
 }
 
+/** stack sizes of stackable gear (s.gear counts UNITS: 'Bottles x3' = 3 bottles = one stack) */
+const GEAR_STACK: Record<string, number> = { bottle: 3, glowstick: 5 };
+
+/** gear units a player already carries (stacks count their items), or null when (b) can't tell */
+function heldUnits(crew: Crew, pid: string): Record<string, number> | null {
+  if (!A.has('interaction', 'itemsOf')) return null;
+  const r = A.call<unknown>('interaction', 'itemsOf', crew, pid);
+  if (!Array.isArray(r)) return null;
+  const out: Record<string, number> = {};
+  for (const it of r) {
+    const o = it && typeof it === 'object' ? (it as { type?: unknown; count?: unknown }) : null;
+    const t = typeof it === 'string' ? it : String(o?.type ?? '');
+    if (!t) continue;
+    const n = o && Number(o.count) > 0 ? Math.round(Number(o.count)) : 1;
+    out[t] = (out[t] ?? 0) + n;
+  }
+  return out;
+}
+
+/** top-up hand-out: everyone ends up with exactly their pool (what they kept + what they bought), never duplicates
+ *  of what they still carry; the crew's free walkies go one per player who has none */
 function handOutGear(crew: Crew): void {
   const s = S(crew);
   const ps = connected(crew).sort((a, b) => a.joinedAt - b.joinedAt);
   if (!ps.length || !A.has('interaction', 'giveItem')) return;
+  const held = new Map(ps.map((p) => [p.id, heldUnits(crew, p.id) ?? {}]));
+  const give = (pid: string, type: string, units: number): void => {
+    if (units <= 0) return;
+    const h = held.get(pid);
+    if (h) h[type] = (h[type] ?? 0) + units;
+    const stack = GEAR_STACK[type];
+    if (!stack) { for (let i = 0; i < units; i++) A.giveItem(crew, pid, type); return; }
+    for (let left = units; left > 0; left -= stack) A.call('interaction', 'giveItem', crew, pid, type, { count: Math.min(stack, left) });
+  };
   let rr = 0;
   for (const [owner, types] of Object.entries(s.gear)) {
     const target = crew.players.get(owner);
-    for (const [type, n] of Object.entries(types)) {
-      for (let i = 0; i < n; i++) {
-        const to = target?.connected ? target : ps[rr++ % ps.length];
-        A.giveItem(crew, to.id, type);
+    for (const [type, n0] of Object.entries(types)) {
+      const n = Math.max(0, Math.round(Number(n0) || 0));
+      if (target?.connected) { give(target.id, type, n - (held.get(target.id)?.[type] ?? 0)); continue; }
+      if (type === 'walkie') {
+        // company walkies: at most one per player, only to those without one
+        let left = n;
+        for (const p of ps) { if (left <= 0) break; if ((held.get(p.id)?.walkie ?? 0) > 0) continue; give(p.id, 'walkie', 1); left--; }
+        continue;
       }
+      // an absent owner's gear goes round-robin
+      for (let i = 0; i < n; i++) give(ps[rr++ % ps.length].id, type, 1);
     }
   }
 }
@@ -669,12 +717,12 @@ function collectGear(crew: Crew, survivors: Set<string>): void {
   const next: Record<string, Record<string, number>> = {};
   for (const p of crew.players.values()) {
     if (!survivors.has(p.id)) continue;
-    const types = A.itemTypesOf(crew, p.id);
-    if (!types) return; // unknown -> keep the pool as it was
-    for (const t of types) {
+    const units = heldUnits(crew, p.id);
+    if (!units) return; // unknown -> keep the pool as it was
+    for (const [t, n] of Object.entries(units)) {
       if (!GEAR_TYPES.has(t)) continue;
       const mine = (next[p.id] ??= {});
-      mine[t] = (mine[t] ?? 0) + 1;
+      mine[t] = (mine[t] ?? 0) + n;
     }
   }
   s.gear = next;
@@ -757,6 +805,8 @@ export interface RawResult {
   leftBehind?: string[];
   requests?: { kind: string; done: boolean; reward?: number }[];
   requestsReward?: number;
+  /** (a) false = left at once with nothing hauled: reduced XP (no completion/survival XP) */
+  participated?: boolean;
 }
 
 const REASON_OUTCOME: Record<string, MetaContractResults['outcome']> = { departure: 'extracted', leave: 'left_early', wipe: 'wiped', abort: 'voided' };
@@ -850,8 +900,12 @@ export function finishContract(crew: Crew, raw: RawResult, outcome0?: string): b
   const share = participants.length ? hauled / participants.length : 0;
   for (const p of participants) {
     const lived = !dead.has(p.id);
-    const parts: { text: string; xp: number }[] = [{ text: 'contract completed', xp: num(xpCfg.contract, 25) }];
-    parts.push(lived ? { text: 'survived', xp: num(xpCfg.survive, 40) } : { text: 'died (for science)', xp: num(xpCfg.death, 10) });
+    // (a) participation gate: leaving at once with an empty van earns only a token clock-in
+    const idle = raw.participated === false;
+    const parts: { text: string; xp: number }[] = idle
+      ? [{ text: 'clocked in (left early, nothing hauled)', xp: num(xpCfg.idle, 5) }]
+      : [{ text: 'contract completed', xp: num(xpCfg.contract, 25) }];
+    if (!idle || !lived) parts.push(lived ? { text: 'survived', xp: num(xpCfg.survive, 40) } : { text: 'died (for science)', xp: num(xpCfg.death, 10) });
     if (share > 0) parts.push({ text: 'salvage share', xp: Math.round(share * num(xpCfg.perScrip, 0.12)) });
     if (coreExtracted) parts.push({ text: 'Core extracted', xp: num(xpCfg.core, 60) });
     const done = requests.filter((r) => r.done).length;
@@ -962,6 +1016,30 @@ function buildShiftReview(crew: Crew): void {
       if (ai && S(crew).review === review && mergeAiReview(review, ai)) markDirty(crew);
     });
   }
+}
+
+/** per-player 'back to the van' votes, keyed by the results phase (resultsEndsAt) they were cast in */
+const VOTES = new WeakMap<Crew, { at: number; ids: string[] }>();
+
+export function continuedIds(crew: Crew): string[] {
+  const v = VOTES.get(crew);
+  return v && crew.phase === 'results' && v.at === S(crew).resultsEndsAt ? v.ids : [];
+}
+
+/** one player is done reading: move on once every connected player has continued (the countdown still ends it) */
+export function continueVote(crew: Crew, player: ServerPlayer): { ok: boolean; reason?: string; waiting?: number } {
+  if (crew.phase !== 'results') return { ok: false, reason: 'no results to close' };
+  const s = S(crew);
+  let v = VOTES.get(crew);
+  if (!v || v.at !== s.resultsEndsAt) { v = { at: s.resultsEndsAt, ids: [] }; VOTES.set(crew, v); }
+  if (!v.ids.includes(player.id)) v.ids.push(player.id);
+  const waiting = connected(crew).filter((p) => !v.ids.includes(p.id)).length;
+  if (waiting === 0) {
+    continueFromResults(crew);
+    return { ok: true, waiting: 0 };
+  }
+  markDirty(crew);
+  return { ok: true, waiting };
 }
 
 export function continueFromResults(crew: Crew): void {

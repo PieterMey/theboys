@@ -14,5 +14,6 @@
   "elevenlabsSfx": true,
   "volumetrics": true,
   "gtao": true,
-  "devAllWalkies": false
+  "devAllWalkies": false,
+  "safes": false
 }

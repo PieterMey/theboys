@@ -13,10 +13,10 @@ function Risk({ n }: { n: number }) {
   );
 }
 
-function OrderCard({ o, picked, onPick, canPick }: { o: WorkOrder; picked: boolean; onPick: () => void; canPick: boolean }) {
+function OrderCard({ o, picked, onPick, canPick, onDenied }: { o: WorkOrder; picked: boolean; onPick: () => void; canPick: boolean; onDenied?: () => void }) {
   const req = o.requirements;
   return (
-    <div class={`m-sheet m-order ${picked ? 'picked' : ''} ${o.available ? '' : 'locked'} ${o.risk >= 2 ? 'danger' : 'accent'}`} onClick={() => o.available && canPick && onPick()}>
+    <div class={`m-sheet m-order ${picked ? 'picked' : ''} ${o.available ? '' : 'locked'} ${o.risk >= 2 ? 'danger' : 'accent'}`} onClick={() => { if (o.available && canPick) onPick(); else if (o.available) onDenied?.(); }}>
       {picked && <div class="m-stamp">PICKED</div>}
       <div class="m-row" style={{ justifyContent: 'space-between' }}>
         <Risk n={o.risk} />
@@ -104,6 +104,8 @@ export function BoardScreen({ ctx }: ScreenProps) {
   const leader = isLeader(ctx);
   const crew = ctx.world.crew?.players.filter((p) => p.connected) ?? [];
   const ready = crew.filter((p) => p.ready).length;
+  const lead = crew.find((p) => p.isLeader);
+  const denied = () => ctx.ui.toast(`Only the crew leader${lead ? ` (★ ${lead.name})` : ''} picks. Tell them which one.`, 'info', 3500);
   const pick = (o: WorkOrder) => {
     sfx(ctx, 'sfx.ui_confirm');
     void ctx.net.req('meta.pick', { orderId: o.id }).then((r) => { if (!r.ok && r.reason) ctx.ui.toast(r.reason, 'warn'); });
@@ -124,7 +126,7 @@ export function BoardScreen({ ctx }: ScreenProps) {
           </dl>
         </div>
         <div class="m-orders">
-          {orders.map((o) => <OrderCard key={o.id} o={o} picked={meta?.picked === o.id} canPick={leader} onPick={() => pick(o)} />)}
+          {orders.map((o) => <OrderCard key={o.id} o={o} picked={meta?.picked === o.id} canPick={leader} onPick={() => pick(o)} onDenied={denied} />)}
         </div>
         <div class="m-board-foot">
           <div class="m-small" style={{ lineHeight: 1.7 }}>

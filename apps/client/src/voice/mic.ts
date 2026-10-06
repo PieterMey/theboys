@@ -19,6 +19,15 @@ export interface BandConfig {
   holdMs: number;
   gateBelowWhisperDb: number;
   vadHangMs: number;
+  /** uncalibrated starting talk baseline (headset-ish speech level) */
+  defaultTalkDb: number;
+  /** an uncalibrated baseline never leaves [baseMinDb, baseMaxDb] (a constant shouter stays SHOUT) */
+  baseMinDb: number;
+  baseMaxDb: number;
+  /** talk-or-louder frames (10 Hz) before the first baseline update (~2 s of speech) */
+  baseMinFrames: number;
+  /** extra shout margin until the baseline has seen baseMinFrames of speech (no false SHOUT on a cold start) */
+  coldShoutMarginDb: number;
 }
 
 export interface MicCallbacks {
@@ -109,11 +118,13 @@ export class Mic {
     this.sink.gain.value = 0;
     this.sink.connect(ac.destination);
     const savedBase = Number(lsGet(LS_BASE));
-    this.baseDb = Number.isFinite(savedBase) && savedBase < -5 && savedBase > -70 ? savedBase : -30;
     try {
       const c = JSON.parse(lsGet(LS_CAL) ?? 'null') as CalibrationData | null;
-      if (c && typeof c.talkDb === 'number') { this.cal = c; this.noiseDb = c.noiseDb; }
+      if (c && typeof c.talkDb === 'number' && Number.isFinite(c.talkDb)) { this.cal = c; this.noiseDb = c.noiseDb; }
     } catch { /* ignore */ }
+    const haveSaved = Number.isFinite(savedBase) && savedBase < -5 && savedBase > -70;
+    this.baseDb = this.clampBase(haveSaved ? savedBase : (this.cal?.talkDb ?? cfg.defaultTalkDb));
+    this.warm = haveSaved || !!this.cal;
   }
 
   get sendTrack(): MediaStreamTrack { return this.sendDest.stream.getAudioTracks()[0]; }
@@ -214,11 +225,21 @@ export class Mic {
     return this.starting;
   }
 
+  /** baseline has enough evidence (calibrated, saved from an earlier session, or ~2 s of speech) */
+  private warm = false;
+  /** the allowed baseline window: +-8 dB around a calibration, else [baseMinDb, baseMaxDb] */
+  private clampBase(db: number): number {
+    const lo = this.cal ? this.cal.talkDb - 8 : this.cfg.baseMinDb;
+    const hi = this.cal ? this.cal.talkDb + 8 : this.cfg.baseMaxDb;
+    return Number.isFinite(db) ? Math.max(lo, Math.min(hi, db)) : Math.max(lo, Math.min(hi, this.cfg.defaultTalkDb));
+  }
+
   /** seed / replace the talk baseline (calibration) */
   setCalibration(c: CalibrationData): void {
     this.cal = c;
     this.noiseDb = c.noiseDb;
     this.baseDb = c.talkDb;
+    this.warm = true;
     this.speech = [];
     lsSet(LS_CAL, JSON.stringify(c));
     lsSet(LS_BASE, String(c.talkDb));
@@ -231,9 +252,13 @@ export class Mic {
   }
   thresholds(): { gate: number; whisperMax: number; shoutMin: number; screamMin: number } {
     const b = this.baseDb;
-    const shoutMin = this.cal?.shoutDb !== undefined ? Math.min(b + this.cfg.shoutMinDb, (b + this.cal.shoutDb) / 2 + 2) : b + this.cfg.shoutMinDb;
-    const whisperMax = this.cal?.whisperDb !== undefined ? Math.max(b + this.cfg.whisperMaxDb, (b + this.cal.whisperDb) / 2 - 2) : b + this.cfg.whisperMaxDb;
-    return { gate: this.gateDb(), whisperMax, shoutMin, screamMin: b + this.cfg.screamMinDb };
+    const cold = this.warm ? 0 : this.cfg.coldShoutMarginDb;
+    const shoutMin = (this.cal?.shoutDb !== undefined ? Math.min(b + this.cfg.shoutMinDb, (b + this.cal.shoutDb) / 2 + 2) : b + this.cfg.shoutMinDb) + cold;
+    // a calibrated whisper stays a whisper even if the baseline sagged (but whisperMax stays below talk)
+    const whisperMax = this.cal?.whisperDb !== undefined
+      ? Math.min(b - 4, Math.max(b + this.cfg.whisperMaxDb, (b + this.cal.whisperDb) / 2 - 2, this.cal.whisperDb + 2))
+      : b + this.cfg.whisperMaxDb;
+    return { gate: this.gateDb(), whisperMax, shoutMin, screamMin: b + this.cfg.screamMinDb + cold };
   }
 
   private classify(db: number, now: number): number {
@@ -279,17 +304,20 @@ export class Mic {
     else if (raw === this.heldBand && raw > 0) this.holdUntil = Math.max(this.holdUntil, now + this.cfg.holdMs * 0.5);
     const band = this.heldBand;
     if (raw > 0) this.lastVoiceAt = now;
-    // adaptive baseline: long-window median of speech frames (talk-ish frames, 10 Hz)
-    if (raw >= BAND.whisper && tx && ++this.speechTick % 5 === 0) {
+    // adaptive baseline: long-window median of talk-or-louder frames (10 Hz). Whisper frames never pull it down
+    // (a whisperer stays WHISPER), and it is clamped to a plausible window (a constant shouter stays SHOUT).
+    if (raw >= BAND.talk && tx && Number.isFinite(db) && ++this.speechTick % 5 === 0) {
       this.speech.push(db);
       if (this.speech.length > 900) this.speech.shift(); // ~90 s of speech
-      if (now - this.lastBaseUpdate > 2000 && this.speech.length >= 80) {
+      const n = this.speech.length;
+      const fast = n < this.cfg.baseMinFrames * 6; // the first ~12 s of speech converge quickly
+      if (n >= this.cfg.baseMinFrames && now - this.lastBaseUpdate > (fast ? 1000 : 2000)) {
         this.lastBaseUpdate = now;
         const sorted = this.speech.slice().sort((a, b) => a - b);
-        const med = sorted[sorted.length >> 1];
-        const seed = this.cal?.talkDb ?? med;
-        const target = Math.max(seed - 8, Math.min(seed + 8, med)); // a shy calibration can't distort it by much
-        this.baseDb += (target - this.baseDb) * 0.15;
+        const med = sorted[n >> 1];
+        const target = this.clampBase(med);
+        this.baseDb = this.clampBase(this.baseDb + (target - this.baseDb) * (fast ? 0.5 : 0.15));
+        this.warm = true;
         lsSet(LS_BASE, this.baseDb.toFixed(1));
       }
     }
@@ -380,5 +408,10 @@ export function bandConfig(b: Record<string, unknown> | undefined): BandConfig {
     holdMs: n('bandHoldDetectMs', BAND_THRESH_DB.holdMs),
     gateBelowWhisperDb: n('gateBelowWhisperDb', 6),
     vadHangMs: n('vadHangMs', 450),
+    defaultTalkDb: n('defaultTalkDbfs', -24),
+    baseMinDb: n('baseMinDbfs', -38),
+    baseMaxDb: n('baseMaxDbfs', -18),
+    baseMinFrames: Math.max(5, n('baseMinFrames', 20)),
+    coldShoutMarginDb: n('coldShoutMarginDb', 4),
   };
 }

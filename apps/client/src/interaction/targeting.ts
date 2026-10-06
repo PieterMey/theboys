@@ -68,6 +68,9 @@ function rayBox(o: V3, d: V3, mn: V3, mx: V3): number | null {
   return t0;
 }
 
+/** kinds whose prop is a tall stack: the ray is tested against spheres stacked up to ~1.7 m */
+const TALL_KINDS = new Set(['shop']);
+
 export interface PickOpts {
   st: InteractionState;
   layout: LevelLayout | null;
@@ -103,6 +106,7 @@ export function pick(o: PickOpts): Hit | null {
     return los(g.grid, ax, az, tx, tz, doorOpen);
   };
   let best: Hit | null = null;
+  let bestOn: Hit | null = null;
   const all = candidates(o.st, o.me);
   for (const c of all) {
     if (o.skip?.(c)) continue;
@@ -126,6 +130,13 @@ export function pick(o: PickOpts): Hit | null {
     } else {
       const r = (c.info?.r ?? INTERACT_RADIUS[c.kind] ?? 0.3) * 1.25;
       t = raySphere(o.origin, o.dir, c.p, r);
+      if (TALL_KINDS.has(c.kind)) {
+        // stacked props (store crates): the whole stack up to ~1.7 m is the target, not just the bottom crate
+        for (let y = c.p[1] + 0.45; y <= Math.max(c.p[1], 1.7) + 1e-6; y += 0.45) {
+          const ty = raySphere(o.origin, o.dir, [c.p[0], y, c.p[2]], r);
+          if (ty !== null && (t === null || ty < t)) t = ty;
+        }
+      }
       if (t !== null) {
         // test LOS to a point slightly in front of the target (wall-mounted things sit on the wall line)
         const back = Math.min(0.3, t);
@@ -136,7 +147,10 @@ export function pick(o: PickOpts): Hit | null {
     if (t === null || t > o.reach) continue;
     if (!losOk(tx, tz)) continue;
     if (!best || t < best.t) best = { c, t };
+    // an enabled target on the ray wins over a disabled one (a badge beside its body, a dropped Core by a spent breaker)
+    if (c.info?.enabled !== false && (!bestOn || t < bestOn.t)) bestOn = { c, t };
   }
+  if (bestOn) return bestOn;
   if (best) return best;
   // fallback: something right in front of us (within ~1.3 m, < 28 deg off the view direction, horizontal)
   const hl = Math.hypot(o.dir[0], o.dir[2]) || 1;

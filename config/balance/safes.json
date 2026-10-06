@@ -1,0 +1,22 @@
+{
+  "countMin": 1,
+  "countMax": 2,
+  "minDistFrac": 0.55,
+  "poolSize": 6,
+  "dialMax": 40,
+  "minStep": 6,
+  "rewardMin": 120,
+  "rewardMax": 200,
+  "rewardType": "loot.medium",
+  "rewardName": "Company bearer bonds",
+  "xp": 30,
+  "wrongNoiseM": 10,
+  "maxDialPerSec": 30,
+  "maxUseDistM": 3,
+  "wallInsetM": 0.42,
+  "doorClearM": 1.4,
+  "itemClearM": 1.2,
+  "dialSendMs": 100,
+  "clickVolume": 0.9,
+  "tickVolume": 0.05
+}

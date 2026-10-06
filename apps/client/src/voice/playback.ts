@@ -8,7 +8,7 @@
 //   vol -> splitter -> L/R analysers (test RMS)
 // Self-heal: data channel says band>0 for 3 s but Web Audio sees nothing -> unmute the element, volume = same gain.
 import type { AudioGraph } from '../audio/graph.ts';
-import { dbToGain, setPannerPos } from '../audio/graph.ts';
+import { dbToGain, setPannerPos, targetTo } from '../audio/graph.ts';
 import type { V3 } from '../audio/graph.ts';
 
 export interface VoiceTuning {
@@ -239,22 +239,22 @@ export class RemoteVoice {
       this.lastRadio = radioOn ? 1 : 0;
       this.squelch();
     }
-    this.gate.gain.setTargetAtTime(spatial, t, 0.05);
-    this.dead2d.gain.setTargetAtTime(dead, t, 0.05);
-    this.revSend.gain.setTargetAtTime(inp.route === 'dead2d' ? this.t.deadReverbSend : this.t.reverbSend, t, 0.1);
-    this.radioIn.gain.setTargetAtTime(radioOn ? 1 : 0, t, 0.02);
-    if (radioOn) this.hissGain.gain.setTargetAtTime(this.t.radioHiss, t, 0.05);
-    else if (this.hissGain.gain.value > 0.0001) this.hissGain.gain.setTargetAtTime(0, t, 0.05);
+    targetTo(this.gate.gain, spatial, t, 0.05);
+    targetTo(this.dead2d.gain, dead, t, 0.05);
+    targetTo(this.revSend.gain, inp.route === 'dead2d' ? this.t.deadReverbSend : this.t.reverbSend, t, 0.1);
+    targetTo(this.radioIn.gain, radioOn ? 1 : 0, t, 0.02);
+    if (radioOn) targetTo(this.hissGain.gain, this.t.radioHiss, t, 0.05);
+    else if (this.hissGain.gain.value > 0.0001) targetTo(this.hissGain.gain, 0, t, 0.05);
     // occlusion
-    this.lp.frequency.setTargetAtTime(Math.max(200, Math.min(20000, inp.lowpass)), t, 0.08);
-    this.occ.gain.setTargetAtTime(inp.occGain, t, 0.08);
+    targetTo(this.lp.frequency, Math.max(200, Math.min(20000, inp.lowpass)), t, 0.08);
+    targetTo(this.occ.gain, inp.occGain, t, 0.08);
     // makeup from the speaker's calibrated talk level (normalises quiet / loud mics)
     const base = inp.baseDb;
     const mk = base === null ? 0 : Math.max(-6, Math.min(this.t.makeupMaxDb, TARGET_TALK_DBFS - base));
-    this.makeup.gain.setTargetAtTime(dbToGain(mk), t, 0.3);
+    targetTo(this.makeup.gain, dbToGain(mk), t, 0.3);
     const vol = inp.route === 'mute' ? 0 : inp.volume;
     if (inp.speakerPos) setPannerPos(this.panner, ac, inp.speakerPos, 0.06);
-    this.width.pan.setTargetAtTime(inp.lateral === null ? 0 : Math.max(-1, Math.min(1, inp.lateral * this.t.panBoost)), t, 0.06);
+    targetTo(this.width.pan, inp.lateral === null ? 0 : Math.max(-1, Math.min(1, inp.lateral * this.t.panBoost)), t, 0.06);
     const total = Math.max(spatial, dead, radioOn ? 1 : 0);
     this.gateValue = total;
     // ---- self-heal ----
@@ -268,10 +268,11 @@ export class RemoteVoice {
       } else this.talkSince = 0;
     }
     if (this.fallback && this.el) {
-      this.vol.gain.setTargetAtTime(0, t, 0.03);
+      targetTo(this.vol.gain, 0, t, 0.03);
       this.el.muted = false;
-      this.el.volume = Math.max(0, Math.min(1, total * dbToGain(mk) * vol));
-    } else this.vol.gain.setTargetAtTime(vol, t, 0.05);
+      const ev = total * dbToGain(mk) * vol;
+      if (Number.isFinite(ev)) this.el.volume = Math.max(0, Math.min(1, ev));
+    } else targetTo(this.vol.gain, vol, t, 0.05);
     return total;
   }
 

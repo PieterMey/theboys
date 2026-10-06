@@ -31,6 +31,8 @@ export interface FlashCfg {
   /** volumetric scattering weight: own beam / teammates' beams */
   volLocal?: number;
   volRemote?: number;
+  /** weight of the tight hot core in the cookie (1 = original reflector look; lower = less glare on close walls) */
+  hotspot?: number;
 }
 
 interface Slot {
@@ -58,7 +60,7 @@ const PARK = new THREE.Vector3(0, -500, 0);
  * The node reads the lit position from the build context: in the volume pass that is the ray sample, so the
  * shafts get the same profile and clamp.
  */
-function makeCookie(seed: number, light: THREE.Light, nearClamp: number, decay: number) {
+function makeCookie(seed: number, light: THREE.Light, nearClamp: number, decay: number, hotspot: number) {
   const k = uniform(1);
   const nearK = uniform(nearClamp);
   return {
@@ -68,7 +70,7 @@ function makeCookie(seed: number, light: THREE.Light, nearClamp: number, decay: 
       const p = (uv as unknown as ReturnType<typeof vec3>).xy.sub(0.5).mul(2);
       const r = length(p);
       const r2 = r.mul(r);
-      const core = exp(r2.mul(-1 / (0.17 * 0.17)));
+      const core = exp(r2.mul(-1 / (0.17 * 0.17))).mul(hotspot);
       const body = exp(r2.mul(-1 / (0.42 * 0.42))).mul(0.42);
       const spill = smoothstep(0.95, 0.42, r).mul(0.14);
       // reflector rings: bright lip at the core edge, a faint dark band outside it
@@ -129,7 +131,7 @@ export function createFlashlightPool(scene: THREE.Scene, cfg: FlashCfg, shadowed
     const volW = uniform(1);
     if (isShadow) {
       const pl = new THREE.ProjectorLight(0xffffff, 0, cfg.distance, cfg.angle, cfg.penumbra, cfg.decay);
-      const ck = makeCookie(1.7 + i * 2.31, pl, cfg.nearClamp ?? 2, cfg.decay);
+      const ck = makeCookie(1.7 + i * 2.31, pl, cfg.nearClamp ?? 2, cfg.decay, cfg.hotspot ?? 1);
       flick = ck.k as unknown as { value: number };
       pl.userData.volWeight = volW;
       (pl as unknown as { colorNode: unknown }).colorNode = ck.node;

@@ -1113,13 +1113,17 @@ export function dropInteractable(crew: Crew, id: string): void {
 
 // ---------------------------------------------------------------- lifecycle hooks
 
+/** held item types that survive the end of a contract (bought / company gear; matches meta's GEAR_TYPES) */
+const CARRY_OVER_TYPES = new Set(['walkie', 'crowbar', 'bottle', 'glowstick', 'medkit']);
+
 /** contract ended / phase left 'contract': everyone alive again, bodies/badges/respawns/glows gone, loot left behind */
 export function endContract(crew: Crew, s: IxSlice): void {
   for (const pid of [...s.dead]) reviveSelf(crew, pid, null, { how: 'api', hp: 100, silent: true });
   for (const pl of crew.players.values()) if (!pl.alive) pl.alive = true;
   for (const pid of Object.keys(s.hidden)) unhidePid(crew, pid);
   for (const it of Object.values(s.items)) {
-    if (it.type === 'badge' || it.where === 'van' || (it.where === 'held' && it.type.startsWith('loot.'))) deleteItem(s, it.id);
+    // only company gear leaves a site in someone's pockets: keycards, badges, salvage, airhorns etc. stay behind
+    if (it.type === 'badge' || it.where === 'van' || (it.where === 'held' && !CARRY_OVER_TYPES.has(it.type))) deleteItem(s, it.id);
   }
   for (const pid of Object.keys(s.hp)) { s.hp[pid] = 100; markHp(s, pid); }
   for (const pid of Object.keys(s.respawns)) { delete s.respawns[pid]; markRespawn(s, pid); }

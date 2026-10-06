@@ -224,7 +224,8 @@ function interactables(r: ContractRt): InteractableInfo[] {
   if (st.core && st.core.state !== 'van') {
     const c = st.core;
     const prompt = c.state === 'carried' ? 'Core: let go (drops it, -15%)' : c.carriers.length ? 'Grab the other Core handle' : 'Grab a Core handle (needs 2)';
-    out.push({ id: c.id, kind: 'core', p: [c.p[0], c.state === 'carried' ? 0.9 : 0.6, c.p[2]], prompt, enabled: st.vaultOpen || c.state !== 'vault' });
+    // a dropped Core lies on the floor among props: give it a generous hit sphere so it is easy to re-grab
+    out.push({ id: c.id, kind: 'core', p: [c.p[0], c.state === 'carried' ? 0.9 : c.state === 'dropped' ? 0.45 : 0.6, c.p[2]], prompt, enabled: st.vaultOpen || c.state !== 'vault', ...(c.state === 'dropped' ? { r: 0.85 } : {}) });
   }
   if (st.lootMode === 'objectives') {
     for (const l of st.loot) if (l.where === 'world') out.push({ id: l.id, kind: 'loot', p: [l.p[0], 0.3, l.p[2]], prompt: `Pick up ${l.name} (${l.value})`, enabled: true });
@@ -501,6 +502,8 @@ function releaseCore(crew: Crew, r: ContractRt, pid: string, why: 'released' | '
   const c = ctx();
   const wasCarried = core.state === 'carried';
   core.carriers = core.carriers.filter((x) => x !== pid);
+  core.sep = undefined;
+  core.slow = undefined;
   if (wasCarried) {
     // dropping a lifted Core: value loss + loud clang
     const loss = Math.round(core.value * num('coreDropLossFrac', 0.15));
@@ -518,6 +521,9 @@ function releaseCore(crew: Crew, r: ContractRt, pid: string, why: 'released' | '
   }
   markDirty(r, true);
 }
+
+/** last server position of each Core carrier (soft tether: who is pulling away) */
+const carrierLast = new WeakMap<ContractRt, Map<string, { x: number; z: number; pull: boolean }>>();
 
 function tickCore(crew: Crew, r: ContractRt, dt: number): void {
   const core = r.st.core;
@@ -543,9 +549,32 @@ function tickCore(crew: Crew, r: ContractRt, dt: number): void {
   const [ax, az] = pos(a);
   const [bx, bz] = pos(b);
   const sep = d2(ax, az, bx, bz);
-  if (sep > num('coreLeashM', 3.2)) {
+  // soft tether: above coreLeashWarnM the carrier moving AWAY from their partner is slowed (client reads core.slow)
+  // and both see a 'TOO FAR APART' warning; only a long stretch past coreLeashM drops it
+  const last = carrierLast.get(r) ?? new Map<string, { x: number; z: number; pull: boolean }>();
+  carrierLast.set(r, last);
+  const warnM = num('coreLeashWarnM', 2.2);
+  const slow: string[] = [];
+  for (const [pl, sx, sz, ox, oz] of [[a, ax, az, bx, bz], [b, bx, bz, ax, az]] as const) {
+    const prev = last.get(pl.id);
+    const moved = !prev || Math.abs(sx - prev.x) + Math.abs(sz - prev.z) > 1e-4;
+    // only re-judge on a fresh position (snapshots arrive slower than the tick), so the flag doesn't flicker
+    const pull = !prev ? false : moved ? ((sx - prev.x) * (sx - ox) + (sz - prev.z) * (sz - oz)) / Math.max(1e-6, sep) > 0.0005 : prev.pull;
+    if (moved || !prev) last.set(pl.id, { x: sx, z: sz, pull });
+    else prev.pull = pull;
+    if (a !== b && sep > warnM && pull && !slow.includes(pl.id)) slow.push(pl.id);
+  }
+  const sepOut = a !== b && sep > warnM ? Math.round(sep * 10) / 10 : undefined;
+  if (core.sep !== sepOut || (core.slow ?? []).join() !== slow.join()) {
+    core.sep = sepOut;
+    core.slow = slow.length ? slow : undefined;
+    markDirty(r);
+  }
+  if (sep > num('coreLeashM', 4.5)) {
     r.leashSince += dt;
-    if (r.leashSince >= num('coreLeashGraceSec', 0.5)) {
+    if (r.leashSince >= num('coreLeashGraceSec', 2)) {
+      core.sep = undefined;
+      core.slow = undefined;
       releaseCore(crew, r, a.id, 'leash');
       return;
     }
@@ -791,12 +820,17 @@ export function endContract(crew: Crew, reason: ObjContractResult['reason']): Ob
   const realReason: ObjContractResult['reason'] = wipe && reason !== 'abort' ? 'wipe' : reason;
   const coreExtracted = !!core && core.state === 'van';
   const hauled = wipe ? 0 : st.hauled;
+  // participation: a real stint on site AND something brought home (salvage or the Core). Leaving at once with
+  // an empty van pays no 'everyone survives' request and (via result.participated, read by meta) reduced XP.
+  const onSiteSec = (performance.now() - r.startedPerf) / 1000;
+  // (extracting the Core is real work however fast it went, so it always counts)
+  const participated = coreExtracted || (onSiteSec >= num('minParticipationSec', 120) && hauled > 0);
   // requests
   for (const q of st.requests) {
     if (q.kind === 'ALL_SURVIVE') {
       // everyone who started the shift comes home alive (a revived teammate counts as home)
       const all = r.playersAtStart.every((pid) => survivors.includes(pid));
-      q.done = !wipe && all && leftBehind.length === 0;
+      q.done = !wipe && all && leftBehind.length === 0 && participated;
       q.failed = !q.done;
     }
     else if (q.kind === 'EXTRACT_ABOVE') { q.done = hauled > Number(q.param ?? 0); q.failed = !q.done; }
@@ -822,6 +856,7 @@ export function endContract(crew: Crew, reason: ObjContractResult['reason']): Ob
     reason: realReason,
     leftBehind,
     durationSec: Math.round((performance.now() - r.startedPerf) / 100) / 10,
+    participated,
   };
   st.ended = true;
   r.result = result;

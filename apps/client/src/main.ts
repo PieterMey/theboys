@@ -15,13 +15,14 @@ import { install as interaction } from './interaction/index.ts';
 import { install as monsters } from './monsters/index.ts';
 import { install as menu } from './menu/index.ts';
 import { install as meta } from './meta/index.ts';
+import { install as safes } from './safes/index.ts';
 import { install as ai } from './ai/index.ts';
 
 type Install = (ctx: ClientContext) => void | Promise<void>;
 const TRACKS: [string, Install][] = [
   // menu first: it only registers the title screen over the bare 'join' screen (no flash while render inits)
   ['menu', menu], ['net', net], ['render', render], ['level', level], ['players', players], ['voice', voice], ['audio', audio],
-  ['objectives', objectives], ['interaction', interaction], ['monsters', monsters], ['meta', meta], ['ai', ai],
+  ['objectives', objectives], ['interaction', interaction], ['monsters', monsters], ['meta', meta], ['safes', safes], ['ai', ai],
 ];
 
 const ctx = createClientContext();

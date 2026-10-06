@@ -443,7 +443,9 @@ function generateOnce(seed: string, attempt: number, players: number, risk: numb
 
   // van + crew spawns
   addVanItems(van, vanId, add);
-  addVanSpawns(van, lot, add);
+  // everyone faces the entrance door on arrival (clear line to the LOBBY), not the blank facade
+  const exitC = exitDoor.dir === 'h' ? { x: exitDoor.x + exitDoor.len / 2, z: exitDoor.y } : { x: exitDoor.x, z: exitDoor.y + exitDoor.len / 2 };
+  addVanSpawns(van, lot, add, Math.PI, { lookAt: exitC });
 
   // vault: keypad outside the vault door, Core inside
   const vDoorId = idMap.get(vaultDoor)!;

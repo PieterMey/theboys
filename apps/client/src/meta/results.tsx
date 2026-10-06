@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import type { ScreenProps } from '../core/ui/api.ts';
 import type { MetaContractResults, MetaShiftReview } from '@dead-air/shared/messages/meta.ts';
-import { isLeader, metaOf, sfx, useTicker, useWorldV } from './state.ts';
+import { metaOf, sfx, useTicker, useWorldV } from './state.ts';
 import { openScreen } from './nav.ts';
 
 const OUTCOME: Record<MetaContractResults['outcome'], [string, string]> = {
@@ -18,10 +18,15 @@ function Continue({ ctx, label }: ScreenProps & { label: string }) {
   useTicker(500);
   const meta = metaOf(ctx);
   const left = meta?.resultsEndsAt ? Math.max(0, Math.round((meta.resultsEndsAt - ctx.world.serverNow()) / 1000)) : 0;
-  if (!isLeader(ctx)) return <span class="m-small m-dim">The crew leader continues · back to the van in {left} s</span>;
+  const done = meta?.continued ?? [];
+  const crew = ctx.world.crew?.players.filter((p) => p.connected) ?? [];
+  if (ctx.world.me && done.includes(ctx.world.me)) {
+    const waiting = crew.filter((p) => !done.includes(p.id)).map((p) => p.name);
+    return <span class="m-small m-dim">{waiting.length ? `Waiting for ${waiting.join(', ')}` : 'Heading back'} · back to the van in {left} s</span>;
+  }
   return (
-    <button class="m-btn primary" onClick={() => { sfx(ctx, 'sfx.ui_confirm'); void ctx.net.req('meta.continue', {}).then((r) => { if (!r.ok && r.reason) ctx.ui.toast(r.reason, 'warn'); }); }}>
-      {label} <span style={{ opacity: 0.6 }}>· {left} s</span>
+    <button class="m-btn primary" onClick={() => { sfx(ctx, 'sfx.ui_confirm'); void ctx.net.req('meta.continue', { vote: true }).then((r) => { if (!r.ok && r.reason) ctx.ui.toast(r.reason, 'warn'); }); }}>
+      {label} <span style={{ opacity: 0.6 }}>· {left} s{done.length ? ` · ${done.length}/${crew.length} done` : ''}</span>
     </button>
   );
 }
@@ -75,7 +80,7 @@ export function ResultsScreen({ ctx }: ScreenProps) {
             <div class="m-sheet" style={{ marginTop: '16px' }}>
               <div class="m-h3" style={{ color: r.deaths.length ? 'var(--m-red)' : 'var(--m-green)' }}>{r.deaths.length ? 'Death cards' : 'No casualties'}</div>
               {r.deaths.length === 0 && <div class="m-small m-dim">Everyone made it back to the van. HR is suspicious.</div>}
-              {r.deaths.map((d) => (
+              {r.deaths.length > 0 && <div class={`m-deathlist ${r.deaths.length > 2 ? 'compact' : ''}`}>{r.deaths.map((d) => (
                 <div class="m-deathcard" key={d.player}>
                   <div class="k">{d.killer}</div>
                   <div>
@@ -84,7 +89,7 @@ export function ResultsScreen({ ctx }: ScreenProps) {
                     {d.detail && <div class="m-small m-dim" style={{ marginTop: '4px' }}>{d.detail}</div>}
                   </div>
                 </div>
-              ))}
+              ))}</div>}
             </div>
           </div>
           <div>

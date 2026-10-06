@@ -243,17 +243,27 @@ export function install(ctx: ClientContext): void {
   // ---------------- Core carry: slow both carriers + carry animation (⑤ players service) ----------------
   interface PlayersLike { setSpeedMult?(m: number): void; setCarry?(id: string | null): void }
   let carrying: string | null = null;
+  let carryMult = 1;
+  const ob = (k: string, d: number) => { const v = Number(ctx.balance.objectives?.[k]); return Number.isFinite(v) ? v : d; };
   const syncCarry = () => {
     const st = objState.value;
     const c = st?.core;
     const now = st && st.active && !st.ended && c && c.state === 'carried' && c.carriers.includes(me()) ? c.id : null;
-    if (now === carrying) return;
-    carrying = now;
+    // soft tether: the server flags the carrier pulling away from their partner; slow them as the stretch grows
+    let mult = now ? MOVE.carryCoreMult : 1;
+    if (now && c?.slow?.includes(me()) && typeof c.sep === 'number') {
+      const warn = ob('coreLeashWarnM', 2.2), leash = ob('coreLeashM', 4.5), floor = ob('coreLeashSlowMin', 0.35);
+      const k = Math.max(0, Math.min(1, (c.sep - warn) / Math.max(0.1, leash - warn)));
+      mult *= 1 - k * (1 - floor);
+    }
+    if (now === carrying && Math.abs(mult - carryMult) < 0.02) return;
     const pl = loose<PlayersLike>('players');
     try {
-      pl?.setSpeedMult?.(now ? MOVE.carryCoreMult : 1);
-      pl?.setCarry?.(now);
+      if (Math.abs(mult - carryMult) >= 0.02 || now !== carrying) pl?.setSpeedMult?.(mult);
+      if (now !== carrying) pl?.setCarry?.(now);
     } catch { /* players track mid-reload */ }
+    carrying = now;
+    carryMult = mult;
   };
 
   // ---------------- per-frame system ----------------
@@ -270,7 +280,9 @@ export function install(ctx: ClientContext): void {
         promptAcc = 0;
         const st = objState.value;
         if (st && st.active && !st.ended && st.core?.state === 'carried' && st.core.carriers.includes(me())) {
-          if (!prompt.value?.carry) prompt.value = { text: 'Let go of the Core', enabled: true, carry: true };
+          const sep = st.core.sep;
+          const warn = typeof sep === 'number' ? `TOO FAR APART (${sep.toFixed(1)} m) · ${st.core.slow?.includes(me()) ? 'wait for your partner' : 'catch up'}` : undefined;
+          if (!prompt.value?.carry || prompt.value.warn !== warn) prompt.value = { text: 'Let go of the Core', enabled: true, carry: true, warn };
         } else if (bHandlesE()) {
           if (prompt.value) prompt.value = null;
         } else {

@@ -9,16 +9,21 @@ import { JoinError } from '../net.ts';
 
 /** Resolves once rendering is smooth (first frames after a new scene compile shaders and can stall for seconds).
  * Keeps the (already painted) Join screen up during that stall instead of showing a frozen scene. */
-export function waitForStableFrames(minMs = 500, maxMs = 25000, needGood = 12): Promise<void> {
+export function waitForStableFrames(minMs = 500, maxMs = 8000, needGood = 12): Promise<void> {
   return new Promise((resolve) => {
     const t0 = performance.now();
     let last = t0;
     let good = 0;
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    // hard cap on a timer too: rAF stops in a background tab and is starved while shaders compile
+    setTimeout(finish, maxMs);
     const tick = (now: number) => {
+      if (done) return;
       const dt = now - last;
       last = now;
       good = dt < 60 ? good + 1 : 0;
-      if ((now - t0 > minMs && good >= needGood) || now - t0 > maxMs) resolve();
+      if ((now - t0 > minMs && good >= needGood) || now - t0 > maxMs) finish();
       else requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
@@ -48,6 +53,8 @@ export function JoinScreen(props: ScreenProps) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [entering, setEntering] = useState(false);
+  /** the join failed in a way only a reload fixes (timeout, client error while entering) */
+  const [reload, setReload] = useState(false);
   const canCreate = ctx.build === 'dev' || !!ctx.net.adminToken();
   const extras = ctx.ui.huds.value.filter((h) => h.slot === 'join');
   const nameRef = useRef<HTMLInputElement>(null);
@@ -66,15 +73,20 @@ export function JoinScreen(props: ScreenProps) {
     ctx.bus.emit('join:click', { crew, name: nm });
     setBusy(true);
     setErr('');
+    setReload(false);
     ctx.net
       .join(crew, nm)
       .then((w) => {
         history.replaceState(null, '', `${location.pathname}${location.search}#${w.crew.code}`);
         setEntering(true);
         onEntering?.();
-        return waitForStableFrames().then(() => ctx.ui.setScreen('none'));
+        // capped at 8 s: slow machines enter a slightly stuttery scene instead of a 25 s 'hang'
+        return waitForStableFrames(500, 8000, 12).then(() => ctx.ui.setScreen('none'));
       })
-      .catch((e: unknown) => setErr(e instanceof JoinError ? e.message : String(e)))
+      .catch((e: unknown) => {
+        setErr(e instanceof JoinError ? e.message : String(e));
+        setReload(e instanceof JoinError && (e.code === 'closed' || e.code === 'server') && /reload/i.test(e.message));
+      })
       .finally(() => setBusy(false));
   };
 
@@ -98,6 +110,8 @@ export function JoinScreen(props: ScreenProps) {
           {canCreate && <button type="button" class="btn" disabled={busy} onMouseEnter={onHover} onFocus={onHover} onClick={() => join('')}>CREATE CREW</button>}
         </div>
         {!embedded && err && <p class="error" data-testid="join-error">{err}</p>}
+        {err && reload && <button type="button" class="btn" data-testid="join-reload" onClick={() => location.reload()}>RELOAD</button>}
+        {entering && <p class="fine" data-testid="join-status">Warming up shaders… a few seconds on the first entry.</p>}
         {embedded && onBack && <button type="button" class="btn join-back" disabled={busy || entering} onMouseEnter={onHover} onClick={onBack}>BACK [ESC]</button>}
       </div>
       {!embedded && <p class="fine">Chrome or Edge · wired headset · the monsters hear what your friends hear</p>}

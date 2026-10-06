@@ -15,7 +15,7 @@ import { buildEdgeGrid, initialDoorOpen, los } from '@dead-air/shared/nav/index.
 import type { DoorOpenFn, EdgeGrid } from '@dead-air/shared/nav/index.ts';
 import type { ClientContext } from '../core/context.ts';
 import { SYS } from '../core/loop.ts';
-import { instantiate, loadMonsterLib } from './models.ts';
+import { addKennelGlow, instantiate, loadMonsterLib } from './models.ts';
 import type { MonsterLib, MonsterModel } from './models.ts';
 
 interface SfxHandleLike { stop(): void; setPos?(p: Vec3): void }
@@ -173,6 +173,7 @@ export function install(ctx: ClientContext): void {
     const t = lib?.templates[v.kind as 'hound' | 'mannequin' | 'listener'];
     if (!t || v.model) return;
     const m = instantiate(t);
+    if (v.id === 'kennel') addKennelGlow(m);
     v.model = m;
     if (v.placeholder) { v.root.remove(v.placeholder); v.placeholder = null; }
     v.root.add(m.root);

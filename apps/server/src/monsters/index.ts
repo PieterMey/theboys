@@ -332,7 +332,7 @@ export function install(ctx: ServerContext): void | Promise<void> {
     if (a.anim !== undefined) ag.anim = Number(a.anim);
     if (a.active && ag.kind === 'listener') (ag as ListenerAgent).dormant = false;
     if (a.active && ag.kind === 'mannequin') (ag as MannequinAgent).spawned = true;
-    if (ag.kind === 'hound') { const h = ag as HoundAgent; h.timer = 3; h.lastNoiseAt = -100; }
+    if (ag.kind === 'hound') { const h = ag as HoundAgent; h.timer = 3; h.lastNoiseAt = -100; h.heardAt = -100; }
     if (a.outSec !== undefined) rtFor(crew)?.retreat(ag, Number(a.outSec));
     return { ok: true, agent: describe(ag) };
   });

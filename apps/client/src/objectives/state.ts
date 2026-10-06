@@ -12,7 +12,7 @@ export const banner = signal<Banner | null>(null);
 export const floats = signal<Float3D[]>([]);
 export const lastResult = signal<ObjContractResult | null>(null);
 /** prompt for the fallback E targeting (only when (b)'s client does not handle E) */
-export const prompt = signal<{ text: string; enabled: boolean; carry?: boolean } | null>(null);
+export const prompt = signal<{ text: string; enabled: boolean; carry?: boolean; warn?: string } | null>(null);
 /** server time (ms) a breaker went down and is waiting for its partner (for the 1 s countdown) */
 export const leverWait = signal<{ id: string; at: number; by: string } | null>(null);
 

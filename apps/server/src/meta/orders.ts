@@ -60,13 +60,15 @@ function notesFor(rng: Rng): ClueNote[] {
   });
 }
 
-/** 3 orders: Risk 1 (always), Risk 1 or 2, Risk 2 (needs crew avg level >= 2 or 'Core Business'). */
+/** 3 orders: Risk 1 (always), Risk 1 or 2 (always 1 while Risk 2 is locked), Risk 2 (needs crew avg level >= 2 or 'Core Business'). */
 export function makeBoard(b: BoardInput): WorkOrder[] {
   const rng = makeRng(`${b.crewCode}|${b.shiftIndex}|${b.contract}|${b.boardSeq}`, 'board');
   const pool = SITES.filter((s) => !b.recentSites.includes(s.name));
   const sites = rng.shuffle((pool.length >= 3 ? pool : SITES).slice()).slice(0, 3);
-  const risks: (1 | 2)[] = [1, rng.chance(0.5) ? 1 : 2, 2];
+  const mid: 1 | 2 = rng.chance(0.5) ? 1 : 2;
   const r2 = risk2Available(b.avgLevel, b.achievements, b.risk2MinAvgLevel, b.risk2Achievement);
+  // a crew that cannot take Risk 2 yet still gets two choosable Risk-1 orders (the third shows what is coming)
+  const risks: (1 | 2)[] = [1, r2 ? mid : 1, 2];
   return sites.map((site, i) => {
     const risk = risks[i];
     const ro = makeRng(`${b.crewCode}|${b.shiftIndex}|${b.contract}|${b.boardSeq}|${i}`, 'order');

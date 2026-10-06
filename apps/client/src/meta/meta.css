@@ -269,6 +269,8 @@
 @keyframes m-blink { 50% { opacity: 0; } }
 .m-progress { height: 4px; background: rgba(255, 255, 255, 0.07); margin-top: 18px; }
 .m-progress > i { display: block; height: 100%; background: var(--m-amber); transition: width 0.2s linear; }
+.m-progress > i.anim { width: 100%; transform-origin: 0 50%; transform: scaleX(0); animation: m-drive-bar 6s linear forwards; will-change: transform; }
+@keyframes m-drive-bar { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 .m-road { position: absolute; inset: auto 0 0 0; height: 30vh; pointer-events: none; opacity: 0.35; background: repeating-linear-gradient(90deg, transparent 0 46%, rgba(240, 180, 60, 0.5) 46% 54%, transparent 54% 100%); background-size: 220px 4px; background-repeat: repeat-x; background-position: 0 70%; animation: m-road 0.6s linear infinite; mask-image: linear-gradient(0deg, #000, transparent); }
 @keyframes m-road { to { background-position: -220px 70%; } }
 
@@ -286,7 +288,7 @@
 .m-log .empty { color: #4f6f53; border: 0; padding: 0; }
 .m-con-title { position: absolute; top: 12px; left: 16px; font: 800 22px/1 var(--m-stencil); letter-spacing: 0.22em; color: #7fd36b; text-shadow: 0 0 10px rgba(127, 211, 107, 0.4); pointer-events: none; }
 .m-con-title small { display: block; font: 600 10px var(--font-mono, monospace); letter-spacing: 0.24em; color: #4f8f57; margin-top: 4px; }
-.m-con-legend { position: absolute; bottom: 12px; left: 16px; display: flex; gap: 14px; font-size: 10px; letter-spacing: 0.16em; color: #5f8f65; pointer-events: none; text-transform: uppercase; }
+.m-con-legend { position: absolute; bottom: 12px; left: 16px; right: 16px; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 10px; letter-spacing: 0.16em; color: #5f8f65; pointer-events: none; text-transform: uppercase; }
 .m-con-legend i { display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px; }
 .m-led { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #233; margin-right: 8px; vertical-align: -1px; }
 .m-led.on { background: #9dff6b; box-shadow: 0 0 10px #9dff6b; }
@@ -301,6 +303,10 @@
 .m-ledger td:last-child { text-align: right; font-weight: 700; }
 .m-ledger tr.total td { border-bottom: 0; border-top: 2px solid var(--m-line2); font-size: 15px; padding-top: 10px; }
 .m-deathcard { display: grid; grid-template-columns: 54px 1fr; gap: 12px; align-items: center; padding: 10px; margin-bottom: 8px; background: rgba(40, 8, 6, 0.45); border: 1px solid #4a1712; border-left: 4px solid var(--m-red); }
+/* death cards: a bounded scroll list so 3-6 cards never hide behind the sticky footer */
+.m-deathlist { max-height: 34vh; overflow-y: auto; padding-right: 4px; }
+.m-deathlist.compact .m-deathcard { grid-template-columns: 40px 1fr; padding: 6px 8px; margin-bottom: 6px; }
+.m-deathlist.compact .m-deathcard .n { font-size: 16px; }
 .m-deathcard .k { font: 900 13px/1 var(--m-stencil); letter-spacing: 0.12em; color: var(--m-red); writing-mode: vertical-rl; transform: rotate(180deg); text-align: center; }
 .m-deathcard .n { font: 800 20px/1 var(--m-stencil); letter-spacing: 0.06em; text-transform: uppercase; }
 .m-deathcard .r { font-size: 12px; color: #e9b8b1; margin-top: 3px; }
@@ -361,6 +367,14 @@
 .m-bright-plate div { font: 900 92px/1 var(--m-stencil); letter-spacing: 0.06em; }
 
 /* kennel */
+/* kennel: a compact side panel; the chained Hound behind the fence stays in view */
+.m-screen.m-kennel-screen { background: linear-gradient(90deg, transparent 0%, transparent 52%, rgba(3, 4, 5, 0.55) 66%, rgba(3, 4, 5, 0.9) 100%); }
+.m-screen.m-kennel-screen::before, .m-screen.m-kennel-screen::after { display: none; }
+.m-wrap.m-kennel-side { max-width: 420px; margin: 0 0 0 auto; min-height: 100%; padding: 64px 22px 24px; background: rgba(3, 4, 5, 0.82); border-left: 1px solid var(--m-line); }
+.m-kennel-side .m-close { top: 16px; right: 16px; }
+.m-kennel-side .m-top { padding-right: 0; margin-bottom: 14px; }
+.m-kennel-side .m-h1 { font-size: 42px; }
+@media (max-width: 720px) { .m-wrap.m-kennel-side { max-width: none; } }
 .m-kennel-meter { height: 16px; background: #0b0d0e; border: 1px solid var(--m-line2); position: relative; margin: 10px 0 4px; }
 .m-kennel-meter > i { position: absolute; inset: 0 auto 0 0; transition: width 0.08s linear; }
 .m-kennel-scale { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: 0.16em; color: var(--m-dim); text-transform: uppercase; }
@@ -384,3 +398,7 @@
 .join .m-join input.m-toggle { width: 34px; height: 18px; padding: 0; flex: none; }
 .join .m-join input.m-toggle::after { width: 12px; height: 12px; }
 .join .m-join input.m-toggle:checked::after { left: 18px; }
+
+/* toasts move to the bottom while a full-screen meta screen is open (they covered the screen headers) */
+.screen-menu ~ .toasts, .screen-board ~ .toasts, .screen-shop ~ .toasts, .screen-mirror ~ .toasts, .screen-results ~ .toasts,
+.screen-memo ~ .toasts, .screen-drive ~ .toasts, .screen-brightness ~ .toasts { top: auto; bottom: 22px; }

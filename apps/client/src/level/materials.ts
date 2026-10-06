@@ -26,6 +26,8 @@ interface MatSpec {
   aniso?: number;
   /** 0..1 standing water (puddle gloss, ③ makeSurfaceMaterial wet) */
   wet?: number;
+  /** roughness floor after texture/grime modulation (matte walls: no glare under the flashlight) */
+  minRough?: number;
 }
 
 const SPECS: Record<MatId, MatSpec> = {
@@ -35,26 +37,26 @@ const SPECS: Record<MatId, MatSpec> = {
   floor_rubber: { tex: 'rubber_floor', color: 0x3c3f41, tint: 0x9aa0a4, rough: 0.85, metal: 0, grime: 0.4, aniso: 8 },
   floor_metal: { tex: 'metal_plate', color: 0x5d6062, tint: 0xa9adb0, rough: 0.5, metal: 0.65, grime: 0.6, aniso: 8, wet: 0.35 },
   floor_dirt: { tex: 'asphalt', color: 0x3b3328, tint: 0x8a7558, rough: 0.98, metal: 0, grime: 0.7, aniso: 8 },
-  wall_tile_green: { tex: 'tiles_white', color: 0x7f977c, tint: 0xa9c4a0, rough: 0.35, metal: 0, grime: 0.65 },
-  wall_tile_white: { tex: 'tiles_white', color: 0xb9bcb3, tint: 0xe2e3da, rough: 0.35, metal: 0, grime: 0.6 },
-  wall_plaster: { tex: 'wall_plaster', color: 0xa9ad9f, tint: 0xd8dccd, rough: 0.88, metal: 0, grime: 0.6 },
-  wall_plaster_green: { tex: 'wall_plaster', color: 0x7e8f7a, tint: 0xaabda2, rough: 0.88, metal: 0, grime: 0.65 },
-  wall_plaster_blue: { tex: 'wall_plaster', color: 0x7a8791, tint: 0xa7b6c2, rough: 0.88, metal: 0, grime: 0.6 },
-  wall_concrete: { tex: 'wall_concrete', color: 0x7f7d77, tint: 0xd2cfc6, rough: 0.92, metal: 0, grime: 0.7 },
-  wall_concrete_dark: { tex: 'wall_concrete', color: 0x5d5c58, tint: 0x9b9890, rough: 0.94, metal: 0, grime: 0.75 },
-  wall_vault: { tex: 'metal_plate', color: 0x5e656b, tint: 0x9aa4ad, rough: 0.46, metal: 0.55, grime: 0.45 },
-  ceiling_tiles: { tex: 'ceiling_tiles', color: 0x9c9c95, tint: 0xd0d0c6, rough: 0.9, metal: 0, grime: 0.5 },
-  ceiling_concrete: { tex: 'ceiling_plaster', color: 0x6c6b67, tint: 0xa8a69f, rough: 0.95, metal: 0, grime: 0.6 },
+  wall_tile_green: { tex: 'tiles_white', color: 0x7f977c, tint: 0xa9c4a0, rough: 0.6, metal: 0, grime: 0.65, minRough: 0.5 },
+  wall_tile_white: { tex: 'tiles_white', color: 0xb9bcb3, tint: 0xe2e3da, rough: 0.6, metal: 0, grime: 0.6, minRough: 0.5 },
+  wall_plaster: { tex: 'wall_plaster', color: 0xa9ad9f, tint: 0xd8dccd, rough: 0.92, metal: 0, grime: 0.6, minRough: 0.86 },
+  wall_plaster_green: { tex: 'wall_plaster', color: 0x7e8f7a, tint: 0xaabda2, rough: 0.92, metal: 0, grime: 0.65, minRough: 0.86 },
+  wall_plaster_blue: { tex: 'wall_plaster', color: 0x7a8791, tint: 0xa7b6c2, rough: 0.92, metal: 0, grime: 0.6, minRough: 0.86 },
+  wall_concrete: { tex: 'wall_concrete', color: 0x7f7d77, tint: 0xd2cfc6, rough: 0.94, metal: 0, grime: 0.7, minRough: 0.88 },
+  wall_concrete_dark: { tex: 'wall_concrete', color: 0x5d5c58, tint: 0x9b9890, rough: 0.95, metal: 0, grime: 0.75, minRough: 0.88 },
+  wall_vault: { tex: 'metal_plate', color: 0x5e656b, tint: 0x9aa4ad, rough: 0.58, metal: 0.45, grime: 0.45, minRough: 0.45 },
+  ceiling_tiles: { tex: 'ceiling_tiles', color: 0x9c9c95, tint: 0xd0d0c6, rough: 0.92, metal: 0, grime: 0.5, minRough: 0.85 },
+  ceiling_concrete: { tex: 'ceiling_plaster', color: 0x6c6b67, tint: 0xa8a69f, rough: 0.95, metal: 0, grime: 0.6, minRough: 0.88 },
   ceiling_metal: { tex: 'corrugated_metal', color: 0x5a5b5a, tint: 0x9c9d9a, rough: 0.6, metal: 0.5, grime: 0.6 },
-  facade: { tex: 'wall_concrete', color: 0x5f5e5a, tint: 0xa4a29a, rough: 0.95, metal: 0, grime: 0.85 },
+  facade: { tex: 'wall_concrete', color: 0x5f5e5a, tint: 0xa4a29a, rough: 0.96, metal: 0, grime: 0.85, minRough: 0.9 },
   asphalt: { tex: 'asphalt', color: 0x2f3032, tint: 0x8d8e90, rough: 0.97, metal: 0, grime: 0.6, aniso: 8, wet: 0.8 },
   trim: { color: 0x26292a, rough: 0.6, metal: 0.1, grime: 0.3 },
   metal_rusty: { tex: 'metal_rusty', color: 0x6a4a35, tint: 0xd0b8a5, rough: 0.7, metal: 0.55, grime: 0.5 },
-  metal_painted: { tex: 'metal_painted', color: 0x5f6a64, tint: 0xb8c4bc, rough: 0.55, metal: 0.4, grime: 0.5 },
-  metal_dark: { tex: 'metal_plate', color: 0x3c4044, tint: 0x80868c, rough: 0.45, metal: 0.8, grime: 0.4 },
+  metal_painted: { tex: 'metal_painted', color: 0x5f6a64, tint: 0xb8c4bc, rough: 0.72, metal: 0.1, grime: 0.5, minRough: 0.6 },
+  metal_dark: { tex: 'metal_plate', color: 0x3c4044, tint: 0x80868c, rough: 0.6, metal: 0.6, grime: 0.4, minRough: 0.45 },
   wood: { color: 0x5b4030, rough: 0.62, metal: 0, grime: 0.45 },
-  van_body: { color: 0xc9c9c2, rough: 0.38, metal: 0.25, grime: 0.6 },
-  rubble: { tex: 'wall_concrete', color: 0x6b6862, tint: 0xb6b2aa, rough: 0.98, metal: 0, grime: 0.8 },
+  van_body: { color: 0xa9aaa3, rough: 0.74, metal: 0, grime: 0.6, minRough: 0.62 },
+  rubble: { tex: 'wall_concrete', color: 0x6b6862, tint: 0xb6b2aa, rough: 0.98, metal: 0, grime: 0.8, minRough: 0.9 },
 };
 
 let ktx2: KTX2Loader | null = null;
@@ -105,7 +107,7 @@ export class LevelMaterials {
     let m = this.mats.get(id);
     if (m) return m;
     const s = SPECS[id];
-    m = makeSurfaceMaterial({ color: s.color, roughness: s.rough, metalness: s.metal, grime: s.grime ?? 0.5, uvMode: 'uv', side: s.side, wet: s.wet });
+    m = makeSurfaceMaterial({ color: s.color, roughness: s.rough, metalness: s.metal, grime: s.grime ?? 0.5, uvMode: 'uv', side: s.side, wet: s.wet, minRough: s.minRough });
     m.name = `level.${id}`;
     this.mats.set(id, m);
     if (this.renderer) void this.upgradeOne(id);
@@ -142,7 +144,7 @@ export class LevelMaterials {
     for (const t of [albedo, normal, orm]) if (t) t.anisotropy = aniso;
     const tm = makeSurfaceMaterial({
       albedo, normal: normal ?? undefined, orm: orm ?? undefined, color: s.tint ?? 0xffffff, roughness: Math.min(1, s.rough + 0.05),
-      metalness: s.metal, grime: (s.grime ?? 0.5) * 0.7, uvMode: 'uv', side: s.side, wet: s.wet,
+      metalness: s.metal, grime: (s.grime ?? 0.5) * 0.7, uvMode: 'uv', side: s.side, wet: s.wet, minRough: s.minRough,
     });
     const m = this.mats.get(id);
     if (!m) return;

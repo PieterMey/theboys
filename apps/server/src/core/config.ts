@@ -81,7 +81,7 @@ export function makeEnv(mode: Mode, portOverride?: number): ServerEnv {
     ADMIN_TOKEN: e.ADMIN_TOKEN ?? randomBytes(12).toString('hex'),
     ASSETS_DIR: assets,
     ROOT,
-    CLIENT_DIST: join(ROOT, 'apps/client/dist'),
+    CLIENT_DIST: process.env.CLIENT_DIST || join(ROOT, 'apps/client/dist'),
     MODEL_WRITER: e.MODEL_WRITER ?? 'claude-opus-5-5',
     MODEL_FAST: e.MODEL_FAST ?? 'claude-haiku-4-5',
   };

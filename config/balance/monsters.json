@@ -20,7 +20,16 @@
     "wanderPauseMaxSec": 6,
     "wanderRangeM": 14,
     "kennelLungeSec": 1.4,
-    "kennelAlertSec": 2.2
+    "kennelAlertSec": 2.2,
+    "kennelApproachFrac": 0.6,
+    "kennelApproachSpeed": 1.8,
+    "distinctGapSec": 0.8,
+    "alertGraceSec": 1.0,
+    "minChargeAfterGrowlSec": 1.6,
+    "investigateStandoffM": 1.6,
+    "bumpRadiusM": 1.8,
+    "sniffMinSec": 2,
+    "sniffMaxSec": 3
   },
   "mannequin": {
     "speed": 7,
@@ -31,6 +40,7 @@
     "blinkMaxSec": 30,
     "blinkMs": 350,
     "blinkLeadMs": 200,
+    "blinkSeparationSec": 0.5,
     "spawnGameMin": 90,
     "spawnMinDistM": 25,
     "spawnMinDistBigCrewM": 15,

@@ -16,6 +16,7 @@ import { install as objectives } from './objectives/index.ts';
 import { install as interaction } from './interaction/index.ts';
 import { install as monsters } from './monsters/index.ts';
 import { install as meta } from './meta/index.ts';
+import { install as safes } from './safes/index.ts';
 import { install as ai } from './ai/index.ts';
 
 // .env aliases: the host's .env uses the Cloudflare dashboard's names for the TURN key (Token ID + API token)
@@ -25,7 +26,7 @@ if (!process.env.CF_TURN_API_TOKEN && process.env.CLOUDFLARE_TURN_KEY) process.e
 /** Install order = dependency order. Tracks must not rely on later tracks at install time. */
 const TRACKS: [string, TrackInstall][] = [
   ['net', net], ['level', level], ['players', players], ['voice', voice], ['objectives', objectives],
-  ['interaction', interaction], ['monsters', monsters], ['meta', meta], ['ai', ai],
+  ['interaction', interaction], ['monsters', monsters], ['meta', meta], ['safes', safes], ['ai', ai],
 ];
 
 const args = process.argv.slice(2);

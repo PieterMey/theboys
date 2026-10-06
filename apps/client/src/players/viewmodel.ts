@@ -2,9 +2,9 @@
 // Procedural (rubberised body, flared head, emissive lens); the local flashlight light originates at the lens.
 import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
+import { sharedKTX2 } from '../level/materials.ts';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { assetUrl, basisPath, getAssetManifest, loadAssetManifest } from '@dead-air/shared/assets.ts';
+import { assetUrl, getAssetManifest, loadAssetManifest } from '@dead-air/shared/assets.ts';
 import type { LocalPlayer } from './local.ts';
 
 export interface ViewModel {
@@ -116,7 +116,7 @@ export function createViewModel(scene: THREE.Scene): ViewModel {
         if (!getAssetManifest()) await loadAssetManifest();
         const url = assetUrl('prop.flashlight');
         if (!url) return false;
-        const ktx2 = new KTX2Loader().setTranscoderPath(basisPath()).detectSupport(renderer);
+        const ktx2 = sharedKTX2(renderer); // one KTX2 transcoder for the whole client (no 'Multiple active KTX2 loaders')
         const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).setKTX2Loader(ktx2);
         const gltf = await loader.loadAsync(url);
         const prop = gltf.scene;

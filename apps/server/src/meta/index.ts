@@ -6,7 +6,7 @@ import type { ReqArgs, ReqName } from '@dead-air/shared/messages/index.ts';
 import type { ReqHandler } from '../core/types.ts';
 import * as A from './adapters.ts';
 import {
-  P, S, allReady, attachPlayer, buy, claim, continueFromResults, finishContract, markDirty, newBoard, onForeignPhase, pick,
+  P, S, allReady, attachPlayer, buy, claim, continueFromResults, continueVote, finishContract, markDirty, newBoard, onForeignPhase, pick,
   recordDeath, recordUtterance, refreshBoard, regenPin, saveOf, setProfile, setRuntime, startDrive, tickCrew, view,
 } from './flow.ts';
 import type { RawResult } from './flow.ts';
@@ -152,8 +152,9 @@ export async function install(ctx: ServerContext): Promise<void> {
     markDirty(crew);
     return { claim: claimCode };
   });
-  req('meta.continue', (crew, player) => {
+  req('meta.continue', (crew, player, args) => {
     if (crew.phase !== 'results') return { ok: false, reason: 'no results to close' };
+    if ((args as { vote?: unknown } | undefined)?.vote === true) return continueVote(crew, player);
     if (!leaderOrSolo(crew, player)) return { ok: false, reason: 'the crew leader continues' };
     continueFromResults(crew);
     return { ok: true };

@@ -39,6 +39,8 @@ export interface SurfaceOpts {
   pattern?: 'paint' | 'tile' | 'concrete';
   /** 0..1 standing water on floors: world-space puddles (near-mirror roughness, darker albedo) with damp rims */
   wet?: number;
+  /** roughness floor after ORM / grime / pattern modulation (matte walls never turn glossy under the flashlight) */
+  minRough?: number;
 }
 
 const warned = new Set<string>();
@@ -122,7 +124,7 @@ export function makeSurfaceMaterial(o: SurfaceOpts): THREE.MeshStandardNodeMater
     m.aoNode = orm.r;
   }
   if (grime > 0) rough = rough.mul(mix(float(1 - 0.35 * grime), float(1 + 0.1 * grime), stains));
-  rough = rough.mul(patRough).clamp(0.04, 1);
+  rough = rough.mul(patRough).clamp(o.minRough ?? 0.04, 1);
   if (puddle) rough = mix(rough.mul(float(1).sub(damp.mul(0.35))), float(0.045), puddle);
   m.roughnessNode = rough;
   m.metalnessNode = metal;
@@ -163,16 +165,20 @@ export function materialTextureCount(m: THREE.Material): number {
   return n;
 }
 
-/** Scene scan: warns once per material over the sampler budget. */
+/** Scene scan: one summary line per scan listing materials (by name, each reported once) over the sampler budget. */
 export function auditSceneMaterials(scene: THREE.Object3D): void {
+  const over: string[] = [];
   scene.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
     const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     for (const m of mats) {
       if (!m) continue;
+      const key = `tex:${m.name || m.type}`;
+      if (warned.has(key)) continue;
       const n = materialTextureCount(m);
-      if (n > MAX_MATERIAL_TEXTURES) warnOnce(m.uuid, `material '${m.name || m.type}' on '${mesh.name || mesh.type}' uses ${n} textures (> ${MAX_MATERIAL_TEXTURES}): risks the 16-sampler limit with shadowed flashlights`);
+      if (n > MAX_MATERIAL_TEXTURES) { warned.add(key); over.push(`${m.name || m.type}(${n})`); }
     }
   });
+  if (over.length) console.info(`[render] ${over.length} material(s) over the ${MAX_MATERIAL_TEXTURES}-texture budget (16-sampler risk with shadowed flashlights): ${over.slice(0, 12).join(', ')}${over.length > 12 ? ', ...' : ''}`);
 }

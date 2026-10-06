@@ -268,6 +268,10 @@ export function install(ctx: ClientContext): void {
 
   // ---------------- events ----------------
   let deathTimer: ReturnType<typeof setTimeout> | null = null;
+  // the twin-breaker pull resolved: drop the stale 'Breaker down: the other one must follow…' line
+  ctx.net.on('objectives.lever', (d) => {
+    if (d.result !== 'waiting' && ui.msg.value && /^Breaker down/i.test(ui.msg.value.text)) ui.msg.value = null;
+  });
   ctx.net.on('interaction.death', (d) => {
     if (d.pid === me()) {
       ui.death.value = { cause: d.cause, out: false };
@@ -281,7 +285,9 @@ export function install(ctx: ClientContext): void {
       }, 4000);
     } else {
       sfx('sfx.body_fall', d.p);
-      ctx.ui.toast(`${d.name} is down: ${d.cause.killer} ${d.cause.reason}`, 'warn', 4500);
+      // the cause is written to the victim ('heard your SHOUT'): retell it in the third person for teammates
+      const third = String(d.cause.reason ?? '').replace(/\byour\b/gi, `${d.name}'s`).replace(/\byou\b/gi, d.name);
+      ctx.ui.toast(`${d.name} is down: the ${d.cause.killer} ${third}`, 'warn', 4500);
     }
   });
   ctx.net.on('interaction.revive', (d) => {

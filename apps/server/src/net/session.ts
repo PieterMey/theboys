@@ -22,6 +22,8 @@ export interface SessionApi {
   schedule(): void;
   saveNow(): void;
   restored: number;
+  /** player ids of crews that were mid-contract when the server stopped (each gets one 'contract void' notice) */
+  voidedPlayers: Set<string>;
 }
 
 export function sessionFile(ctx: ServerContext): string | null {
@@ -81,6 +83,7 @@ export function createSession(ctx: ServerContext): SessionApi {
     file,
     restoredOrder,
     restored: 0,
+    voidedPlayers: new Set<string>(),
     schedule() {
       if (!file || timer) return;
       timer = setTimeout(() => { timer = null; write(); }, netBalance(ctx).sessionSaveDebounceMs);
@@ -101,6 +104,7 @@ export function createSession(ctx: ServerContext): SessionApi {
         const players = (c.players ?? []).filter((p) => p && typeof p.id === 'string');
         players.forEach((p, i) => restoredOrder.set(p.id, typeof p.order === 'number' ? p.order : i));
         entries.push({ code: c.code, password: typeof c.password === 'string' ? c.password : undefined, players: players.map((p) => ({ id: p.id, resume: String(p.resume ?? '') })) });
+        if (c.phase && c.phase !== 'hub') for (const p of players) api.voidedPlayers.add(p.id);
         if (c.phase && c.phase !== 'hub') log.info(`crew ${c.code} was in '${c.phase}' when the server stopped: back to the hub (contract void)`);
       }
       const core = ctx.crews as Partial<CrewCore>;

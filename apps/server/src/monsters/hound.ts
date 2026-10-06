@@ -7,7 +7,7 @@ import { ANIM } from '@dead-air/shared/anim.ts';
 import { BAND } from '@dead-air/shared/constants.ts';
 import type { ServerPlayer } from '../core/types.ts';
 import type { Rt } from './runtime.ts';
-import { makeAgentBase } from './runtime.ts';
+import { activeRecently, makeAgentBase } from './runtime.ts';
 import { doorById, dist, follow, monsterCanOpen, planTo, randomReachable, throughDoor, turnToward, yawTo } from './geo.ts';
 import type { Perceived } from './geo.ts';
 import { num } from './types.ts';
@@ -64,7 +64,10 @@ function startWindup(rt: Rt, h: HoundAgent, x: number, z: number, n: Noise, d: n
   h.tdoor = -1;
   h.causeKind = n.source ? `${n.source}|${noiseLabel(n)}` : `|${noiseLabel(n)}`;
   h.causeDist = d;
-  setState(h, 'windup', (lo + rt.cm.rng.next() * (hi - lo)) / 1000);
+  // the growl -> charge gap is always readable (>= minChargeAfterGrowlSec), the bark comes first
+  const minGap = num(rt.hound, 'minChargeAfterGrowlSec', 1.6);
+  const w = Math.max((lo + rt.cm.rng.next() * (hi - lo)) / 1000, h.lastGrowlAt + minGap - rt.cm.time);
+  setState(h, 'windup', Math.min(2.5, w));
   h.path = null;
   h.anim = ANIM.mAttack;
   h.yaw = yawTo(h.x, h.z, x, z);
@@ -99,14 +102,20 @@ export function houndHear(rt: Rt, h: HoundAgent, n: Noise, d: number, per: Perce
   if (h.state === 'bottle' || h.state === 'sniff') return;
   if (n.radiusM < num(rt.hound, 'hearMinRadiusM', 4)) return; // whispers, crouch steps
   if (n.kind === 'monsterDoor') return;
-  const prevAt = h.lastNoiseAt;
+  // the second noise must be a DISTINCT sound: a new utterance / step burst (>= distinctGapSec of silence before it) or a
+  // separate non-voice noise. Ongoing speech that began before / at the alert never counts.
+  const heardAt = h.heardAt ?? -100;
+  const distinct = (n.start ?? now) > heardAt + 0.05;
   h.lastNoiseAt = now;
   h.lastNoiseKind = n.kind;
   h.lastNoiseDist = d;
   const window = num(rt.hound, 'chargeWindowSec', 6), range = num(rt.hound, 'chargeRangeM', 12);
-  const grace = Math.min(1.0, num(rt.hound, 'alertSec', 1.5) * 0.66);
+  const grace = num(rt.hound, 'alertGraceSec', 1.0);
+  const second = distinct && now - heardAt <= window && d <= range;
+  if (distinct) h.heardAt = now;
   switch (h.state) {
     case 'idle': {
+      h.heardAt = now;
       const [tx, tz] = investigateTarget(rt, h, per);
       h.tx = tx;
       h.tz = tz;
@@ -117,7 +126,7 @@ export function houndHear(rt: Rt, h: HoundAgent, n: Noise, d: number, per: Perce
       return;
     }
     case 'alert': {
-      if (h.st >= grace && d <= range) return startWindup(rt, h, n.x, n.z, n, d);
+      if (second && h.st >= grace) return startWindup(rt, h, n.x, n.z, n, d);
       const [tx, tz] = investigateTarget(rt, h, per);
       h.tx = tx;
       h.tz = tz;
@@ -126,7 +135,7 @@ export function houndHear(rt: Rt, h: HoundAgent, n: Noise, d: number, per: Perce
     }
     case 'investigate':
     case 'search': {
-      if (now - prevAt <= window && d <= range) return startWindup(rt, h, n.x, n.z, n, d);
+      if (second) return startWindup(rt, h, n.x, n.z, n, d);
       const [tx, tz] = investigateTarget(rt, h, per);
       if (dist(tx, tz, h.tx, h.tz) > 1.5) {
         h.tx = tx;
@@ -175,10 +184,21 @@ function kennelHear(rt: Rt, h: HoundAgent, n: Noise): void {
     return;
   }
   if (h.state === 'lunge') return;
+  const fresh = h.state !== 'alert';
   h.tx = n.x;
   h.tz = n.z;
-  setState(h, 'alert', num(rt.hound, 'kennelAlertSec', 2.2));
-  h.path = null;
+  if (fresh) {
+    // talk: it turns, pads up to the fence toward the speaker and growls (visible from outside the pen)
+    setState(h, 'alert', num(rt.hound, 'kennelAlertSec', 2.2));
+    h.path = null;
+    if (pen) {
+      const fx = Math.min(pen.x + pen.w - 0.6, Math.max(pen.x + 0.6, n.x));
+      const fz = Math.min(pen.y + pen.h - 0.6, Math.max(pen.y + 0.6, n.z));
+      const k = Math.min(1, num(rt.hound, 'kennelApproachFrac', 0.6));
+      const ax = h.x + (fx - h.x) * k, az = h.z + (fz - h.z) * k;
+      if (dist(ax, az, h.x, h.z) > 0.6) planTo(rt.cm, h, ax, az);
+    }
+  } else h.timer = Math.max(h.timer, h.st + 1.2); // keeps watching while the talk goes on
   growl(rt, h);
 }
 
@@ -188,6 +208,27 @@ function contactKill(rt: Rt, h: HoundAgent, radius: number): ServerPlayer | null
     if (dist(p.pose.p[0], p.pose.p[2], h.x, h.z) <= radius) return p;
   }
   return null;
+}
+
+/** bumped while investigating / sniffing: only a player who is walking or louder than a whisper gives itself away */
+function activeContact(rt: Rt, h: HoundAgent, radius: number): ServerPlayer | null {
+  for (const p of rt.alive()) {
+    if (rt.hidden(p)) continue;
+    if (dist(p.pose.p[0], p.pose.p[2], h.x, h.z) > radius) continue;
+    if (activeRecently(rt, p.id, 0.6)) return p;
+  }
+  return null;
+}
+
+function presenceWindup(rt: Rt, h: HoundAgent, p: ServerPlayer): void {
+  const loud = rt.cm.activity ? rt.cm.time - (rt.cm.activity.get(p.id)?.loudAt ?? -100) <= 0.6 : false;
+  startWindup(rt, h, p.pose.p[0], p.pose.p[2], { x: p.pose.p[0], z: p.pose.p[2], radiusM: 1, kind: 'bump', source: p.id }, 1);
+  h.causeKind = `${p.id}|${loud ? 'VOICE' : 'MOVEMENT'}`;
+}
+
+/** a living, visible player standing right next to the hound (frozen players are sniffed at, then ignored) */
+function playerNear(rt: Rt, h: HoundAgent, radius: number): boolean {
+  return rt.alive().some((p) => !rt.hidden(p) && dist(p.pose.p[0], p.pose.p[2], h.x, h.z) <= radius);
 }
 
 function killCause(rt: Rt, h: HoundAgent, victim: ServerPlayer): [string, string] {
@@ -247,23 +288,37 @@ export function houndTick(rt: Rt, h: HoundAgent, dt: number): void {
       }
       const r = follow(cm, h, dt, num(rt.hound, 'investigateSpeed', 4), canOpenFor(rt), 0.5, rt.openDoor);
       h.anim = r === 'door' ? ANIM.mIdle : ANIM.mRun;
-      const bump = contactKill(rt, h, 1.3);
+      const bump = activeContact(rt, h, num(rt.hound, 'bumpRadiusM', 1.8));
       if (bump) {
-        // blind, but it bumped into someone: wind up and lunge
-        startWindup(rt, h, bump.pose.p[0], bump.pose.p[2], { x: bump.pose.p[0], z: bump.pose.p[2], radiusM: 1, kind: 'bump', source: bump.id }, 1);
-        h.causeKind = `|PRESENCE`;
+        // blind, but it bumped into someone walking / talking: wind up and lunge (a frozen, silent player is safe)
+        presenceWindup(rt, h, bump);
         break;
       }
-      if (r === 'arrived' || r === 'blocked') {
-        setState(h, 'search', 2.5 + cm.rng.next() * 1.5);
+      // a sound heard directly (same room): it goes to where the sound arrived, stopping short of the exact spot
+      const short = h.tdoor < 0 && dist(h.x, h.z, h.tx, h.tz) <= num(rt.hound, 'investigateStandoffM', 1.6);
+      if (r === 'arrived' || r === 'blocked' || short) {
+        setState(h, 'search', num(rt.hound, 'sniffMinSec', 2) + cm.rng.next() * (num(rt.hound, 'sniffMaxSec', 3) - num(rt.hound, 'sniffMinSec', 2)));
         h.path = null;
         rt.cue(h, 'sniff', 6);
       }
       if (cm.time - h.lastNoiseAt > lose) setState(h, 'idle', 1);
       break;
     }
-    case 'search':
+    case 'search': {
       h.anim = ANIM.mIdle;
+      const bump = activeContact(rt, h, num(rt.hound, 'bumpRadiusM', 1.8));
+      if (bump) {
+        presenceWindup(rt, h, bump);
+        break;
+      }
+      if (h.st >= h.timer && playerNear(rt, h, 2.4)) {
+        // sniffed a frozen, silent player for a few seconds: loses interest
+        h.path = null;
+        h.lastNoiseAt = -100;
+        h.heardAt = -100;
+        setState(h, 'idle', 2 + cm.rng.next() * 2);
+        break;
+      }
       if (h.st >= h.timer && !h.path) {
         const t = randomReachable(cm, h.x, h.z, 2, 6, -1, canOpenFor(rt));
         if (t) planTo(cm, h, t[0], t[1], canOpenFor(rt));
@@ -276,6 +331,7 @@ export function houndTick(rt: Rt, h: HoundAgent, dt: number): void {
       }
       if (cm.time - h.lastNoiseAt > lose) setState(h, 'idle', 1);
       break;
+    }
     case 'windup':
       h.anim = ANIM.mAttack;
       turnToward(h, yawTo(h.x, h.z, h.tx, h.tz), dt, 12);
@@ -341,11 +397,21 @@ export function houndTick(rt: Rt, h: HoundAgent, dt: number): void {
 
 function kennelTick(rt: Rt, h: HoundAgent, dt: number): void {
   switch (h.state) {
-    case 'alert':
-      h.anim = ANIM.mAlert;
-      turnToward(h, yawTo(h.x, h.z, h.tx, h.tz), dt, 5);
-      if (h.st >= h.timer) setState(h, 'idle', 2 + rt.cm.rng.next() * 3);
+    case 'alert': {
+      let moving = false;
+      if (h.path) {
+        const r = follow(rt.cm, h, dt, num(rt.hound, 'kennelApproachSpeed', 1.8), undefined, 0, rt.openDoor);
+        moving = r === 'moving';
+        if (!moving) h.path = null;
+      }
+      h.anim = moving ? ANIM.mWalk : ANIM.mAlert;
+      if (!moving) turnToward(h, yawTo(h.x, h.z, h.tx, h.tz), dt, 6);
+      if (h.st >= h.timer) {
+        h.path = null;
+        setState(h, 'idle', 2 + rt.cm.rng.next() * 3);
+      }
       break;
+    }
     case 'lunge': {
       const r = follow(rt.cm, h, dt, 6.5, undefined, 0, rt.openDoor);
       turnToward(h, yawTo(h.x, h.z, h.tx, h.tz), dt, 12);

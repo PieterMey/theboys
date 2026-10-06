@@ -8,6 +8,7 @@ export function buildCrewSnapshot(ctx: ServerContext, crew: Crew): Snapshot {
   const players: SnapPlayer[] = [];
   for (const pl of crew.players.values()) {
     if (!pl.connected) continue;
+    if ((pl.slices as { observer?: unknown }).observer === true) continue; // /voicetest observer: no avatar
     const s = pl.pose;
     players.push({ id: pl.id, p: s.p, yaw: s.yaw, pitch: s.pitch, stance: s.stance, anim: s.anim, light: s.light });
   }

@@ -9,6 +9,8 @@ import { makePoseHook, moveStats, serverTeleport, setValidation, startGrace } fr
 import { createSession } from './session.ts';
 import { installInvite } from './invite.ts';
 import { installReqs } from './reqs.ts';
+import { netBalance } from './balance.ts';
+import type { ServerPlayer } from '../core/types.ts';
 
 const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
@@ -18,7 +20,22 @@ export function install(ctx: ServerContext): void {
   // ---- audibility ----
   ctx.hooks.crewSnapshot.push(function netAudCrew(crew, snap) { audCrewSnapshot(crew, snap, ctx); });
   ctx.hooks.snapshot.push(function netAudReceiver(crew, receiver, snap) { audForReceiver(crew, receiver, snap, ctx); });
-  ctx.hooks.loud.push(function netLoud(_crew, player) { noteLoud(player); });
+  // last 'loud' message per player: the client resends at least every 500 ms while not silent, so a band that is
+  // older than loudStaleMs (frozen tab, dead Wi-Fi, socket not yet closed) is reset to silent: no ghost voices
+  const loudMsgAt = new WeakMap<ServerPlayer, number>();
+  ctx.hooks.loud.push(function netLoud(_crew, player) { loudMsgAt.set(player, performance.now()); noteLoud(player); });
+  ctx.registerSystem({
+    name: 'net.loudStale',
+    order: 2,
+    tick(_dt, crew) {
+      const now = performance.now();
+      const staleMs = netBalance(ctx).loudStaleMs;
+      for (const p of crew.players.values()) {
+        if (p.band <= 0 && !(p.radio && !p.connected)) continue;
+        if (!p.connected || now - (loudMsgAt.get(p) ?? 0) > staleMs) { p.band = 0; if (!p.connected) p.radio = 0; }
+      }
+    },
+  });
 
   // ---- movement validation ----
   ctx.hooks.pose.push(makePoseHook(ctx));
@@ -34,6 +51,13 @@ export function install(ctx: ServerContext): void {
     }
     startGrace(player);
     session.schedule();
+    if (session.voidedPlayers.delete(player.id)) {
+      // after a mid-contract server restart the crew lands back in the van: say why (no silent 'did we fail?')
+      const crew = _crew;
+      setTimeout(() => {
+        if (player.connected) ctx.emit(crew, 'notice', { text: 'The host restarted the game. Contract voided, no penalty.', kind: 'warn' }, { to: [player.id] });
+      }, 1500);
+    }
   });
   ctx.hooks.leave.push(function netSessionLeave(_crew, _player, info) { if (info.final) session.schedule(); });
   ctx.hooks.phase.push(function netPhase(crew) {

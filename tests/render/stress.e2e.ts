@@ -24,6 +24,9 @@ for (const webgl of [false, true]) {
   if (ONLY && ONLY !== label) continue;
   const p = await launchPlayer({ baseUrl: BASE, webgl, query: { scene: 'test', ...(PRESET ? { preset: PRESET } : {}) }, viewport: { width: W, height: H } });
   try {
+    // other agents edit the shared tree: refuse Vite's HMR socket (a full reload mid-test drops window.__render)
+    await p.page.routeWebSocket((u) => !u.pathname.endsWith('/ws'), () => { /* swallow */ });
+    await p.page.reload({ waitUntil: 'domcontentloaded' });
     await p.page.waitForFunction(() => !!window.__render && window.__game?.ready() === true, undefined, { timeout: 60_000, polling: 100 });
     // the core loop starts only after every track's install: wait until frames advance
     await p.page.waitForFunction(() => Number(window.__render!.info().frames) > 60, undefined, { timeout: 60_000, polling: 100 });

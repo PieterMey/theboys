@@ -81,14 +81,50 @@ const PITCH_MAX = 1.48;
 
 export interface StepInfo { kind: 'crouchStep' | 'walkStep' | 'sprintStep'; pos: V3 }
 
+/** last all-finite pose per local player: a single NaN (dt, look delta, speed multiplier, collision) can never wedge movement */
+interface GoodPose { x: number; y: number; z: number; yaw: number; pitch: number; eye: number; stamina: number }
+const lastGood = new WeakMap<LocalPlayer, GoodPose>();
+let nanWarned = 0;
+const fin = Number.isFinite;
+
+/** resets any non-finite pose / velocity / camera field to the last finite value (logs the first few times) */
+export function sanitizeLocal(me: LocalPlayer, where: string): void {
+  let g = lastGood.get(me);
+  if (!g) { g = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, eye: PLAYER.eye, stamina: 1 }; lastGood.set(me, g); }
+  const bad: string[] = [];
+  if (!fin(me.pos.x) || !fin(me.pos.y) || !fin(me.pos.z)) { bad.push('pos'); me.pos.set(g.x, g.y, g.z); }
+  if (!fin(me.vel.x) || !fin(me.vel.y) || !fin(me.vel.z)) { bad.push('vel'); me.vel.set(0, 0, 0); }
+  if (!fin(me.yaw)) { bad.push('yaw'); me.yaw = g.yaw; }
+  if (!fin(me.pitch)) { bad.push('pitch'); me.pitch = g.pitch; }
+  if (!fin(me.eye)) { bad.push('eye'); me.eye = g.eye; }
+  if (!fin(me.stamina)) { bad.push('stamina'); me.stamina = g.stamina; }
+  if (!fin(me.speedMult)) { bad.push('speedMult'); me.speedMult = 1; }
+  if (!fin(me.speed)) { bad.push('speed'); me.speed = 0; }
+  if (!fin(me.bobPhase) || !fin(me.bobAmp) || !fin(me.roll) || !fin(me.stride)) { bad.push('bob'); me.bobPhase = 0; me.bobAmp = 0; me.roll = 0; me.stride = 0; }
+  if (!fin(me.cam.x) || !fin(me.cam.y) || !fin(me.cam.z)) { bad.push('cam'); me.cam.set(me.pos.x, me.pos.y + me.eye, me.pos.z); }
+  if (!fin(me.camQuat.x) || !fin(me.camQuat.y) || !fin(me.camQuat.z) || !fin(me.camQuat.w)) {
+    bad.push('camQuat');
+    tmpEuler.set(me.pitch, me.yaw + Math.PI, 0, 'YXZ');
+    me.camQuat.setFromEuler(tmpEuler);
+  }
+  if (bad.length) {
+    if (nanWarned++ < 5) console.warn(`[players] non-finite ${bad.join(',')} at ${where}: reset to the last finite pose`);
+    return;
+  }
+  g.x = me.pos.x; g.y = me.pos.y; g.z = me.pos.z; g.yaw = me.yaw; g.pitch = me.pitch; g.eye = me.eye; g.stamina = me.stamina;
+}
+
 /** advance the local player one frame; returns a footstep if one happened */
-export function stepLocal(ctx: ClientContext, me: LocalPlayer, input: InputCore, dt: number): StepInfo | null {
+export function stepLocal(ctx: ClientContext, me: LocalPlayer, input: InputCore, dtIn: number): StepInfo | null {
+  // a NaN / negative / huge frame time must never reach the integrators (vel += (target - vel) * k stays NaN forever)
+  const dt = fin(dtIn) ? Math.min(0.1, Math.max(0, dtIn)) : 0;
+  sanitizeLocal(me, 'pre-step');
   const bal = (ctx.balance.players ?? {}) as Record<string, number>;
   const frozen = me.frozen.size > 0 || me.dead || me.hidden;
   const look = input.takeLook();
   if (!frozen || me.hidden) {
-    me.yaw += look.dYaw;
-    me.pitch = Math.max(-PITCH_MAX, Math.min(PITCH_MAX, me.pitch + look.dPitch));
+    if (fin(look.dYaw)) me.yaw += look.dYaw;
+    if (fin(look.dPitch)) me.pitch = Math.max(-PITCH_MAX, Math.min(PITCH_MAX, me.pitch + look.dPitch));
   }
   me.yaw = Math.atan2(Math.sin(me.yaw), Math.cos(me.yaw));
 
@@ -120,13 +156,13 @@ export function stepLocal(ctx: ClientContext, me: LocalPlayer, input: InputCore,
   if (sprinting) me.stamina = Math.max(0, me.stamina - dt / MOVE.staminaSec);
   else me.stamina = Math.min(1, me.stamina + dt / MOVE.staminaRegenSec * (moving < 0.1 ? 1.25 : 1));
 
+  if (!fin(me.vel.x) || !fin(me.vel.z)) me.vel.set(0, 0, 0);
   // collide
   const ox = me.pos.x, oz = me.pos.z;
   const nav = levelNav(ctx);
   if (nav) {
     const [nx, nz] = moveCircle(nav.grid, [me.pos.x, me.pos.z], [me.vel.x * dt, me.vel.z * dt], PLAYER.radius, nav.doorOpen);
-    me.pos.x = nx;
-    me.pos.z = nz;
+    if (fin(nx) && fin(nz)) { me.pos.x = nx; me.pos.z = nz; }
   } else {
     me.pos.x += me.vel.x * dt;
     me.pos.z += me.vel.z * dt;
@@ -186,10 +222,14 @@ export function stepLocal(ctx: ClientContext, me: LocalPlayer, input: InputCore,
       step = { kind: crouch ? 'crouchStep' : sprinting ? 'sprintStep' : 'walkStep', pos: [me.pos.x, 0, me.pos.z] };
     }
   } else me.stride = Math.min(me.stride, strideLen * 0.5);
+  sanitizeLocal(me, 'post-step');
   return step;
 }
 
 export function applyCamera(cam: THREE.PerspectiveCamera, me: LocalPlayer): void {
+  const q = me.camQuat;
+  // never hand a non-finite camera to the renderer / audio listener (keeps the last good camera instead)
+  if (!fin(me.cam.x) || !fin(me.cam.y) || !fin(me.cam.z) || !fin(q.x) || !fin(q.y) || !fin(q.z) || !fin(q.w)) return;
   cam.position.copy(me.cam);
   cam.quaternion.copy(me.camQuat);
   cam.updateMatrixWorld();

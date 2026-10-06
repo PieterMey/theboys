@@ -137,6 +137,8 @@ export interface MetaState {
   serverInteract?: boolean;
   /** contracts finished by this crew in total (career) */
   contractsDone?: number;
+  /** results phase: ids of players who pressed 'back to the van' (per-player continue) */
+  continued?: string[];
   /** leader is holding DRIVE until this server time (ms) */
   holdUntil?: number;
 }
@@ -162,7 +164,8 @@ export interface MetaReqs {
   'meta.profile': { args: { profile: Profile }; result: { ok: boolean; profile: Profile; reason?: string } };
   /** generate a new claim PIN for this player's save */
   'meta.newPin': { args: Record<string, never> | undefined; result: { claim: string } };
-  /** results -> hub (leader, or anyone after the shift memo) */
-  'meta.continue': { args: Record<string, never> | undefined; result: { ok: boolean; reason?: string } };
+  /** results -> hub (leader, or anyone after the shift memo). vote:true = per-player 'back to the van': the crew moves on
+   *  once every connected player has voted (or the countdown ends); waiting = players still reading */
+  'meta.continue': { args: { vote?: boolean } | Record<string, never> | undefined; result: { ok: boolean; reason?: string; waiting?: number } };
   'meta.state': { args: Record<string, never> | undefined; result: { meta: MetaState; workOrders: WorkOrder[]; activeOrder: WorkOrder | null } };
 }

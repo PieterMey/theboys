@@ -208,12 +208,29 @@ export function bandRadius(ctx: ServerContext, band: number): number {
   return Number.isFinite(v) ? v : (BAND_RADIUS_M[band] ?? 0);
 }
 
-/** voice loudness of living speakers as noise (van cab sealed), ~6.7 Hz */
+/** voice loudness of living speakers as noise (van cab sealed), ~6.7 Hz; also samples who is moving / loud */
 function voiceNoise(rt: Rt, dt: number): void {
   const { cm, crew, ctx } = rt;
   cm.voiceAcc += dt;
   if (cm.voiceAcc < 0.15) return;
+  const el = Math.max(0.05, cm.voiceAcc);
   cm.voiceAcc = 0;
+  const act = (cm.activity ??= new Map());
+  for (const p of crew.players.values()) {
+    if (!isAlive(crew, p)) continue;
+    const [px, , pz] = p.pose.p;
+    let ac = act.get(p.id);
+    if (!ac) {
+      ac = { x: px, z: pz, movedAt: -100, loudAt: -100 };
+      act.set(p.id, ac);
+    }
+    const sp = dist(ac.x, ac.z, px, pz) / el;
+    // walking / sprinting (creeping in a crouch does not count); a teleport-sized jump is ignored
+    if (sp < 30 && (sp > 2.0 || (sp > 0.5 && p.pose.stance !== 1))) ac.movedAt = cm.time;
+    if (p.band > BAND.whisper) ac.loudAt = cm.time;
+    ac.x = px;
+    ac.z = pz;
+  }
   for (const p of crew.players.values()) {
     if (p.band <= BAND.silent || !isAlive(crew, p)) continue;
     const [x, , z] = p.pose.p;
@@ -229,6 +246,34 @@ function canHear(a: Agent): boolean {
   return a.active;
 }
 
+/** continuous sound classes: one utterance / one burst of steps from one source is ONE sound */
+const STREAM_CLASS: Record<string, string> = { voice: 'v', radio: 'r', walkStep: 'w', sprintStep: 's', crouchStep: 'c' };
+
+/** crew time the stream this noise belongs to started; a new stream needs a gap of >= distinctGapSec of silence */
+function streamStart(rt: Rt, n: Noise): number {
+  const cm = rt.cm;
+  const cls = n.source ? STREAM_CLASS[n.kind] : undefined;
+  if (!cls) return cm.time;
+  const gap = num(rt.hound, 'distinctGapSec', 0.8);
+  const streams = (cm.streams ??= new Map());
+  const key = `${cls}|${n.source}`;
+  const st = streams.get(key);
+  if (st && cm.time - st.last < gap) {
+    st.last = cm.time;
+    return st.start;
+  }
+  streams.set(key, { start: cm.time, last: cm.time });
+  if (streams.size > 64) for (const [k, v] of streams) if (cm.time - v.last > 30) streams.delete(k);
+  return cm.time;
+}
+
+/** true if this living player walked/sprinted or spoke above a whisper within the last `sec` seconds */
+export function activeRecently(rt: Rt, pid: string, sec: number): boolean {
+  const ac = rt.cm.activity?.get(pid);
+  if (!ac) return true;
+  return rt.cm.time - ac.movedAt <= sec || rt.cm.time - ac.loudAt <= sec;
+}
+
 function processNoise(rt: Rt): void {
   const { cm, crew } = rt;
   const q = cm.noiseQ;
@@ -242,6 +287,7 @@ function processNoise(rt: Rt): void {
       const sp = crew.players.get(n.source);
       if (sp && !isAlive(crew, sp)) continue; // the dead make no noise for monsters
     }
+    if (n.start === undefined) n.start = streamStart(rt, n);
     let field: Float32Array | null = null;
     const doorish = n.kind === 'door' || n.kind === 'securityDoor';
     for (const a of cm.agents) {

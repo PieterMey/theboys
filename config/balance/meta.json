@@ -1,5 +1,6 @@
 {
-  "driveSec": 6,
+  "driveSec": 12,
+  "firstDriveSec": 16,
   "resultsSec": 60,
   "shiftEndResultsSec": 150,
   "holdDriveSec": 3,

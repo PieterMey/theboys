@@ -23,7 +23,8 @@ export interface Conn {
 
 export interface CrewCore extends CrewRegistry {
   handleHello(conn: Conn, hello: HelloMsg): void;
-  handleClose(conn: Conn): void;
+  /** deliberate = the client closed with LEAVE_CLOSE_CODE ('Leave the shift'): release the slot now */
+  handleClose(conn: Conn, deliberate?: boolean): void;
   /** expire held slots / empty crews (called ~1 Hz by the loop) */
   sweep(now: number): void;
   kick(crew: Crew, id: string, reason?: string): void;
@@ -44,6 +45,22 @@ export interface RestoreEntry {
   code: string;
   password?: string;
   players: { id: string; resume: string }[];
+}
+
+/** WebSocket close code a client sends for a deliberate leave (the held slot is released at once). */
+export const LEAVE_CLOSE_CODE = 4100;
+
+/** /voicetest joins as 'voicetest': a voice-only observer (never alive, no avatar, never leader). */
+export function isObserver(p: ServerPlayer): boolean {
+  return (p.slices as { observer?: unknown }).observer === true;
+}
+
+/** Sticky observer: alive reads false whatever other tracks assign (revive-all, phase resets). */
+function markObserver(p: ServerPlayer): void {
+  p.slices.observer = true;
+  p.band = 0;
+  p.radio = 0;
+  Object.defineProperty(p, 'alive', { get: () => false, set: () => { /* observers never live */ }, enumerable: true, configurable: true });
 }
 
 export function playerIdFromKey(key: string): string {
@@ -115,7 +132,7 @@ export function createCrews(ctx: ServerContext): CrewCore {
 
   const recomputeLeader = (crew: Crew) => {
     let leader: ServerPlayer | null = null;
-    for (const p of crew.players.values()) if (p.connected && (!leader || p.joinedAt < leader.joinedAt)) leader = p;
+    for (const p of crew.players.values()) if (p.connected && !isObserver(p) && (!leader || p.joinedAt < leader.joinedAt)) leader = p;
     for (const p of crew.players.values()) p.isLeader = p === leader;
   };
 
@@ -230,7 +247,14 @@ export function createCrews(ctx: ServerContext): CrewCore {
       } else {
         const wasMember = restoredIds.get(crew.code)?.has(id) === true;
         if (crew.password && hello.password !== crew.password && !isAdmin && !wasMember) return reject(conn, 'bad_password', 'wrong crew password');
-        if (crew.players.size >= cap()) return reject(conn, 'crew_full', `crew is full (${cap()})`);
+        if (crew.players.size >= cap()) {
+          // capacity counts connected players: a newcomer takes over the oldest held (away) slot
+          let away: ServerPlayer | null = null;
+          for (const q of crew.players.values()) if (!q.connected && (!away || q.disconnectedAt < away.disconnectedAt)) away = q;
+          if (!away) return reject(conn, 'crew_full', `crew is full (${cap()})`);
+          log.info(`crew ${crew.code} full: ${away.name}'s held slot released for a newcomer`);
+          removePlayer(crew, away, 'expired');
+        }
         // same key held in another crew -> drop that slot
         for (const other of crews.values()) {
           const dup = other !== crew ? other.players.get(id) : undefined;
@@ -252,6 +276,7 @@ export function createCrews(ctx: ServerContext): CrewCore {
         crew.players.set(id, player);
         resumes.set(player.resume, { code: crew.code, id });
       }
+      if (cleanName(hello.name).toLowerCase() === 'voicetest' && !isObserver(player)) markObserver(player);
       if (resumed) {
         player.name = cleanName(hello.name);
         player.profile = cleanProfile(hello.profile, player.name);
@@ -277,13 +302,21 @@ export function createCrews(ctx: ServerContext): CrewCore {
       log.info(`${player.name} (${player.id}) ${resumed ? 'resumed' : 'joined'} crew ${crew.code} [${crew.players.size}]`);
     },
 
-    handleClose(conn) {
+    handleClose(conn, deliberate) {
       const { crew, player } = conn;
       if (!crew || !player || player.socket !== conn.ws) return;
       player.socket = null;
       player.connected = false;
       player.disconnectedAt = performance.now();
+      // a dropped socket is silent: monsters must never hear a ghost (the last 'loud' band would stick for 90 s)
+      player.band = 0;
+      player.radio = 0;
       runHooks(ctx, 'leave', ctx.hooks.leave, crew, player, { final: false, reason: 'disconnect' });
+      if (deliberate && crew.players.get(player.id) === player) {
+        log.info(`${player.name} (${player.id}) left ${crew.code}; slot released`);
+        removePlayer(crew, player, 'expired');
+        return;
+      }
       reg.broadcastRoster(crew);
       log.info(`${player.name} (${player.id}) disconnected from ${crew.code}; slot held ${NET.resumeHoldMs / 1000}s`);
     },
