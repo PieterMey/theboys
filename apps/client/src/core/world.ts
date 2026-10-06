@@ -76,10 +76,16 @@ export interface World {
   applyFull(state: FullState): void;
   applySnap(s: Snapshot): void;
   observeServerTime(serverMs: number): void;
+  // --- additive (track ① Net) ---
+  /** called after every applied snapshot with its local arrival time (performance.now()) */
+  onSnap(fn: (s: Snapshot, arrivedAt: number) => void): () => void;
+  /** current estimate of serverTime - performance.now() (ms) */
+  clockOffset(): number;
 }
 
 export function createWorld(): World {
   const subs = new Set<() => void>();
+  const snapSubs = new Set<(s: Snapshot, arrivedAt: number) => void>();
   let offset = 0; // serverTime - performance.now()
   let haveOffset = false;
 
@@ -134,7 +140,18 @@ export function createWorld(): World {
       syncMap(w.players, s.players, s.t);
       syncMap(w.monsters, s.monsters, s.t);
       syncMap(w.dyn, s.dyn, s.t);
+      if (snapSubs.size) {
+        const at = performance.now();
+        for (const fn of snapSubs) {
+          try { fn(s, at); } catch { /* listener errors never break snapshot application */ }
+        }
+      }
     },
+    onSnap(fn) {
+      snapSubs.add(fn);
+      return () => snapSubs.delete(fn);
+    },
+    clockOffset: () => offset,
     observeServerTime(serverMs) {
       const sample = serverMs - performance.now();
       if (!haveOffset || sample > offset) {

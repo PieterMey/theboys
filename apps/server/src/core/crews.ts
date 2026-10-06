@@ -27,6 +27,23 @@ export interface CrewCore extends CrewRegistry {
   /** expire held slots / empty crews (called ~1 Hz by the loop) */
   sweep(now: number): void;
   kick(crew: Crew, id: string, reason?: string): void;
+  // ---- additive (track ① Net): admin flag + session restore after a server restart ----
+  /** true if this player presented the admin token in any Hello of this process */
+  isAdmin(id: string): boolean;
+  /**
+   * Re-create crews from a saved session (saves/session.json). Crews come back empty in phase 'hub';
+   * their former members (by id / resume token) may rejoin without the crew password. Existing crews are kept.
+   */
+  restoreSession(entries: RestoreEntry[]): void;
+  /** ids of the former members of a restored crew (empty set if none) */
+  restoredMembers(code: string): ReadonlySet<string>;
+}
+
+/** One crew from saves/session.json (see track ① Net, apps/server/src/net/session.ts). */
+export interface RestoreEntry {
+  code: string;
+  password?: string;
+  players: { id: string; resume: string }[];
 }
 
 export function playerIdFromKey(key: string): string {
@@ -81,6 +98,10 @@ export function createCrews(ctx: ServerContext): CrewCore {
   const log = ctx.log('crews');
   const crews = new Map<string, Crew>();
   const resumes = new Map<string, { code: string; id: string }>();
+  /** resume tokens of a previous process (restored session) -> crew code + player id */
+  const restoredResumes = new Map<string, { code: string; id: string }>();
+  const restoredIds = new Map<string, Set<string>>();
+  const admins = new Set<string>();
   const env = ctx.env;
   const openJoin = env.dev || env.mode === 'test';
 
@@ -180,10 +201,11 @@ export function createCrews(ctx: ServerContext): CrewCore {
       if (key.length < 8 || key.length > 128) return reject(conn, 'server', 'bad player key');
       const isAdmin = typeof hello.admin === 'string' && safeEq(hello.admin, env.ADMIN_TOKEN);
       const id = playerIdFromKey(key);
+      if (isAdmin) admins.add(id);
 
-      // 1) resume token, 2) crew code, 3) create
+      // 1) resume token (this process, then a restored session), 2) crew code, 3) create
       let crew: Crew | undefined;
-      const r = hello.resume ? resumes.get(hello.resume) : undefined;
+      const r = hello.resume ? (resumes.get(hello.resume) ?? restoredResumes.get(hello.resume)) : undefined;
       if (r && r.id === id) crew = crews.get(r.code);
       let created = false;
       if (!crew) {
@@ -206,7 +228,8 @@ export function createCrews(ctx: ServerContext): CrewCore {
           old.close(4005, 'replaced');
         }
       } else {
-        if (crew.password && hello.password !== crew.password && !isAdmin) return reject(conn, 'bad_password', 'wrong crew password');
+        const wasMember = restoredIds.get(crew.code)?.has(id) === true;
+        if (crew.password && hello.password !== crew.password && !isAdmin && !wasMember) return reject(conn, 'bad_password', 'wrong crew password');
         if (crew.players.size >= cap()) return reject(conn, 'crew_full', `crew is full (${cap()})`);
         // same key held in another crew -> drop that slot
         for (const other of crews.values()) {
@@ -264,6 +287,26 @@ export function createCrews(ctx: ServerContext): CrewCore {
       reg.broadcastRoster(crew);
       log.info(`${player.name} (${player.id}) disconnected from ${crew.code}; slot held ${NET.resumeHoldMs / 1000}s`);
     },
+
+    isAdmin: (id) => admins.has(id),
+    restoreSession(entries) {
+      for (const e of entries) {
+        const code = normCode(e.code);
+        if (!code) continue;
+        if (!crews.has(code)) {
+          const crew = reg.create(code, { password: e.password || undefined });
+          crew.emptySince = performance.now();
+        }
+        let ids = restoredIds.get(code);
+        if (!ids) restoredIds.set(code, (ids = new Set()));
+        for (const p of e.players) {
+          if (typeof p.id !== 'string' || !p.id) continue;
+          ids.add(p.id);
+          if (typeof p.resume === 'string' && p.resume) restoredResumes.set(p.resume, { code, id: p.id });
+        }
+      }
+    },
+    restoredMembers: (code) => restoredIds.get(normCode(code)) ?? new Set<string>(),
 
     sweep(now) {
       for (const crew of [...crews.values()]) {

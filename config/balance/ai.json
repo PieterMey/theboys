@@ -1,0 +1,48 @@
+{
+  "sttLangs": "en,nl",
+  "sttTimeoutMs": 4000,
+  "sttQueueMax": 2,
+  "sttStaleMs": 5000,
+  "sttMinSegmentMs": 250,
+  "sttMaxSegmentMs": 10500,
+  "sttIdleCloseMs": 1500,
+  "sttHealthEveryMs": 10000,
+  "sttPhases": ["contract"],
+  "quotesPerPlayer": 40,
+  "recentUtterances": 50,
+  "walkieLeakMult": 0.6,
+
+  "listenerMinIntervalMs": 2900,
+  "listenerMaxHeard": 6,
+  "listenerMaxAgeSec": 20,
+  "listenerJevMinConfidence": 0.5,
+  "listenerHaikuMaxTokens": 120,
+  "tauntWindowSec": 8,
+
+  "jevModel": "jev-1.13.0",
+  "jevUrl": "https://api.typesafe.ai/v1",
+  "jevTimeoutMs": 900,
+  "haikuTimeoutMs": 3000,
+  "haikuColdTimeoutMs": 8000,
+  "directorTimeoutMs": 900,
+  "briefTimeoutMs": 120000,
+  "reviewTimeoutMs": 55000,
+  "refusalRetryTimeoutMs": 20000,
+  "writerMaxTokens": 16000,
+  "writerExpectedOutTokens": 3000,
+  "haikuRetryMaxTokens": 2500,
+  "briefMaxPerSession": 12,
+  "reviewMaxPerSession": 4,
+
+  "breakerFailures": 2,
+  "breakerOpenMs": 60000,
+  "budgetWindowHours": 12,
+  "warmupHaiku": true,
+
+  "pricesPerMTok": {
+    "claude-opus-5-5": { "in": 4, "out": 20, "cacheWrite": 5, "cacheRead": 0.2 },
+    "claude-haiku-4-5": { "in": 1, "out": 5, "cacheWrite": 1.25, "cacheRead": 0.1 },
+    "claude-sonnet-5-5": { "in": 2, "out": 10, "cacheWrite": 2.5, "cacheRead": 0.2 },
+    "jev": { "in": 0.042, "out": 0 }
+  }
+}

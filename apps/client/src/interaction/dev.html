@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>DEAD AIR (interaction dev entry)</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #030405; overflow: hidden; }
+      #game, #overlay { position: fixed; inset: 0; }
+      #game canvas { display: block; width: 100%; height: 100%; }
+      #overlay { pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+    <div id="overlay"></div>
+    <script type="module" src="./devmain.ts"></script>
+  </body>
+</html>

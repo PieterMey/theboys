@@ -1,0 +1,46 @@
+{
+  "rangeSlackM": 0.5,
+  "securityHoldMs": 2000,
+  "consoleDoorCooldownMs": 5000,
+  "consoleRangeM": 4,
+  "handDoorCooldownMs": 350,
+  "medkitWindowSec": 30,
+  "badgeReviveSec": 20,
+  "reviveHp": 50,
+  "bottleSpeed": 11,
+  "bottleUp": 2.2,
+  "gravity": 9.8,
+  "bottleMaxSec": 3,
+  "crowbarRangeM": 2,
+  "crowbarArcDeg": 100,
+  "crowbarCooldownMs": 650,
+  "airhornCooldownMs": 2500,
+  "glowRadiusM": 2,
+  "flashlightConeDeg": 25,
+  "flashlightRangeM": 12,
+  "lootTierValues": [
+    [
+      8,
+      35
+    ],
+    [
+      35,
+      90
+    ],
+    [
+      150,
+      300
+    ]
+  ],
+  "worldExtras": {
+    "bottle": 2,
+    "glowstick": 1,
+    "crowbar": 1,
+    "airhorn": 1,
+    "medkit": 1
+  },
+  "companyWalkies": 2,
+  "lightsRecomputeTicks": 6,
+  "flashlightBatterySec": 840,
+  "flashlightRechargeSec": 25
+}

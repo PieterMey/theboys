@@ -1,0 +1,35 @@
+{
+ "route": "listener.haiku",
+ "key": "316841e007b33752",
+ "provider": "anthropic",
+ "raw": {
+  "model": "claude-haiku-4-5-20251001",
+  "id": "msg_011CfmCpcZ3Z3gEZfJVRt8SY",
+  "type": "message",
+  "role": "assistant",
+  "content": [
+   {
+    "type": "text",
+    "text": "{\"action\":\"ambush_room\",\"target_room\":\"COLDROOM\",\"target_player\":\"p1\",\"note\":\"They plan to meet in the cold room soon\"}"
+   }
+  ],
+  "container": null,
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "stop_details": null,
+  "usage": {
+   "input_tokens": 1209,
+   "cache_creation_input_tokens": 0,
+   "cache_read_input_tokens": 0,
+   "cache_creation": {
+    "ephemeral_5m_input_tokens": 0,
+    "ephemeral_1h_input_tokens": 0
+   },
+   "output_tokens": 38,
+   "service_tier": "standard",
+   "inference_geo": "not_available"
+  },
+  "diagnostics": null
+ },
+ "ms": 1282
+}

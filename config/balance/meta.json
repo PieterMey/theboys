@@ -1,0 +1,32 @@
+{
+  "driveSec": 6,
+  "resultsSec": 60,
+  "shiftEndResultsSec": 150,
+  "holdDriveSec": 3,
+  "freeWalkiesPerShift": 2,
+  "quotaJitter": [0.85, 1.15],
+  "shop": [
+    { "id": "walkie", "name": "Walkie-talkie", "price": 40, "type": "walkie", "qty": 1, "desc": "Hold Q to transmit. Everyone holding one hears you. So might something else." },
+    { "id": "crowbar", "name": "Crowbar", "price": 30, "type": "crowbar", "qty": 1, "desc": "LMB to swing. Frees a grabbed teammate, pries jammed doors. Loud." },
+    { "id": "bottles", "name": "Bottles x3", "price": 15, "type": "bottle", "qty": 3, "desc": "LMB to throw. A 15 m crash the Hound cannot resist." },
+    { "id": "glowsticks", "name": "Glowsticks x5", "price": 10, "type": "glowstick", "qty": 5, "desc": "Drop to mark a path. Keeps a Mannequin lit." },
+    { "id": "medkit", "name": "Medkit", "price": 45, "type": "medkit", "qty": 1, "desc": "Revive a teammate where they fell, within 30 s. Single use." }
+  ],
+  "xp": {
+    "contract": 25,
+    "survive": 40,
+    "perScrip": 0.12,
+    "core": 60,
+    "request": 25,
+    "death": 10,
+    "quotaMet": 100,
+    "fired": 30
+  },
+  "risk2MinAvgLevel": 2,
+  "risk2Achievement": "Core Business",
+  "payoutMult": { "1": 1.0, "2": 1.4, "3": 1.9 },
+  "briefAiWaitSec": 25,
+  "reviewAiWaitSec": 60,
+  "fallbackContractSec": 960,
+  "saveDebounceMs": 400
+}

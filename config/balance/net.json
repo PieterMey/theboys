@@ -1,0 +1,14 @@
+{
+  "speedMult": 1.35,
+  "moveSlackSec": 0.6,
+  "moveSlackM": 0.5,
+  "validateClosedDoors": false,
+  "rejectResyncCount": 30,
+  "correctMinMs": 300,
+  "audRangeM": 40,
+  "audSilentRefreshMs": 500,
+  "sessionSaveDebounceMs": 150,
+  "invitePollMs": 3000,
+  "interpMinMs": 80,
+  "interpMaxMs": 250
+}

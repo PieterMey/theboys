@@ -1,0 +1,31 @@
+{
+ "route": "review.memo",
+ "key": "default",
+ "provider": "anthropic",
+ "note": "hand-written",
+ "raw": {
+  "id": "msg_fixture",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-opus-5-5",
+  "content": [
+   {
+    "type": "thinking",
+    "thinking": "",
+    "signature": "fixture"
+   },
+   {
+    "type": "text",
+    "text": "{\"title\":\"Most Audible Employee\",\"line1\":\"Located the Core, the vault and every squeaky floorboard in the facility.\",\"line2\":\"HR reminds you that narrating your route is not a team-building exercise.\",\"quote_index\":0}"
+   }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+   "input_tokens": 1400,
+   "output_tokens": 420,
+   "cache_creation_input_tokens": 0,
+   "cache_read_input_tokens": 0
+  }
+ }
+}

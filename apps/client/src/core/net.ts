@@ -50,6 +50,13 @@ export interface Net {
   identity(): { playerKey: string; name: string; profile: Profile };
   setIdentity(p: { name?: string; profile?: Profile }): void;
   adminToken(): string | null;
+  // --- additive (track ① Net) ---
+  /** last server 'err' (stale_build, kicked, unknown_crew, ...) for this page, or null */
+  readonly lastError: { code: ErrCode; msg: string } | null;
+  /** fires on every server 'err' message (the server closes the socket right after) */
+  onServerError(fn: (code: ErrCode, msg: string) => void): () => void;
+  /** last raw RTT sample (ms) and the time it was measured (performance.now()) */
+  readonly rttSample: { ms: number; at: number };
 }
 
 const LS = { key: 'deadair.key', name: 'deadair.name', profile: 'deadair.profile', admin: 'deadair.admin' } as const;
@@ -87,6 +94,9 @@ export function createNet(world: World, bus: Bus, onError: (msg: string) => void
   const evSubs = new Map<string, Set<(d: unknown, t: number) => void>>();
   const sigSubs = new Set<(from: string, d: unknown) => void>();
   const statusSubs = new Set<(s: NetStatus) => void>();
+  const errSubs = new Set<(code: ErrCode, msg: string) => void>();
+  let lastError: { code: ErrCode; msg: string } | null = null;
+  const rttSample = { ms: 0, at: 0 };
 
   const setStatus = (s: NetStatus) => {
     if (status === s) return;
@@ -191,6 +201,8 @@ export function createNet(world: World, bus: Bus, onError: (msg: string) => void
       case 'pong': {
         const sample = performance.now() - m.c;
         rtt = rtt ? rtt * 0.8 + sample * 0.2 : sample;
+        rttSample.ms = sample;
+        rttSample.at = performance.now();
         world.observeServerTime(m.s + sample / 2);
         return;
       }
@@ -201,8 +213,14 @@ export function createNet(world: World, bus: Bus, onError: (msg: string) => void
           joinWaiter.reject(e);
           joinWaiter = null;
         }
-        onError(`server: ${m.code}: ${m.msg}`);
-        if (m.code === 'stale_build' || m.code === 'kicked') setStatus('failed');
+        lastError = { code: m.code, msg: m.msg };
+        // expected, user-facing outcomes are shown by the net track's screens, not logged as errors
+        if (m.code !== 'stale_build' && m.code !== 'kicked' && m.code !== 'unknown_crew') onError(`server: ${m.code}: ${m.msg}`);
+        else console.warn(`server: ${m.code}: ${m.msg}`);
+        if (m.code === 'stale_build' || m.code === 'kicked' || m.code === 'unknown_crew') setStatus('failed');
+        for (const fn of errSubs) {
+          try { fn(m.code, m.msg); } catch (err) { onError(`err listener: ${err instanceof Error ? err.message : err}`); }
+        }
         return;
       }
     }
@@ -322,6 +340,12 @@ export function createNet(world: World, bus: Bus, onError: (msg: string) => void
       if (p.profile) lsSet(LS.profile, JSON.stringify(p.profile));
     },
     adminToken: () => lsGet(LS.admin),
+    get lastError() { return lastError; },
+    onServerError(fn) {
+      errSubs.add(fn);
+      return () => errSubs.delete(fn);
+    },
+    rttSample,
   };
   return net;
 }

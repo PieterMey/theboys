@@ -1,0 +1,36 @@
+{
+  "lootValue": { "small": [8, 35], "medium": [35, 90], "heavy": [150, 300] },
+  "lootClassByTier": [
+    { "small": 0.8, "medium": 0.2, "heavy": 0 },
+    { "small": 0.45, "medium": 0.45, "heavy": 0.1 },
+    { "small": 0.25, "medium": 0.5, "heavy": 0.25 }
+  ],
+  "lootSlotWeightByTier": [1, 1.6, 2.4],
+  "lootMaxPerSpace": 3,
+  "lootMaxHeavy": 2,
+  "lootFragileChance": 0.22,
+  "fragileLossFrac": 0.1,
+  "carryUnits": { "small": 1, "medium": 1, "heavy": 2 },
+  "carryCapacity": 2,
+  "coreValue": [300, 500],
+  "coreDropLossFrac": 0.15,
+  "coreLeashM": 3.2,
+  "coreLeashGraceSec": 0.5,
+  "coreHandleOffsetM": 0.75,
+  "coreGrabRangeM": 2.2,
+  "leverWindowSec": 1.0,
+  "leverCooldownSec": 20,
+  "keypadWrongLimit": 3,
+  "keypadLockoutSec": 10,
+  "interactSlackM": 0.8,
+  "vanMarginM": 0.6,
+  "vanRearM": 1.4,
+  "stateMinIntervalMs": 200,
+  "requests": {
+    "ALL_SURVIVE": 100,
+    "EXTRACT_ABOVE": 75,
+    "EXTRACT_ABOVE_frac": 0.55,
+    "LURE_IT_WITH_A_LIE": 150
+  },
+  "coreReminderMin": 240
+}

@@ -1,0 +1,31 @@
+{
+ "route": "brief.opus",
+ "key": "default",
+ "provider": "anthropic",
+ "note": "hand-written; fits a 2-note template ({{CODE_A}} | {{CODE_B}} {{ROOM_1}}) with 2 requests",
+ "raw": {
+  "id": "msg_fixture",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-opus-5-5",
+  "content": [
+   {
+    "type": "thinking",
+    "thinking": "",
+    "signature": "fixture"
+   },
+   {
+    "type": "text",
+    "text": "{\"site_name\":\"Saint Agnes Pumping Works\",\"history\":\"Built to keep the valley dry, it ran three shifts a day until the night crew started logging a hum under the floor. The hum learned their names.\",\"memo\":\"Your safety is our second priority. Recover the Core, keep radio chatter brief, and do not answer anyone who calls you from an empty room.\",\"requests\":[\"Bring every contractor home. The paperwork for the alternative is exhausting.\",\"Haul more than 400 scrip. Anything less will be discussed at length.\"],\"notes\":[{\"title\":\"Taped to a locker\",\"body\":\"Night lead says the first half is {{CODE_A}}. Do not say it out loud in the halls.\"},{\"title\":\"Back of a receipt\",\"body\":\"Second half {{CODE_B}}. Ask whoever is in {{ROOM_1}}. If they answer, run.\"}]}"
+   }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+   "input_tokens": 1400,
+   "output_tokens": 420,
+   "cache_creation_input_tokens": 0,
+   "cache_read_input_tokens": 0
+  }
+ }
+}

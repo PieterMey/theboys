@@ -1,6 +1,7 @@
 # DEAD AIR: build plan
 
 *Co-op horror for 2–6 friends that runs in the browser, built tonight (Tue 6 Oct 2026) by Claude Code agents. "DEAD AIR" is a working title.*
+*Build log (16:30): the build started at 15:40. P0 is done: contracts, skeleton (G0 green), STT on the GPU, AI checks, 47 MB of assets. The level track started early. P1 (net/render/voice/players) and P2 (objectives/interaction/monsters/meta/AI) now run **in parallel** in one shared working tree with strict file ownership (CLAUDE.md) instead of separate worktrees. Target: play at ~20:45.*
 *Status: **plan v1.1**. v1 was reviewed by three independent agents (tonight feasibility, technical correctness, player fun; see [docs/research/plan-reviews.md](docs/research/plan-reviews.md)) and every critical and high finding is applied here. **I'm waiting for your "go" and the answers in [§11](#11-what-i-need-from-you).** The research behind this is in [docs/research](docs/research/README.md), and much of it was measured on your PC.*
 
 ## 0. TL;DR

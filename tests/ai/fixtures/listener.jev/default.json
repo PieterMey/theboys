@@ -1,0 +1,26 @@
+{
+ "route": "listener.jev",
+ "key": "default",
+ "provider": "jev",
+ "note": "hand-written: low confidence so the Haiku fallback runs",
+ "raw": {
+  "model": "jev-1.13.0",
+  "answers": {
+   "action": {
+    "choice": "ambush_room",
+    "confidence": 0.42,
+    "probabilities": {
+     "ambush_room": 0.42,
+     "investigate_room": 0.31,
+     "stalk_player": 0.15,
+     "radio_lure": 0.05,
+     "retreat": 0.04,
+     "ignore": 0.03
+    }
+   }
+  },
+  "usage": {
+   "input_tokens": 980
+  }
+ }
+}

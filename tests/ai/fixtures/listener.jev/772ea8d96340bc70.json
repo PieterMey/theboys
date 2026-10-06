@@ -1,0 +1,28 @@
+{
+ "route": "listener.jev",
+ "key": "772ea8d96340bc70",
+ "provider": "jev",
+ "raw": {
+  "model": "jev-1.13.0",
+  "answers": {
+   "action": {
+    "type": "choice",
+    "choice": "ambush_room",
+    "confidence": 0.87,
+    "probabilities": {
+     "stalk_player": 0.02,
+     "ambush_room": 0.89,
+     "radio_lure": 0,
+     "investigate_room": 0.08,
+     "ignore": 0,
+     "retreat": 0.01
+    }
+   }
+  },
+  "usage": {
+   "input_tokens": 691,
+   "output_tokens": 72
+  }
+ },
+ "ms": 241
+}

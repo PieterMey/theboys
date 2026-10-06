@@ -1,0 +1,123 @@
+{
+ "_doc": "Track 3 Render defaults (PLAN 4.9). Tuned by eye from tests/render/stress.e2e.ts screenshots (tests/artifacts/render_<backend>_<view>.png). Units: light intensities in candela (physical), flashlight decay 1.6 for game-readable throw; volume.density is the VolumeNodeMaterial scattering scale (r186 example range 1-2); bloom.threshold is luminance (HDR, pre-tonemap); fx.ca is ChromaticAberrationNode strength; grade.contrast is a toe-preserving power curve (never clips darks). Pool sizes (shadowed/unshadowed/fixtures) and shadowMap apply at page load; everything else switches live via services.render.setPreset.",
+ "exposure": 1.0,
+ "ambient": {
+  "sky": "#7a8aa0",
+  "ground": "#14120e",
+  "intensity": 0.3
+ },
+ "fog": {
+  "color": "#06080a",
+  "density": 0.085,
+  "height": 3.4
+ },
+ "flashlight": {
+  "angle": 0.42,
+  "penumbra": 0.7,
+  "decay": 1.6,
+  "distance": 28,
+  "intensity1": 260,
+  "intensity2": 380,
+  "color1": "#ffe3bd",
+  "color2": "#e4eeff",
+  "bias": -0.0004,
+  "normalBias": 0.02,
+  "shadowRadius": 3,
+  "near": 0.12,
+  "cone": 0.07
+ },
+ "volume": {
+  "density": 1.4,
+  "noiseScale": 0.55,
+  "drift": 0.06,
+  "strength": 1.0,
+  "blur": 0.3
+ },
+ "fixture": {
+  "color": "#d9f2c4",
+  "intensity": 12,
+  "distance": 9,
+  "decay": 2,
+  "halo": 0.55,
+  "tube": 3.2
+ },
+ "bloom": {
+  "strength": 0.38,
+  "radius": 0.5,
+  "threshold": 0.9
+ },
+ "fx": {
+  "ca": 0.22,
+  "grain": 0.07,
+  "vignette": 0.42,
+  "desat": 0.32
+ },
+ "grade": {
+  "shadowTint": [
+   0.82,
+   0.92,
+   1.12
+  ],
+  "midTint": [
+   1.02,
+   1.04,
+   0.9
+  ],
+  "contrast": 1.06,
+  "lift": 0.012
+ },
+ "presets": {
+  "low": {
+   "shadowed": 2,
+   "unshadowed": 4,
+   "shadowMap": 512,
+   "volumetric": false,
+   "volScale": 0.25,
+   "volSteps": 8,
+   "gtao": false,
+   "aoScale": 0.5,
+   "res": 0.75,
+   "fixtures": 8,
+   "traa": false
+  },
+  "medium": {
+   "shadowed": 4,
+   "unshadowed": 2,
+   "shadowMap": 1024,
+   "volumetric": true,
+   "volScale": 0.25,
+   "volSteps": 8,
+   "gtao": true,
+   "aoScale": 0.5,
+   "res": 1.0,
+   "fixtures": 16,
+   "traa": true
+  },
+  "high": {
+   "shadowed": 6,
+   "unshadowed": 0,
+   "shadowMap": 1024,
+   "volumetric": true,
+   "volScale": 0.25,
+   "volSteps": 12,
+   "gtao": true,
+   "aoScale": 0.5,
+   "res": 1.0,
+   "fixtures": 24,
+   "traa": true
+  },
+  "ultra": {
+   "shadowed": 6,
+   "unshadowed": 0,
+   "shadowMap": 2048,
+   "volumetric": true,
+   "volScale": 0.5,
+   "volSteps": 16,
+   "gtao": true,
+   "aoScale": 1.0,
+   "res": 1.0,
+   "fixtures": 32,
+   "traa": true
+  }
+ }
+}

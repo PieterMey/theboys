@@ -1,0 +1,31 @@
+{
+ "route": "review.comments",
+ "key": "default",
+ "provider": "anthropic",
+ "note": "hand-written",
+ "raw": {
+  "id": "msg_fixture",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-opus-5-5",
+  "content": [
+   {
+    "type": "thinking",
+    "thinking": "",
+    "signature": "fixture"
+   },
+   {
+    "type": "text",
+    "text": "{\"comments\":[\"Someone keeps whispering room names into the vents. Please stop.\",\"The van radio answered me before I spoke.\",\"Requesting a flashlight that works when it matters.\",\"The dog was fine. The dog was not fine.\",\"Quota felt like a personal attack.\",\"I miss the old Listener. It was quieter.\",\"Who left the walkie on in the chapel?\",\"Five stars for the Core, minus four for the screaming.\"],\"letter\":\"\"}"
+   }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+   "input_tokens": 1400,
+   "output_tokens": 420,
+   "cache_creation_input_tokens": 0,
+   "cache_read_input_tokens": 0
+  }
+ }
+}

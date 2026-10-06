@@ -1,0 +1,60 @@
+/* Owner: track ① Net. Connection widget (top-right HUD) + error screens. */
+.nethud {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  pointer-events: auto;
+  font: 600 11px/1 var(--font-mono);
+  letter-spacing: 0.14em;
+}
+.nethud-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.6);
+  padding: 5px 8px;
+  color: var(--dim);
+}
+.nethud-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); box-shadow: 0 0 6px currentColor; }
+.nethud-good .nethud-dot { background: var(--green); color: var(--green); }
+.nethud-warn .nethud-dot { background: var(--amber); color: var(--amber); }
+.nethud-bad .nethud-dot { background: var(--red); color: var(--red); animation: nethud-blink 1s steps(2) infinite; }
+.nethud-status { color: var(--text); }
+.nethud-rtt { color: var(--dim); }
+.nethud-label { color: var(--amber); font-size: 9px; letter-spacing: 0.24em; }
+.nethud-code { color: var(--text); font-size: 13px; letter-spacing: 0.3em; }
+.nethud-count { color: var(--dim); }
+.nethud-btn {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--text);
+  font: 700 10px var(--font-mono);
+  letter-spacing: 0.16em;
+  padding: 4px 7px;
+  cursor: pointer;
+}
+.nethud-btn:hover { border-color: var(--amber); color: var(--amber); }
+@keyframes nethud-blink { 50% { opacity: 0.35; } }
+
+.neterr { border-top-color: var(--red); }
+.neterr-title { font-size: 44px; }
+.neterr-body { margin: 16px 0 6px; line-height: 1.5; letter-spacing: 0.06em; }
+.neterr-detail { margin: 0 0 12px; font-size: 11px; color: var(--dim); }
+
+.nethud-link { background: transparent; border: 0; padding: 0; font: inherit; letter-spacing: inherit; color: var(--dim); cursor: pointer; }
+.nethud-link:hover { color: var(--amber); }
+.nethud-roster {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 220px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.72);
+  padding: 6px 8px;
+}
+.nethud-player { display: flex; align-items: center; gap: 8px; padding: 3px 0; color: var(--text); }
+.nethud-player > span:first-child { flex: 1; }
+.nethud-off { color: var(--dim); }
+.nethud-pstate { color: var(--green); font-size: 9px; }

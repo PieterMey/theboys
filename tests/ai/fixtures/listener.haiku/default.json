@@ -1,0 +1,26 @@
+{
+ "route": "listener.haiku",
+ "key": "default",
+ "provider": "anthropic",
+ "note": "hand-written",
+ "raw": {
+  "id": "msg_fixture",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-haiku-4-5",
+  "content": [
+   {
+    "type": "text",
+    "text": "{\"action\":\"ambush_room\",\"target_room\":\"CHAPEL\",\"target_player\":\"p1\",\"note\":\"Waiting inside the chapel for them\"}"
+   }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+   "input_tokens": 1400,
+   "output_tokens": 32,
+   "cache_creation_input_tokens": 0,
+   "cache_read_input_tokens": 0
+  }
+ }
+}

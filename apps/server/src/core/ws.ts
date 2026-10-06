@@ -1,6 +1,6 @@
 // WebSocket endpoint on /ws: binary frames only, byte 0 = FRAME kind. Dispatches hello/pose/loud/req/sig/ping
 // and voice chunks; pings every NET.pingMs (self-rescheduling setTimeout, never setInterval).
-import type { Server as HttpServer } from 'node:http';
+import type { Server as HttpServer, IncomingMessage, ServerResponse } from 'node:http';
 import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
 import { FRAME, decodeMsg, decodeVoiceChunk, encodeMsg } from '@dead-air/shared/envelope.ts';
@@ -13,11 +13,39 @@ import { rateLimited } from './log.ts';
 
 const fin = (v: unknown, d = 0): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
+// ---- additive (track ① Net): tiny GET/HEAD route table for JSON APIs (e.g. /api/invite), checked before
+// the static/Vite handlers. Register at track install time (before the server listens).
+export type HttpRoute = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
+const httpRoutes = new Map<string, HttpRoute>();
+export function registerHttpRoute(path: string, handler: HttpRoute): void {
+  httpRoutes.set(path, handler);
+}
+
+function attachRoutes(http: HttpServer, warn: (key: string, ...a: unknown[]) => void): void {
+  const prev = http.listeners('request') as ((req: IncomingMessage, res: ServerResponse) => void)[];
+  http.removeAllListeners('request');
+  http.on('request', (req: IncomingMessage, res: ServerResponse) => {
+    const path = (req.url ?? '/').split('?')[0].split('#')[0];
+    const route = (req.method === 'GET' || req.method === 'HEAD') ? httpRoutes.get(path) : undefined;
+    if (route) {
+      Promise.resolve()
+        .then(() => route(req, res))
+        .catch((e: unknown) => {
+          warn(`route ${path} threw`, e instanceof Error ? e.message : e);
+          if (!res.headersSent) { res.statusCode = 500; res.end('error'); }
+        });
+      return;
+    }
+    for (const l of prev) l.call(http, req, res);
+  });
+}
+
 export function attachWs(http: HttpServer, ctx: ServerContext, internals: Internals, crews: CrewCore): { close(): void } {
   const log = ctx.log('ws');
   const warn = rateLimited(log);
   const wss = new WebSocketServer({ noServer: true, maxPayload: NET.maxPayload, perMessageDeflate: false });
   const conns = new Map<WebSocket, Conn>();
+  attachRoutes(http, warn);
 
   http.on('upgrade', (req, socket, head) => {
     const path = (req.url ?? '').split('?')[0];
