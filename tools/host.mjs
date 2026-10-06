@@ -9,6 +9,9 @@
 //  (e) prints the admin URL (host only), the invite link and a paste-ready Discord message.
 // State (pids, admin token, the night's crew code) lives in saves/host.json (gitignored, never commit).
 // Flags: --no-build --no-stt --no-tunnel --restart --no-follow. Env: PORT (3000), CF_METRICS (127.0.0.1:20241).
+// NAMED TUNNEL (permanent link): set CLOUDFLARE_TUNNEL_TOKEN + PUBLIC_URL (e.g. https://play.dead-air.io) in .env.
+//   The token is passed to cloudflared via the TUNNEL_TOKEN env var (never on the command line / in logs).
+//   If the 'Cloudflared' Windows service is installed and running, it is used instead and nothing is started.
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes, randomInt } from 'node:crypto';
 import { existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, writeFileSync, createReadStream } from 'node:fs';
@@ -24,6 +27,22 @@ const LOGS = join(ROOT, 'logs');
 const ALPHA = 'BCDFGHJKLMNPQRSTVWXZ';
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** read selected keys from .env (values are never printed) */
+export function envFromFile(keys) {
+  const out = {};
+  try {
+    for (const line of readFileSync(ENV_FILE, 'utf8').split(/\r?\n/)) {
+      const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+      if (m && keys.includes(m[1])) out[m[1]] = m[2].trim().replace(/^['"]|['"]$/g, '');
+    }
+  } catch { /* no .env */ }
+  for (const k of keys) if (process.env[k]) out[k] = process.env[k];
+  return out;
+}
+const NAMED = envFromFile(['CLOUDFLARE_TUNNEL_TOKEN', 'PUBLIC_URL']);
+/** permanent public base URL (named tunnel), e.g. https://play.dead-air.io, or null */
+export const PUBLIC_URL = NAMED.CLOUDFLARE_TUNNEL_TOKEN && NAMED.PUBLIC_URL ? NAMED.PUBLIC_URL.replace(/\/+$/, '') : null;
 const say = (...a) => console.log('[host]', ...a);
 const warn = (...a) => console.warn('[host] WARN', ...a);
 
@@ -56,7 +75,22 @@ export async function sttHealth() {
   }
 }
 
+async function namedTunnelReady() {
+  try {
+    const r = await fetch(`http://${METRICS}/ready`, { signal: AbortSignal.timeout(1200) });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+function windowsServiceRunning(name = 'Cloudflared') {
+  const r = spawnSync('sc', ['query', name], { encoding: 'utf8', windowsHide: true });
+  return /STATE\s*:\s*4\s+RUNNING/i.test(r.stdout ?? '');
+}
+
 export async function tunnelHost() {
+  if (PUBLIC_URL) return new URL(PUBLIC_URL).host;
   const j = await getJson(`http://${METRICS}/quicktunnel`, 1200);
   return j && typeof j.hostname === 'string' && j.hostname.includes('.') ? j.hostname : null;
 }
@@ -104,6 +138,7 @@ export function ensureHostSecrets(state) {
 export async function startGameServer(state, port = PORT) {
   // AI_MODE defaults to 'live' for the real session (dev/tests default to mock); override with AI_MODE=mock
   const env = { ...process.env, AI_MODE: process.env.AI_MODE ?? 'live', PORT: String(port), NODE_ENV: 'production', ADMIN_TOKEN: state.adminToken, HOST_CREW: state.crew };
+  if (PUBLIC_URL) env.INVITE_BASE = PUBLIC_URL;
   const args = existsSync(ENV_FILE) ? [`--env-file=${ENV_FILE}`, 'apps/server/src/index.ts', '--prod'] : ['apps/server/src/index.ts', '--prod'];
   const pid = detached(process.execPath, args, 'server.log', env);
   state.serverPid = pid;
@@ -150,8 +185,39 @@ async function ensureStt(state) {
   warn('STT: not healthy after 90 s; continuing without it (check logs/stt.log)');
 }
 
+async function ensureNamedTunnel(state) {
+  const host = new URL(PUBLIC_URL).host;
+  if (windowsServiceRunning()) { say(`tunnel: Windows service 'Cloudflared' is running -> using it (${PUBLIC_URL})`); return host; }
+  // switching from the old quick tunnel: it holds the metrics port (its /ready would look like ours) -> stop it
+  const quick = await getJson(`http://${METRICS}/quicktunnel`, 1200);
+  if (quick && typeof quick.hostname === 'string' && quick.hostname.includes('.')) {
+    say(`tunnel: stopping the old quick tunnel (https://${quick.hostname}) -> switching to ${PUBLIC_URL}`);
+    if (state.tunnelPid) killTree(state.tunnelPid);
+    const r = spawnSync('powershell', ['-NoProfile', '-Command', `Get-CimInstance Win32_Process -Filter "Name='cloudflared.exe'" | Where-Object { $_.CommandLine -match 'tunnel --url' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`], { windowsHide: true });
+    void r;
+    await sleep(1500);
+  }
+  if (state.tunnelKind === 'named' && (await namedTunnelReady())) { say(`tunnel: re-attached named tunnel (${PUBLIC_URL})`); return host; }
+  const exe = join(ROOT, 'tools/bin/cloudflared.exe');
+  if (!existsSync(exe)) { warn('tunnel: tools/bin/cloudflared.exe missing'); return null; }
+  const env = { ...process.env, TUNNEL_TOKEN: NAMED.CLOUDFLARE_TUNNEL_TOKEN };
+  state.tunnelPid = detached(exe, ['tunnel', '--no-autoupdate', '--metrics', METRICS, 'run'], 'cloudflared.log', env);
+  state.tunnelStartedAt = new Date().toISOString();
+  state.tunnelKind = 'named';
+  writeState(state);
+  say(`tunnel: named tunnel starting (pid ${state.tunnelPid}, logs/cloudflared.log) ...`);
+  const t0 = Date.now();
+  while (Date.now() - t0 < 45_000) {
+    if (await namedTunnelReady()) { say(`tunnel: ${PUBLIC_URL} connected (${((Date.now() - t0) / 1000).toFixed(0)} s)`); return host; }
+    await sleep(500);
+  }
+  warn('tunnel: named tunnel not ready after 45 s (check the token, the public hostname route play -> http://localhost:3000, and logs/cloudflared.log)');
+  return host;
+}
+
 async function ensureTunnel(state) {
   if (process.argv.includes('--no-tunnel')) { say('tunnel: skipped (--no-tunnel)'); return null; }
+  if (PUBLIC_URL) return ensureNamedTunnel(state);
   const existing = await tunnelHost();
   if (existing) { say(`tunnel: re-attached https://${existing}`); return existing; }
   const exe = join(ROOT, 'tools/bin/cloudflared.exe');
