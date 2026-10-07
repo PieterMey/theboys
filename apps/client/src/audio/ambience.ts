@@ -3,6 +3,7 @@
 // radio static generator. All synthesized on the shared graph (ambBus).
 import type { AudioGraph, V3 } from './graph.ts';
 import { setPannerPos } from './graph.ts';
+import { crackleRng, crackleStep } from './crackle.ts';
 
 export interface FixtureLike { space: number; pos: V3; state: 'on' | 'off' | 'flicker' | 'broken' }
 
@@ -18,6 +19,10 @@ export class Ambience {
   private nextBeat = 0;
   private staticGain: GainNode;
   private crackleGain: GainNode;
+  /** audio time of the next scheduled static pop, and whether pops are being scheduled */
+  private nextCrackle = 0;
+  private crackling = false;
+  private crackleRnd = crackleRng();
   private hums = new Map<string, Hum>();
   private humBus: GainNode;
   private flickers = new Map<number, number>();
@@ -110,12 +115,25 @@ export class Ambience {
         this.nextBeat += 60 / bpm;
       }
     }
-    // crackle bursts while static is up
+    // crackle pops while static is up: irregular, density follows the static level (crackle.ts), scheduled on the
+    // audio clock ~120 ms ahead so the rhythm doesn't depend on this update's rate
     const st = this.staticGain.gain.value;
     if (st > 0.005) {
-      const k = (Math.sin(now * 37.1) + Math.sin(now * 13.7)) * 0.5;
-      this.crackleGain.gain.setTargetAtTime(k > 0.8 ? st * 2.5 : 0, now, 0.004);
-    } else if (this.crackleGain.gain.value > 0) this.crackleGain.gain.setTargetAtTime(0, now, 0.02);
+      const level = st / 0.08;
+      if (!this.crackling || this.nextCrackle < now) this.nextCrackle = now + crackleStep(level, this.crackleRnd).wait;
+      this.crackling = true;
+      while (this.nextCrackle < now + 0.12) {
+        const pop = crackleStep(level, this.crackleRnd);
+        const t0 = this.nextCrackle;
+        this.crackleGain.gain.setValueAtTime(st * 2.5 * pop.amp, t0);
+        this.crackleGain.gain.setTargetAtTime(0, t0 + pop.dur, 0.004);
+        this.nextCrackle = t0 + pop.wait;
+      }
+    } else if (this.crackling) {
+      this.crackling = false;
+      this.crackleGain.gain.cancelScheduledValues(now);
+      this.crackleGain.gain.setTargetAtTime(0, now, 0.02);
+    }
     // fluorescent hums: the 6 nearest lit fixtures within 12 m
     if (!listener || !fixtures) return;
     const near = fixtures
