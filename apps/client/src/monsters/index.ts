@@ -369,7 +369,9 @@ export function install(ctx: ClientContext): void {
     if (!c) return false;
     const lm = ctx.world.sampleMonster(gs.id);
     const dl = lm ? Math.hypot(c[0] - lm.p[0], c[2] - lm.p[2]) : 99;
-    return Math.min(dl, Math.hypot(c[0] - gs.p[0], c[2] - gs.p[2])) <= 2.8;
+    // the server's shove range (balance listener.shoveRangeM) plus a little slack for interpolation
+    const range = Number((ctx.balance.monsters as { listener?: { shoveRangeM?: number } } | undefined)?.listener?.shoveRangeM ?? 2.6) + 0.2;
+    return Math.min(dl, Math.hypot(c[0] - gs.p[0], c[2] - gs.p[2])) <= range;
   };
   const shove = (kind: 'shove' | 'melee') => {
     if (!nearGrab() || performance.now() - lastShove < 250) return;
