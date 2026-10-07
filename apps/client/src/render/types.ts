@@ -103,6 +103,10 @@ export interface RenderService {
   busy(): void;
   /** pause drawing (an opaque loading screen covers the canvas): GPU free for uploads; warm-up frames still draw */
   hold(on: boolean): void;
+  /** in-game frame cap in fps (0 = uncapped, the default; persisted per browser, ?maxfps= overrides at load).
+   *  Covered views are capped regardless: title menu perf.menuFps (menuBlurFps unfocused), loading perf.coverFps. */
+  setMaxFps(fps: number): void;
+  maxFps(): number;
   /** layer used by the volumetric pass (lights that should make beams enable it) */
   volumeLayer: number;
   /** test/scene override for flashlights when no players service exists */

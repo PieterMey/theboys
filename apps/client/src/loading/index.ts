@@ -37,6 +37,8 @@ export interface LoadingService {
   /** the join failed: hide the screen (the menu shows the error) */
   cancel(): void;
   readonly active: boolean;
+  /** the overlay is up and fully opaque (not fading out): the 3D view under it draws capped (render perf.coverFps) */
+  readonly covering: boolean;
   /** drive-time preload status (drive screen) */
   readonly drive: Signal<DriveLoad>;
 }
@@ -202,6 +204,7 @@ export function install(ctx: ClientContext): void {
       view.value = { ...view.value, visible: false, fading: false };
     },
     get active() { return view.value.visible; },
+    get covering() { return view.value.visible && !view.value.fading; },
     drive,
   };
   ctx.services.provide('loading', service);

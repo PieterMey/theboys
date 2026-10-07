@@ -117,8 +117,26 @@ function makeCone(len: number, angle: number, color: THREE.Color) {
 
 export interface FlashlightPool {
   slots: Slot[];
-  update(list: FlashlightInfo[], camera: THREE.PerspectiveCamera, t: number, dt: number, opts: { activeShadowed: number; volumetric: boolean; reduceFlicker: boolean }): void;
+  /** opts.parkShadows (default true): an unassigned shadowed slot stops re-rendering its shadow map (one last render
+   *  of the parked, empty frustum, then autoUpdate off until the slot is assigned again; three r186 otherwise redraws
+   *  every map every frame, 5 of 6 2048^2 passes in the title menu). castShadow and the light count never change. */
+  update(list: FlashlightInfo[], camera: THREE.PerspectiveCamera, t: number, dt: number, opts: { activeShadowed: number; volumetric: boolean; reduceFlicker: boolean; parkShadows?: boolean }): void;
   usedShadowed(): number;
+}
+
+/** parked shadowed slot: render its (empty) shadow frustum once more, then leave the map alone */
+function sleepShadow(s: Slot): void {
+  const sh = s.light.shadow;
+  if (!sh.autoUpdate) return;
+  sh.autoUpdate = false;
+  sh.needsUpdate = true;
+}
+/** assigned again: the map renders this very frame (update() runs before the draw) and every frame after */
+function wakeShadow(s: Slot): void {
+  const sh = s.light.shadow;
+  if (sh.autoUpdate) return;
+  sh.autoUpdate = true;
+  sh.needsUpdate = true;
 }
 
 export function createFlashlightPool(scene: THREE.Scene, cfg: FlashCfg, shadowed: number, unshadowed: number, shadowMap: number, volLayer: number): FlashlightPool {
@@ -206,8 +224,10 @@ export function createFlashlightPool(scene: THREE.Scene, cfg: FlashCfg, shadowed
           s.light.target.position.set(0, -600, 0);
           s.coneK.value = 0;
           s.cone.visible = false;
+          if (s.shadowed) { if (opts.parkShadows === false) wakeShadow(s); else sleepShadow(s); }
           continue;
         }
+        if (s.shadowed) wakeShadow(s);
         if (s.id !== f.id) s.cur = f.on ? 1 : 0;
         s.id = f.id;
         if (s.shadowed) used++;

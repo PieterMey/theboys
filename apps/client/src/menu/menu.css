@@ -27,11 +27,15 @@
   transition: background 0.3s;
 }
 .mm-has-panel .mm-shade { background-color: rgba(0, 0, 0, 0.28); }
+/* The atmosphere layers are compositor-only and cheap (2026-10-07 host crashes): no mix-blend-mode / filter over the
+   live 3D canvas (an overlay blend re-composited the whole screen against the canvas every frame), the grain is the
+   pre-rasterised noise tile moved by whole steps with plain alpha, and the roll band steps at 30 Hz so the compositor
+   only redraws when something changed (the 3D backdrop under the menu draws at 30 fps, render perf.menuFps). */
 .mm-grain {
   position: absolute; inset: -60px; pointer-events: none; z-index: 6;
   background-image: var(--m-grain, none);
-  opacity: 0.13;
-  mix-blend-mode: overlay;
+  opacity: 0.045;
+  will-change: transform;
   animation: mm-grain 0.5s steps(3) infinite;
 }
 .mm-scan {
@@ -42,7 +46,8 @@
 .mm-roll {
   position: absolute; left: 0; right: 0; top: -30vh; height: 26vh; pointer-events: none; z-index: 6;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(200, 220, 230, 0.035) 55%, rgba(255, 255, 255, 0) 100%);
-  animation: mm-roll 11s linear infinite;
+  will-change: transform;
+  animation: mm-roll 11s steps(330) infinite;
 }
 @keyframes mm-grain {
   0% { transform: translate(0, 0); }
@@ -88,12 +93,13 @@
 }
 .mm-has-panel .mm-title { font-size: clamp(60px, 6.6vw, 118px); }
 .mm-title span { display: inline-block; animation: mm-flicker 9s infinite; }
+/* glitch slices: plain alpha (no screen blend), one fixed clip per layer, animated by transform + opacity only */
 .mm-title::before, .mm-title::after {
   content: attr(data-text); position: absolute; left: 0; top: 0; pointer-events: none; opacity: 0;
-  text-shadow: none;
+  text-shadow: none; will-change: transform, opacity;
 }
-.mm-title::before { color: #ff3b2f; mix-blend-mode: screen; animation: mm-glitch-a 9s infinite; }
-.mm-title::after { color: #3ff6ff; mix-blend-mode: screen; animation: mm-glitch-b 9s infinite; }
+.mm-title::before { color: #ff3b2f; clip-path: inset(12% 0 52% 0); animation: mm-glitch-a 9s infinite; }
+.mm-title::after { color: #3ff6ff; clip-path: inset(50% 0 18% 0); animation: mm-glitch-b 9s infinite; }
 @keyframes mm-flicker {
   0%, 41%, 43.5%, 46%, 71%, 72.4%, 100% { opacity: 1; }
   42% { opacity: 0.35; }
@@ -102,16 +108,16 @@
   71.8% { opacity: 0.2; }
 }
 @keyframes mm-glitch-a {
-  0%, 41%, 46%, 71%, 73%, 100% { opacity: 0; transform: none; clip-path: inset(0 0 0 0); }
-  42% { opacity: 0.55; transform: translate(-6px, 1px); clip-path: inset(12% 0 58% 0); }
-  44% { opacity: 0.4; transform: translate(4px, 0); clip-path: inset(62% 0 8% 0); }
-  72% { opacity: 0.5; transform: translate(-3px, 0); clip-path: inset(30% 0 40% 0); }
+  0%, 41%, 46%, 71%, 73%, 100% { opacity: 0; transform: none; }
+  42% { opacity: 0.42; transform: translate(-6px, 1px); }
+  44% { opacity: 0.3; transform: translate(4px, 0); }
+  72% { opacity: 0.38; transform: translate(-3px, 0); }
 }
 @keyframes mm-glitch-b {
-  0%, 41%, 46%, 71%, 73%, 100% { opacity: 0; transform: none; clip-path: inset(0 0 0 0); }
-  42.5% { opacity: 0.45; transform: translate(6px, -1px); clip-path: inset(48% 0 22% 0); }
-  45% { opacity: 0.35; transform: translate(-4px, 0); clip-path: inset(6% 0 70% 0); }
-  72.2% { opacity: 0.4; transform: translate(3px, 0); clip-path: inset(55% 0 15% 0); }
+  0%, 41%, 46%, 71%, 73%, 100% { opacity: 0; transform: none; }
+  42.5% { opacity: 0.34; transform: translate(6px, -1px); }
+  45% { opacity: 0.26; transform: translate(-4px, 0); }
+  72.2% { opacity: 0.3; transform: translate(3px, 0); }
 }
 .mm-sub {
   display: flex; align-items: center; gap: 16px; margin-top: 16px;
@@ -248,19 +254,18 @@
 .mm-entering-k { font: 700 10.5px/1 var(--font-mono, monospace); letter-spacing: 0.42em; color: var(--mm-amber); }
 .mm-entering-t { margin-top: 14px; font: 900 64px/0.9 var(--mm-stencil); letter-spacing: 0.06em; text-transform: uppercase; color: var(--mm-text); animation: mm-flicker 4s infinite; }
 .mm-entering-bar { position: relative; width: 260px; height: 2px; margin: 26px auto 0; background: #1d2124; overflow: hidden; }
-.mm-entering-bar i { position: absolute; top: 0; bottom: 0; width: 40%; background: var(--mm-amber); animation: mm-scanbar 1.2s ease-in-out infinite; }
-@keyframes mm-scanbar { from { left: -40%; } to { left: 100%; } }
+.mm-entering-bar i { position: absolute; top: 0; bottom: 0; left: 0; width: 40%; background: var(--mm-amber); will-change: transform; animation: mm-scanbar 1.2s ease-in-out infinite; }
+@keyframes mm-scanbar { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
 @keyframes mm-fade { from { opacity: 0; } }
 .mm-fadein { position: fixed; inset: 0; z-index: 2147483000; pointer-events: none; background: #000; animation: mm-fadein 1.2s ease-out forwards; }
 @keyframes mm-fadein { 0% { opacity: 1; } 25% { opacity: 1; } 100% { opacity: 0; } }
 
-/* ---------- reduce flicker (meta setting) / reduced motion ---------- */
-.mm-calm .mm-title span, .mm-calm .mm-title::before, .mm-calm .mm-title::after,
-.mm-calm .mm-grain, .mm-calm .mm-roll, .mm-calm .mm-dot, .mm-calm .mm-clock i, .mm-calm .mm-entering-t { animation: none; }
-.mm-calm .mm-roll { display: none; }
+/* ---------- reduce flicker (meta setting) / reduced motion: the moving layers are off ---------- */
+.mm-calm .mm-title span, .mm-calm .mm-dot, .mm-calm .mm-clock i, .mm-calm .mm-entering-t { animation: none; }
+.mm-calm .mm-grain, .mm-calm .mm-roll, .mm-calm .mm-title::before, .mm-calm .mm-title::after { display: none; }
 @media (prefers-reduced-motion: reduce) {
-  .mm-title span, .mm-title::before, .mm-title::after, .mm-grain, .mm-roll, .mm-entering-t { animation: none; }
-  .mm-roll { display: none; }
+  .mm-title span, .mm-entering-t { animation: none; }
+  .mm-grain, .mm-roll, .mm-title::before, .mm-title::after { display: none; }
 }
 
 /* ---------- small screens ---------- */

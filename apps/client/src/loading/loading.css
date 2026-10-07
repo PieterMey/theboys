@@ -1,4 +1,6 @@
-/* Owner: v1.1 loading screen. Compositor-only animations (transform / opacity) so it never freezes during compiles. */
+/* Owner: v1.1 loading screen. Compositor-only animations (transform / opacity) so it never freezes during compiles.
+   No mix-blend-mode / filter layers; the static noise is one pre-rasterised tile moved by whole steps, and the moving
+   bands step at 60 Hz (the compositor redraws only when a step changes, not at a 240 Hz display's rate). */
 .ld-root {
   --ld-amber: var(--m-amber, #f0b43c);
   --ld-text: #ece6d6;
@@ -26,7 +28,7 @@
 .ld-scan {
   position: absolute; left: 0; right: 0; top: 0; height: 22vh; pointer-events: none; will-change: transform;
   background: linear-gradient(180deg, transparent, rgba(160, 220, 170, 0.05) 45%, rgba(160, 220, 170, 0.09) 50%, transparent);
-  animation: ld-scan 5.5s linear infinite;
+  animation: ld-scan 5.5s steps(330) infinite;
 }
 @keyframes ld-scan { from { transform: translate3d(0, -30vh, 0); } to { transform: translate3d(0, 130vh, 0); } }
 .ld-vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 45%, transparent 55%, rgba(0, 0, 0, 0.75) 100%); }
@@ -64,7 +66,7 @@
 .ld-sweep {
   position: absolute; top: 0; bottom: 0; width: 18%; left: 0; will-change: transform;
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
-  animation: ld-sweep 1.6s linear infinite;
+  animation: ld-sweep 1.6s steps(96) infinite;
 }
 @keyframes ld-sweep { from { transform: translate3d(-120%, 0, 0); } to { transform: translate3d(620%, 0, 0); } }
 .ld-row { display: flex; gap: 18px; align-items: baseline; margin-top: 12px; flex-wrap: wrap; font: 600 13px/1.4 var(--font-mono, monospace); letter-spacing: 0.08em; }
@@ -88,6 +90,9 @@
 @media (prefers-reduced-motion: reduce) {
   .ld-static, .ld-scan, .ld-title span, .ld-sweep, .ld-dot { animation: none; }
 }
+/* reduce flicker (meta setting): no flicker, no moving static / bands; the progress bar still fills */
+.ld-calm .ld-static, .ld-calm .ld-title span, .ld-calm .ld-dot, .ld-calm .ld-sweep { animation: none; }
+.ld-calm .ld-scan { display: none; }
 /* drive screen: site preload status (apps/client/src/meta/drive.tsx) */
 .ld-drive { margin-top: 10px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font: 600 11.5px/1.3 var(--font-mono, monospace); letter-spacing: 0.14em; color: #9a9c92; text-transform: uppercase; }
 .ld-drive-bar { position: relative; width: 180px; height: 4px; background: rgba(236, 230, 214, 0.1); overflow: hidden; }

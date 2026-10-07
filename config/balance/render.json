@@ -153,7 +153,7 @@
   }
  },
  "perf": {
-  "_doc": "v1.1 host performance (apps/client/src/render/perf.ts): DPR clamped to 1 when the canvas is >= dprClampWidth CSS px wide; resCap = per-preset internal resolution cap in physical render pixels (the browser upscales); AUTO QUALITY measures windowMs windows after warmupMs of steady in-game frames: median frame > slowP50Ms or long frames (>100 ms) >= longFrames in two windows in a row -> next rung (resolution scales first, then the preset; never pool sizes / castShadow / lights); Ultra only while the typical frame sustains ultraMinFps (or the display caps lower with GPU headroom); one rung up after two windows with p95 < fastP95Ms. telemetrySec = client report period (server logs one line per player per 30 s).",
+  "_doc": "v1.1 host performance (apps/client/src/render/perf.ts): DPR clamped to 1 when the canvas is >= dprClampWidth CSS px wide; resCap = per-preset internal resolution cap in physical render pixels (the browser upscales); AUTO QUALITY measures windowMs windows after warmupMs of steady in-game frames: median frame > slowP50Ms or long frames (>100 ms) >= longFrames in two windows in a row -> next rung (resolution scales first, then the preset; never pool sizes / castShadow / lights); Ultra only while the typical frame sustains ultraMinFps (or the display caps lower with GPU headroom); one rung up after two windows with p95 < fastP95Ms. telemetrySec = client report period (server logs one line per player per 30 s). Covered views (2026-10-07 host crashes): menuFps = max draws/s of the idle 3D backdrop while the title menu / a pre-join screen covers it (menuBlurFps while the window has no focus), drawn at most menuResCap physical px; coverFps = max draws/s while the opaque loading screen covers the game and is not holding (it holds at 1 draw/s while downloading; warm-up frames always draw at full rate + resolution); maxFps = optional in-game cap (0 = uncapped; ?maxfps= / services.render.setMaxFps). ?menufps= ?menublurfps= ?coverfps= ?menures=0 override for measurements.",
   "dprClampWidth": 2560,
   "resCap": {
    "low": [
@@ -186,6 +186,14 @@
   "longFrames": 2,
   "ultraMinFps": 90,
   "fastP95Ms": 9,
-  "telemetrySec": 10
+  "telemetrySec": 10,
+  "menuFps": 30,
+  "menuBlurFps": 10,
+  "menuResCap": [
+   1920,
+   1080
+  ],
+  "coverFps": 60,
+  "maxFps": 0
  }
 }

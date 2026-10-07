@@ -60,6 +60,16 @@ export interface PerfCfg {
   /** step up only when p95 is below this (ms) for two windows in a row */
   fastP95Ms: number;
   telemetrySec: number;
+  /** title menu / pre-join screens over the idle 3D backdrop: max draws per second (0 = every frame) */
+  menuFps: number;
+  /** the same while the window has no focus (another app in front, minimized desktop window) */
+  menuBlurFps: number;
+  /** internal resolution cap (physical px) of the backdrop while the menu covers it */
+  menuResCap: [number, number];
+  /** opaque loading screen up, not held, no warm-up frame: max draws per second (0 = every frame) */
+  coverFps: number;
+  /** in-game frame cap (0 = uncapped, the default; ?maxfps= / localStorage deadair.render.maxFps override) */
+  maxFps: number;
 }
 
 export const PERF_DEFAULTS: PerfCfg = {
@@ -74,27 +84,102 @@ export const PERF_DEFAULTS: PerfCfg = {
   ultraMinFps: 90,
   fastP95Ms: 9,
   telemetrySec: 10,
+  menuFps: 30,
+  menuBlurFps: 10,
+  menuResCap: [1920, 1080],
+  coverFps: 60,
+  maxFps: 0,
 };
 
 export function readPerfCfg(raw: unknown): PerfCfg {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Partial<PerfCfg>;
-  return { ...PERF_DEFAULTS, ...r, resCap: { ...PERF_DEFAULTS.resCap, ...(r.resCap ?? {}) } };
+  const out = { ...PERF_DEFAULTS, ...r, resCap: { ...PERF_DEFAULTS.resCap, ...(r.resCap ?? {}) } };
+  const mc = out.menuResCap;
+  if (!Array.isArray(mc) || mc.length !== 2 || !(Number(mc[0]) > 0) || !(Number(mc[1]) > 0)) out.menuResCap = PERF_DEFAULTS.menuResCap;
+  for (const k of ['menuFps', 'menuBlurFps', 'coverFps', 'maxFps'] as const) {
+    const v = Number(out[k]);
+    out[k] = Number.isFinite(v) && v > 0 ? v : 0;
+  }
+  return out;
 }
 
-/** pixel ratio for the renderer: DPR (clamped on wide canvases) x per-preset cap x preset res x auto scale */
-export function pixelRatioFor(cssW: number, cssH: number, devDpr: number, p: Preset, cfg: PerfCfg, autoScale: number, opts: { clamp: boolean; cap: boolean }): { pr: number; w: number; h: number; dpr: number } {
+/** pixel ratio for the renderer: DPR (clamped on wide canvases) x per-preset cap x preset res x auto scale, then an
+ *  optional extra cap (physical px: the menu backdrop) */
+export function pixelRatioFor(cssW: number, cssH: number, devDpr: number, p: Preset, cfg: PerfCfg, autoScale: number, opts: { clamp: boolean; cap: boolean; extraCap?: readonly [number, number] | null }): { pr: number; w: number; h: number; dpr: number } {
   let dpr = Math.min(devDpr || 1, 2);
   if (opts.clamp && cssW >= cfg.dprClampWidth) dpr = Math.min(dpr, 1);
   let pr = dpr * p.res;
+  const capBy = (c: readonly [number, number]) => { pr *= Math.min(1, c[0] / Math.max(1, cssW * pr), c[1] / Math.max(1, cssH * pr)); };
   const cap = cfg.resCap[p.name];
-  if (opts.cap && cap) {
-    const k = Math.min(1, cap[0] / Math.max(1, cssW * pr), cap[1] / Math.max(1, cssH * pr));
-    pr *= k;
-  }
+  if (opts.cap && cap) capBy(cap);
   pr *= autoScale;
+  if (opts.extraCap) capBy(opts.extraCap);
   // never below ~640 px wide (unreadable)
   pr = Math.max(pr, Math.min(dpr, 640 / Math.max(1, cssW)));
   return { pr, w: Math.round(cssW * pr), h: Math.round(cssH * pr), dpr };
+}
+
+// ---------------------------------------------------------------- draw gate (frame cap)
+
+/** frame-cap state: the time slot of the last draw (ms, performance.now()) */
+export interface DrawGate { last: number }
+
+/**
+ * Frame limiter for a rAF loop: true = draw this frame. intervalMs <= 0 draws every frame, Infinity never.
+ * The slot advances by whole intervals (not to `now`), so 30 fps on a 144 Hz display alternates 5- and 4-frame gaps
+ * and averages 30; `slackMs` absorbs rAF jitter (a 60 Hz display still draws every 2nd frame at 30). A gap of more
+ * than two intervals (stall, hidden tab) resyncs instead of bursting to catch up.
+ */
+export function gateDraw(g: DrawGate, now: number, intervalMs: number, slackMs = 1.5): boolean {
+  if (!(intervalMs > 0)) { g.last = now; return true; }
+  if (intervalMs === Infinity) return false;
+  const since = now - g.last;
+  if (since < intervalMs - slackMs) return false;
+  g.last = since > intervalMs * 2 ? now : g.last + intervalMs;
+  return true;
+}
+
+/** what covers the 3D view right now (render/index.ts picks the draw interval + resolution from it) */
+export type CoverMode = 'game' | 'menu' | 'cover' | 'hold' | 'hidden';
+
+export interface CoverInputs {
+  /** ?scene=test look-dev / stress views: always full rate + resolution */
+  testScene: boolean;
+  /** document.hidden, or the desktop shell reports its window minimized / hidden */
+  hidden: boolean;
+  /** render.hold(true): the loading screen pauses drawing while it downloads */
+  hold: boolean;
+  /** the loading overlay is mounted (including its fade-out over the game) */
+  loadingVisible: boolean;
+  /** ... and fully opaque (not fading) */
+  loadingCovering: boolean;
+  /** the idle test-scene backdrop is up (no level yet: before the first join) */
+  backdrop: boolean;
+  /** ctx.ui.screen name ('join' = the title menu / bare join panel, also after leaving a crew) */
+  screen: string;
+}
+
+/** Cover state of the 3D view. The title menu (and every pre-join screen over the backdrop) is 'menu'; the opaque
+ *  loading screen is 'cover' (or 'hold' while it asked for a pause); everything else in game is 'game'. */
+export function coverMode(s: CoverInputs): CoverMode {
+  if (s.hidden) return 'hidden';
+  if (s.hold) return 'hold';
+  if (s.testScene) return 'game';
+  if (s.loadingCovering) return 'cover';
+  if (!s.loadingVisible && (s.backdrop || s.screen === 'join')) return 'menu';
+  return 'game';
+}
+
+/** ms between draws for a cover mode (0 = every frame, Infinity = none). Warm-up frames bypass the gate. */
+export function drawInterval(mode: CoverMode, cfg: Pick<PerfCfg, 'menuFps' | 'menuBlurFps' | 'coverFps' | 'maxFps'>, focused: boolean): number {
+  const per = (fps: number) => (fps > 0 ? 1000 / fps : 0);
+  switch (mode) {
+    case 'hidden': return Infinity;
+    case 'hold': return 1000;
+    case 'cover': return per(cfg.coverFps);
+    case 'menu': return per(focused || !(cfg.menuBlurFps > 0) ? cfg.menuFps : Math.min(cfg.menuBlurFps, cfg.menuFps > 0 ? cfg.menuFps : Infinity));
+    default: return per(cfg.maxFps);
+  }
 }
 
 // ---------------------------------------------------------------- auto quality

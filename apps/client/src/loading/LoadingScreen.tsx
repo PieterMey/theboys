@@ -2,8 +2,11 @@
 // a real progress bar with labelled steps (connecting -> downloading assets -> building level -> warming shaders ->
 // ready), the current step's detail (files / MB) and the elapsed time, so a slow PC never looks hung.
 // Every animation is transform/opacity only (compositor): it keeps moving while the main thread compiles shaders.
+// No blend modes or filters over the screen; the moving layers step at <= 60 Hz (the compositor redraws only on a
+// change); 'reduce flicker' (meta settings) stops them.
 import { useEffect, useState } from 'preact/hooks';
 import type { Signal } from '@preact/signals';
+import { onSettings, settings } from '../meta/state.ts';
 
 export type StepId = 'connecting' | 'assets' | 'level' | 'shaders' | 'stable' | 'ready';
 
@@ -48,12 +51,19 @@ function fmtTime(ms: number): string {
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
 
+function reduceFlicker(): boolean {
+  try { return settings().reduceFlicker; } catch { return false; }
+}
+
 export function LoadingScreen({ view }: { view: Signal<LoadingView> }) {
   const v = view.value;
   const [now, setNow] = useState(() => performance.now());
   const [tip, setTip] = useState(() => Math.floor((performance.now() / 1000) % TIPS.length));
+  const [calm, setCalm] = useState(reduceFlicker);
+  useEffect(() => onSettings(() => setCalm(reduceFlicker())), []);
   useEffect(() => {
     if (!v.visible) return;
+    setCalm(reduceFlicker());
     let t: ReturnType<typeof setTimeout>;
     const loop = () => { setNow(performance.now()); t = setTimeout(loop, 250); };
     t = setTimeout(loop, 250);
@@ -65,7 +75,7 @@ export function LoadingScreen({ view }: { view: Signal<LoadingView> }) {
   const stepLabel = v.step === 'ready' ? 'Ready' : (STEPS[cur]?.label ?? 'Loading');
   const pct = Math.max(0, Math.min(100, v.pct));
   return (
-    <div class={`ld-root${v.fading ? ' ld-fade' : ''} ld-${v.kind}`} data-testid="loading-screen" data-loading-active="" data-step={v.step} data-pct={pct.toFixed(0)}>
+    <div class={`ld-root${v.fading ? ' ld-fade' : ''} ld-${v.kind}${calm ? ' ld-calm' : ''}`} data-testid="loading-screen" data-loading-active="" data-step={v.step} data-pct={pct.toFixed(0)}>
       <div class="ld-static" />
       <div class="ld-scan" />
       <div class="ld-vignette" />

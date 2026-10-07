@@ -16,8 +16,8 @@ import type { PipeCfg } from './pipeline.ts';
 import { PRESET_NAMES, gpuName, presetForGpu, presetTable } from './presets.ts';
 import { auditSceneMaterials, makeEmissive, makeSurfaceMaterial } from './materials.ts';
 import { buildTestScene, loadFixtureLayout } from './testscene.ts';
-import { FrameTimes, createAutoQuality, createPerfPanel, pixelRatioFor, readPerfCfg } from './perf.ts';
-import type { AutoState, FrameStats } from './perf.ts';
+import { FrameTimes, coverMode, createAutoQuality, createPerfPanel, drawInterval, gateDraw, pixelRatioFor, readPerfCfg } from './perf.ts';
+import type { AutoState, CoverMode, DrawGate, FrameStats } from './perf.ts';
 import type { TestScene, TestView } from './testscene.ts';
 import { useLoose } from './types.ts';
 import type { FixtureInfo, FlashlightInfo, LevelView, PlayersView, RenderFx, RenderService, RenderStats, V3 } from './types.ts';
@@ -139,6 +139,25 @@ export async function install(ctx: ClientContext): Promise<void> {
   // ?dprclamp=0 / ?rescap=0 restore the old full-DPR behaviour (measurements).
   const perfCfg = readPerfCfg((ctx.balance.render as Record<string, unknown> | undefined)?.perf);
   const resOpts = { clamp: ctx.params.get('dprclamp') !== '0', cap: ctx.params.get('rescap') !== '0' };
+  // 2026-10-07 host crashes: the title menu drew the full Ultra backdrop at the display's 240 Hz (about half a
+  // RTX 5090, also behind other apps in the desktop shell). Covered states now draw capped (perf.menuFps /
+  // menuBlurFps / coverFps) and the menu backdrop at a reduced internal resolution (perf.menuResCap).
+  // ?menufps= / ?menublurfps= / ?coverfps= / ?maxfps= override (0 = every frame), ?menures=0 keeps full resolution.
+  const fpsParam = (k: string, d: number): number => {
+    const v = ctx.params.get(k);
+    if (v === null || v === '') return d;
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 ? n : d;
+  };
+  const gateCfg = {
+    menuFps: fpsParam('menufps', perfCfg.menuFps),
+    menuBlurFps: fpsParam('menublurfps', perfCfg.menuBlurFps),
+    coverFps: fpsParam('coverfps', perfCfg.coverFps),
+    maxFps: fpsParam('maxfps', Number(lsGet('deadair.render.maxFps')) > 0 ? Number(lsGet('deadair.render.maxFps')) : perfCfg.maxFps),
+  };
+  const menuResOn = ctx.params.get('menures') !== '0';
+  /** the menu backdrop currently renders under perf.menuResCap */
+  let menuRes = false;
   const autoQ: AutoState = {
     enabled: ctx.params.get('autoq') !== '0' && lsGet('deadair.render.autoq') !== '0',
     presetFree: !urlPreset && ctx.params.get('autoq') !== 'scale',
@@ -148,7 +167,7 @@ export async function install(ctx: ClientContext): Promise<void> {
   };
   let internal = { pr: 1, w: 0, h: 0, dpr: 1 };
   const applySize = () => {
-    internal = pixelRatioFor(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1, preset, perfCfg, autoQ.scale, resOpts);
+    internal = pixelRatioFor(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1, preset, perfCfg, autoQ.scale, { ...resOpts, extraCap: menuRes ? perfCfg.menuResCap : null });
     renderer.setPixelRatio(internal.pr);
     renderer.setSize(window.innerWidth, window.innerHeight);
     ctx.diag.renderRes = `${renderer.domElement.width}x${renderer.domElement.height}`;
@@ -228,6 +247,27 @@ export async function install(ctx: ClientContext): Promise<void> {
   let testView: TestView | null = null;
   let backdropActive = false;
   let t = 0;
+  /** what covers the canvas this frame (perf.ts coverMode) + the frame-cap slot */
+  let mode: CoverMode = 'game';
+  const gate: DrawGate = { last: 0 };
+  /** draws per second (the rAF rate stays at the display refresh: skipped frames do no GPU work) */
+  let drawsInWindow = 0;
+  let drawFps = 0;
+  let drawWindowAt = 0;
+  // desktop shell (apps/desktop preload): in a crew it never lets Chromium hide the page (voice + net keep running),
+  // so a minimized window would keep drawing at full rate; deadAirDesktop.windowState() / onWindowState(cb) report
+  // { minimized, visible, focused }: nothing is drawn while minimized / hidden (warm-up frames still are). Without the
+  // shell (a browser tab) rAF simply stops in a hidden tab. Unfocused title menu: menuBlurFps via document.hasFocus().
+  let winHidden = false;
+  try {
+    type WinState = { minimized?: boolean; visible?: boolean } | null | undefined;
+    const desk = (window as unknown as { deadAirDesktop?: { windowState?: () => WinState; onWindowState?: (cb: (s: WinState) => void) => unknown } }).deadAirDesktop;
+    const apply = (s: WinState) => { winHidden = !!s && (s.minimized === true || s.visible === false); };
+    apply(desk?.windowState?.());
+    desk?.onWindowState?.(apply);
+  } catch { /* optional shell API */ }
+  /** published on the canvas once a second for the desktop shell's heartbeat (its preload only sees the DOM) */
+  let shownDraw = '';
 
   const applyPower = (v: TestView) => {
     fixtures.setPower('all', true);
@@ -246,6 +286,8 @@ export async function install(ctx: ClientContext): Promise<void> {
 
   // ---- v1.1: frame times, auto quality, F3 panel, full warm-up ----
   const times = new FrameTimes();
+  /** draw-to-draw intervals (= the rAF intervals unless a frame cap skips frames): what auto quality judges */
+  const drawTimes = new FrameTimes();
   /** live preset switch without persisting it (auto quality) */
   const applyPreset = (name: string) => {
     const p = table[name];
@@ -259,7 +301,7 @@ export async function install(ctx: ClientContext): Promise<void> {
   };
   /** in game, visible tab, no loading / full-screen menu over the canvas */
   const steady = () => !document.hidden && !backdropActive && warmAll <= 0 && ctx.ui.screen.value.name === 'none' && !document.querySelector('[data-loading-active]');
-  const autoCtl = createAutoQuality(perfCfg, times, {
+  const autoCtl = createAutoQuality(perfCfg, drawTimes, {
     preset: () => presetName,
     presets: PRESET_NAMES,
     setPreset: (n) => { applyPreset(n); autoCtl.busy(performance.now()); },
@@ -275,6 +317,7 @@ export async function install(ctx: ClientContext): Promise<void> {
       `DEAD AIR PERF  [F3]`,
       `fps ${s.fps.toFixed(0).padStart(4)}   frame p50 ${s.p50.toFixed(1)} p95 ${s.p95.toFixed(1)} max ${s.max.toFixed(0)} ms`,
       `gpu ${gpuMs !== undefined ? `${gpuMs.toFixed(2)} ms` : 'n/a'}   cpu ${ctx.loop.perf.frameMs.toFixed(2)} ms   draws ${lastDraws}`,
+      `drawn ${drawFps.toFixed(0)}/s   view ${mode}${menuRes ? ' (menu res)' : ''}${gateCfg.maxFps > 0 ? `   cap ${gateCfg.maxFps} fps` : ''}`,
       `preset ${presetName}   ${backend}   internal ${renderer.domElement.width}x${renderer.domElement.height}`,
       `css ${window.innerWidth}x${window.innerHeight}  dpr ${(window.devicePixelRatio || 1).toFixed(2)} -> ${internal.pr.toFixed(3)}  scale ${autoQ.scale.toFixed(2)}`,
       `auto ${autoQ.enabled ? (autoQ.presetFree ? 'on' : 'scale only') : 'off'}: ${autoQ.last}`,
@@ -302,7 +345,6 @@ export async function install(ctx: ClientContext): Promise<void> {
   const savedQ = new THREE.Quaternion();
   /** loading screen covers the canvas: skip drawing (except warm-up frames), at most one draw per second */
   let holdDraw = false;
-  let lastDrawAt = 0;
   let warmAllWaiters: (() => void)[] = [];
   let proxies: THREE.Group | null = null;
   const buildProxies = (): THREE.Group => {
@@ -413,6 +455,13 @@ export async function install(ctx: ClientContext): Promise<void> {
       holdDraw = on;
       if (!on) autoCtl.busy(performance.now());
     },
+    setMaxFps(fps) {
+      const n = Number.isFinite(fps) && fps > 0 ? Math.max(20, Math.round(fps)) : 0;
+      gateCfg.maxFps = n;
+      lsSet('deadair.render.maxFps', String(n));
+      autoCtl.busy(performance.now());
+    },
+    maxFps: () => gateCfg.maxFps,
     volumeLayer: VOL_LAYER,
     setFlashlightSource(fn) { flashOverride = fn; },
     setFixtureSource(src) { fixtureOverride = src; },
@@ -447,6 +496,8 @@ export async function install(ctx: ClientContext): Promise<void> {
   }
 
   const look = new THREE.Vector3();
+  const swayDir = new THREE.Vector3();
+  const UP = new THREE.Vector3(0, 1, 0);
   const setCam = (p: V3, l: V3) => {
     camera.position.set(p[0], p[1], p[2]);
     look.set(l[0], l[1], l[2]);
@@ -465,7 +516,7 @@ export async function install(ctx: ClientContext): Promise<void> {
       const base = testView.lights[0];
       if (!base) return [];
       const sway = Math.sin(t * 0.37) * 0.22;
-      const d = new THREE.Vector3(...base.dir).applyAxisAngle(new THREE.Vector3(0, 1, 0), sway);
+      const d = swayDir.set(base.dir[0], base.dir[1], base.dir[2]).applyAxisAngle(UP, sway);
       d.y += Math.sin(t * 0.23) * 0.05;
       return [{ ...base, dir: [d.x, d.y, d.z] }];
     }
@@ -499,6 +550,7 @@ export async function install(ctx: ClientContext): Promise<void> {
   let volLayout: unknown = null;
   let maxFrameMs = 0;
   let lastNow = 0;
+  let lastDrawNow = 0;
   const frame = (dt: number) => {
     t += dt;
     const nowMs = performance.now();
@@ -512,6 +564,37 @@ export async function install(ctx: ClientContext): Promise<void> {
       scene.remove(test.group);
       backdropActive = false;
       fixtures.setPower('all', true);
+    }
+    // what covers the canvas: the title menu draws its backdrop capped and at a reduced internal resolution, the
+    // opaque loading screen capped at full resolution (or once a second while it holds); warm-up frames always draw
+    const ld = useLoose<{ active?: boolean; covering?: boolean }>(ctx, 'loading');
+    mode = coverMode({
+      testScene: sceneMode === 'test',
+      hidden: document.hidden || winHidden,
+      hold: holdDraw,
+      loadingVisible: !!ld?.active,
+      loadingCovering: !!ld?.covering,
+      backdrop: backdropActive,
+      screen: ctx.ui.screen.value.name,
+    });
+    if (mode !== 'hidden') {
+      const wantMenuRes = mode === 'menu' && menuResOn;
+      if (wantMenuRes !== menuRes) {
+        menuRes = wantMenuRes;
+        applySize();
+        autoCtl.busy(nowMs);
+      }
+    }
+    if (nowMs - drawWindowAt >= 1000) {
+      drawFps = drawWindowAt > 0 ? (drawsInWindow * 1000) / (nowMs - drawWindowAt) : 0;
+      drawsInWindow = 0;
+      drawWindowAt = nowMs;
+      const shown = `${Math.round(drawFps)} ${mode}`;
+      if (shown !== shownDraw) {
+        shownDraw = shown;
+        renderer.domElement.dataset.drawFps = String(Math.round(drawFps));
+        renderer.domElement.dataset.view = mode;
+      }
     }
     // volumetric box follows the active level (hub / facility)
     const L = backdropActive ? null : ctx.world.layout;
@@ -564,7 +647,7 @@ export async function install(ctx: ClientContext): Promise<void> {
       const p = camera.position;
       list = Array.from({ length: MAX_FLASHLIGHTS }, (_, i) => ({ id: `warm${i}`, pos: [p.x, p.y - 0.1, p.z] as V3, dir: [f.x, f.y, f.z] as V3, on: true, local: i === 0, tier: 1 as const }));
     }
-    flash.update(list, camera, t, dt, { activeShadowed: Math.min(preset.shadowed, poolShadowed), volumetric: preset.volumetric, reduceFlicker });
+    flash.update(list, camera, t, dt, { activeShadowed: Math.min(preset.shadowed, poolShadowed), volumetric: preset.volumetric, reduceFlicker, parkShadows: !dbg.has('shadowall') });
     if (warmFrames > 0) for (const s of flash.slots) s.light.intensity = Math.max(s.light.intensity * 1e-4, 1e-4);
     fixtures.update(fixtureSource(), camera, t, { max: Math.min(preset.fixtures, poolFixtures), reduceFlicker, outdoor: outdoorK });
     {
@@ -590,8 +673,15 @@ export async function install(ctx: ClientContext): Promise<void> {
 
     // one world-matrix update per frame (scene.matrixWorldAutoUpdate is off: every pass used to redo it)
     scene.updateMatrixWorld();
-    if (holdDraw && warmFrames <= 0 && warmAll <= 0 && nowMs - lastDrawAt < 1000) return;
-    lastDrawAt = nowMs;
+    if (warmFrames > 0 || warmAll > 0) gate.last = nowMs;
+    else if (!gateDraw(gate, nowMs, drawInterval(mode, gateCfg, mode !== 'menu' || document.hasFocus()))) {
+      // skipped frame: no GPU work at all (the rAF loop and every other system keep running)
+      if (spun) { camera.quaternion.copy(savedQ); camera.updateMatrixWorld(); }
+      return;
+    }
+    drawsInWindow++;
+    if (lastDrawNow > 0) drawTimes.push(nowMs - lastDrawNow, nowMs);
+    lastDrawNow = nowMs;
     renderer.info.reset();
     pipe.render();
     if (spun) { camera.quaternion.copy(savedQ); camera.updateMatrixWorld(); }
@@ -645,6 +735,8 @@ export async function install(ctx: ClientContext): Promise<void> {
         usedShadowed: flash.usedShadowed(), fixturesLit: fixtures.litCount(), exposure: renderer.toneMappingExposure,
         size: [renderer.domElement.width, renderer.domElement.height], backdrop: backdropActive, frames: ctx.loop.perf.frames,
         scale: autoQ.scale, pixelRatio: internal.pr, auto: autoQ.last, autoEnabled: autoQ.enabled, presetFree: autoQ.presetFree,
+        mode, drawFps: +drawFps.toFixed(1), menuRes, maxFps: gateCfg.maxFps,
+        parkedShadows: flash.slots.filter((s) => s.shadowed && !s.light.shadow.autoUpdate).length,
       }),
       hitch() { const m = maxFrameMs; maxFrameMs = 0; return m; },
       stats: () => service.stats(),
