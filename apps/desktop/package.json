@@ -1,0 +1,26 @@
+{
+  "name": "@dead-air/desktop",
+  "productName": "DEAD AIR",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DEAD AIR desktop shell (Electron) for Steam",
+  "author": "DEAD AIR",
+  "license": "UNLICENSED",
+  "type": "commonjs",
+  "main": "src/main.cjs",
+  "scripts": {
+    "icons": "node scripts/make-icons.mjs",
+    "start": "node scripts/make-icons.mjs --if-missing && node scripts/start.mjs",
+    "pack": "node scripts/pack.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "steam:vdf": "node scripts/steam-vdf.mjs",
+    "check": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "steamworks.js": "0.4.0"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3"
+  }
+}

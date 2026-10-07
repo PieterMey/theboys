@@ -7,15 +7,21 @@
 //  (d) game server, prod, :3000, with the .env file, detached (logs/server.log); re-attached if already healthy
 //      (use --restart to replace it; tools/server-restart.mjs restarts ONLY the game server)
 //  (e) prints the admin URL (host only), the invite link and a paste-ready Discord message.
+//  (f) desktop app host rights: writes %APPDATA%\DEAD AIR\host.json ({ v, adminToken, crew, server, writtenAt },
+//      user-only ACL) so the DEAD AIR desktop app on THIS PC opens with HOST rights and the night's crew; it only
+//      uses the file for a loopback game server that matches `server` (apps/desktop/src/host.cjs). Only the path is
+//      printed. --no-desktop skips it; --desktop-only writes it from saves/host.json and starts nothing else.
 // State (pids, admin token, the night's crew code) lives in saves/host.json (gitignored, never commit).
-// Flags: --no-build --no-stt --no-tunnel --restart --no-follow. Env: PORT (3000), CF_METRICS (127.0.0.1:20241).
+// Flags: --no-build --no-stt --no-tunnel --restart --no-follow --no-desktop --desktop-only.
+// Env: PORT (3000), CF_METRICS (127.0.0.1:20241), DEADAIR_HOST_FILE (tests: write the desktop host file there).
 // NAMED TUNNEL (permanent link): set PUBLIC_URL (e.g. https://play.dead-air.io) in .env, plus CLOUDFLARE_TUNNEL_TOKEN.
 //   If the 'Cloudflared' Windows service is installed and running, it is used and nothing is started (the token is
 //   then optional). Otherwise the token is passed to cloudflared via the TUNNEL_TOKEN env var (never on the command
 //   line / in logs). Either way an old quick tunnel is stopped and invites use PUBLIC_URL.
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes, randomInt } from 'node:crypto';
-import { existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, writeFileSync, createReadStream } from 'node:fs';
+import { existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, createReadStream } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
 export const ROOT = resolve(import.meta.dirname, '..');
@@ -134,6 +140,53 @@ export function ensureHostSecrets(state) {
   state.adminToken ??= randomBytes(16).toString('hex');
   if (!state.crew || !/^[A-Z]{4}$/.test(state.crew)) state.crew = Array.from({ length: 4 }, () => ALPHA[randomInt(ALPHA.length)]).join('');
   return state;
+}
+
+/** the desktop app's host-rights file: DEADAIR_HOST_FILE, else %APPDATA%\DEAD AIR\host.json (the app's userData) */
+export function desktopHostFile(env = process.env) {
+  if (env.DEADAIR_HOST_FILE) return resolve(env.DEADAIR_HOST_FILE);
+  return join(env.APPDATA || join(homedir(), 'AppData', 'Roaming'), 'DEAD AIR', 'host.json');
+}
+
+/** Windows' own tools by full path (Git Bash puts a GNU whoami first on PATH) */
+const SYS32 = join(process.env.SystemRoot || 'C:\\Windows', 'System32');
+/** the current user's SID (S-1-5-21-...), for a user-only ACL; null if whoami fails */
+function userSid() {
+  const r = spawnSync(join(SYS32, 'whoami.exe'), ['/user', '/fo', 'csv', '/nh'], { encoding: 'utf8', windowsHide: true });
+  const m = /S-1-\d+(?:-\d+)+/.exec(r.stdout ?? '');
+  return r.status === 0 && m ? m[0] : null;
+}
+
+/**
+ * (f) Host rights for the DEAD AIR desktop app on this PC (apps/desktop/src/host.cjs reads the file): written
+ * atomically (temp file -> user-only ACL -> rename; a same-volume rename keeps the ACL). Never prints the token.
+ * Returns the file path, or null when skipped / failed.
+ */
+export function writeDesktopHost(state, port = PORT, file = desktopHostFile()) {
+  if (process.argv.includes('--no-desktop')) { say('desktop: host rights skipped (--no-desktop)'); return null; }
+  if (!/^[A-Za-z0-9_-]{16,128}$/.test(String(state.adminToken ?? '')) || !/^[A-Z0-9]{1,8}$/.test(String(state.crew ?? ''))) {
+    warn('desktop: no admin token / crew in the host state; host rights for the desktop app not written');
+    return null;
+  }
+  const body = { v: 1, adminToken: state.adminToken, crew: state.crew, server: `http://127.0.0.1:${port}`, writtenAt: new Date().toISOString() };
+  const tmp = `${file}.${process.pid}.tmp`;
+  try {
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(tmp, `${JSON.stringify(body, null, 1)}\n`, { mode: 0o600 });
+    if (process.platform === 'win32') {
+      // only this user may read it (no inherited ACEs): the file holds the admin token. Only the path is passed.
+      const sid = userSid();
+      const r = sid ? spawnSync(join(SYS32, 'icacls.exe'), [tmp, '/inheritance:r', '/grant:r', `*${sid}:F`], { encoding: 'utf8', windowsHide: true }) : null;
+      if (!r || r.status !== 0) throw new Error(`could not restrict the file to this user (${sid ? `icacls exit ${r?.status}` : 'no SID from whoami'})`);
+    }
+    renameSync(tmp, file);
+  } catch (e) {
+    try { rmSync(tmp, { force: true }); } catch { /* ignore */ }
+    warn(`desktop: host rights not written: ${e instanceof Error ? e.message : e}`);
+    return null;
+  }
+  say(`desktop: host rights -> ${file}`);
+  return file;
 }
 
 /** start the prod game server detached; resolves once /healthz answers */
@@ -296,6 +349,17 @@ function follow(file) {
 }
 
 async function main() {
+  if (process.argv.includes('--desktop-only')) {
+    // the server already runs (or runs later with the same saves/host.json): only (f), never new secrets
+    const state = readState();
+    if (!state.adminToken || !state.crew) {
+      warn('desktop: saves/host.json has no admin token / crew yet: run `npm run host` once');
+      process.exitCode = 1;
+      return;
+    }
+    if (!writeDesktopHost(state, process.env.PORT ? PORT : Number(state.serverPort) || PORT)) process.exitCode = 1;
+    return;
+  }
   const state = ensureHostSecrets(readState());
   writeState(state);
   await ensureStt(state);
@@ -313,6 +377,7 @@ async function main() {
     const pid = await startGameServer(state);
     say(`game: prod server up on :${PORT} (pid ${pid}, logs/server.log)`);
   }
+  writeDesktopHost(state, PORT);
   if (host) {
     const inv = await getJson(`http://127.0.0.1:${PORT}/api/invite?code=${state.crew}`);
     if (inv?.url) say(`game: /api/invite -> ${inv.url}`);

@@ -1,0 +1,24 @@
+{
+  "$comment": "DEAD AIR desktop defaults (packaged into the app). Override per user in %APPDATA%\\DEAD AIR\\config.json, with DEADAIR_* env vars or --server=URL. See docs/STEAM.md.",
+  "mode": "remote",
+  "serverUrl": "http://127.0.0.1:3000",
+  "query": "",
+  "bundled": { "port": 43117, "checkBuild": true },
+  "window": { "width": 1600, "height": 900, "fullscreen": false, "rememberBounds": true },
+  "steam": {
+    "enabled": true,
+    "appId": 480,
+    "overlay": false,
+    "overlayDisableDirectComposition": false,
+    "lobby": true,
+    "lobbySize": 6,
+    "restartIfNecessary": true,
+    "presenceToken": "#Status",
+    "richPresenceConnect": false,
+    "autoPresence": true
+  },
+  "gpu": { "highPerformance": true, "unsafeWebGPU": false, "ignoreBlocklist": false, "throttleHiddenMenu": true, "safeModeAfterCrash": true },
+  "splash": { "enabled": true, "maxMs": 45000 },
+  "devtools": false,
+  "allowedOrigins": []
+}

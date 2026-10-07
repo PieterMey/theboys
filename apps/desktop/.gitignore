@@ -1,0 +1,8 @@
+# build output (scripts/pack.mjs), generated icons, SteamPipe output / logs
+out/
+build/
+.steam-build/
+*.log
+# never commit Steam build-account credentials or steamcmd's login cache
+config/*.vdf
+ssfn*

@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; font-src 'self'">
+<meta name="color-scheme" content="dark">
+<title>DEAD AIR</title>
+<style>
+  /* Shell loading screen: same look as the client's own loading screen (apps/client/src/loading), shown from the
+     first frame of the window until the main menu runs smoothly. Compositor-only animations (transform/opacity). */
+  /* Big Shoulders Stencil Display (SIL OFL 1.1, fonts/OFL.txt): the client's stencil face, so the hand-off matches */
+  @font-face {
+    font-family: 'Big Shoulders Stencil Display'; font-style: normal; font-weight: 600 900; font-display: block;
+    src: url('fonts/big-shoulders-stencil-display-latin.woff2') format('woff2');
+  }
+  :root {
+    --amber: #f0b43c; --text: #ece6d6; --dim: #80847e; --red: #d23b2e; --green: #6f9c6a;
+    --stencil: 'Big Shoulders Stencil Display', 'Bahnschrift SemiBold Condensed', 'Bahnschrift', 'Impact', 'Arial Narrow', sans-serif;
+    --mono: Consolas, 'Cascadia Mono', 'Courier New', monospace;
+  }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
+  body { color: var(--text); font-family: var(--mono); user-select: none; -webkit-user-select: none; cursor: default; }
+  .root {
+    position: fixed; inset: 0; overflow: hidden;
+    background: radial-gradient(120% 90% at 50% 40%, #0d1210 0%, #050706 55%, #020303 100%);
+    opacity: 1; transition: opacity 450ms ease;
+  }
+  .root.fade { opacity: 0; }
+  .static {
+    position: absolute; inset: -64px; opacity: 0.09; pointer-events: none; will-change: transform;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1.4 -0.2'/%3E%3C/filter%3E%3Crect width='128' height='128' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 128px 128px; animation: static 0.5s steps(5) infinite;
+  }
+  @keyframes static {
+    0% { transform: translate3d(0, 0, 0); } 20% { transform: translate3d(-32px, 16px, 0); } 40% { transform: translate3d(16px, -32px, 0); }
+    60% { transform: translate3d(-16px, -16px, 0); } 80% { transform: translate3d(32px, 32px, 0); } 100% { transform: translate3d(0, 0, 0); }
+  }
+  .scan {
+    position: absolute; left: 0; right: 0; top: 0; height: 22vh; pointer-events: none; will-change: transform;
+    background: linear-gradient(180deg, transparent, rgba(160, 220, 170, 0.05) 45%, rgba(160, 220, 170, 0.09) 50%, transparent);
+    animation: scan 5.5s linear infinite;
+  }
+  @keyframes scan { from { transform: translate3d(0, -30vh, 0); } to { transform: translate3d(0, 130vh, 0); } }
+  .lines { position: absolute; inset: 0; pointer-events: none; opacity: 0.35; background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.22) 0 1px, transparent 1px 3px); }
+  .vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 45%, transparent 55%, rgba(0, 0, 0, 0.78) 100%); }
+
+  .top {
+    position: absolute; top: 22px; left: max(24px, 5vw); right: max(24px, 5vw);
+    display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    font: 700 11px/1.2 var(--mono); letter-spacing: 0.32em; color: var(--dim); text-transform: uppercase;
+  }
+  .top b { color: var(--text); font-weight: 700; }
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--red); margin-right: 10px; animation: blink 1.1s steps(2) infinite; }
+  .ok .dot { background: var(--green); animation: none; }
+  @keyframes blink { 50% { opacity: 0.15; } }
+
+  .center { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); width: min(880px, calc(100vw - 48px)); }
+  .kicker { font: 700 11px/1 var(--mono); letter-spacing: 0.5em; color: var(--amber); margin-bottom: 14px; display: flex; align-items: center; gap: 12px; text-transform: uppercase; }
+  .kicker::before { content: ''; width: 34px; height: 2px; background: var(--amber); }
+  h1 {
+    margin: 0; font: 900 clamp(64px, 11vw, 168px)/0.82 var(--stencil); letter-spacing: 0.02em; color: var(--text);
+    text-shadow: 0 0 28px rgba(240, 180, 60, 0.08);
+    -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 11%, transparent 11% 11.6%, #000 11.6% 37%, transparent 37% 37.5%, #000 37.5% 100%);
+  }
+  h1 span { display: inline-block; animation: flicker 7s infinite; }
+  @keyframes flicker { 0%, 91%, 100% { opacity: 1; } 92% { opacity: 0.35; } 93% { opacity: 0.9; } 95% { opacity: 0.5; } 96% { opacity: 1; } }
+  .sub { margin-top: 14px; font: 700 clamp(18px, 2.2vw, 28px)/1.1 var(--stencil); letter-spacing: 0.08em; color: var(--amber); text-transform: uppercase; min-height: 1.1em; }
+
+  .bar { position: relative; margin-top: 42px; height: 10px; overflow: hidden; background: rgba(236, 230, 214, 0.07); border: 1px solid rgba(236, 230, 214, 0.18); }
+  .bar i {
+    position: absolute; inset: 0; transform-origin: 0 50%; transform: scaleX(0.02); will-change: transform;
+    background: linear-gradient(90deg, #a87420, var(--amber)); transition: transform 380ms ease-out; box-shadow: 0 0 14px rgba(240, 180, 60, 0.35);
+  }
+  .sweep { position: absolute; top: 0; bottom: 0; width: 18%; left: 0; will-change: transform; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent); animation: sweep 1.6s linear infinite; }
+  @keyframes sweep { from { transform: translate3d(-120%, 0, 0); } to { transform: translate3d(620%, 0, 0); } }
+  .row { display: flex; gap: 18px; align-items: baseline; margin-top: 12px; flex-wrap: wrap; font: 600 13px/1.4 var(--mono); letter-spacing: 0.08em; }
+  .step { color: var(--text); text-transform: uppercase; letter-spacing: 0.18em; }
+  .detail { color: var(--dim); flex: 1; min-width: 12ch; overflow-wrap: anywhere; }
+  .time { color: var(--amber); font-variant-numeric: tabular-nums; }
+  .steps { list-style: none; padding: 0; margin: 22px 0 0; display: flex; gap: 8px 22px; flex-wrap: wrap; font: 700 10.5px/1 var(--mono); letter-spacing: 0.24em; text-transform: uppercase; color: rgba(128, 132, 126, 0.6); }
+  .steps li::before { content: '\25CB  '; }
+  .steps li.on { color: var(--text); }
+  .steps li.on::before { content: '\25C9  '; color: var(--amber); }
+  .steps li.done { color: var(--dim); }
+  .steps li.done::before { content: '\25CF  '; color: var(--green); }
+
+  .err { display: none; margin-top: 38px; border-left: 3px solid var(--red); padding: 4px 0 4px 18px; }
+  .is-error .err { display: block; }
+  .is-error .bar, .is-error .row, .is-error .steps { display: none; }
+  .is-error .sub { color: var(--red); }
+  .err-msg { font: 500 16px/1.5 var(--mono); color: var(--text); max-width: 64ch; }
+  .err-code { margin-top: 6px; font: 600 12px/1.4 var(--mono); letter-spacing: 0.14em; color: var(--dim); text-transform: uppercase; overflow-wrap: anywhere; }
+  .btns { margin-top: 22px; display: flex; gap: 12px; flex-wrap: wrap; }
+  button {
+    font: 700 12px/1 var(--mono); letter-spacing: 0.28em; text-transform: uppercase; color: var(--text); cursor: pointer;
+    background: rgba(236, 230, 214, 0.06); border: 1px solid rgba(236, 230, 214, 0.28); padding: 12px 18px 11px 20px;
+  }
+  button:hover, button:focus-visible { border-color: var(--amber); color: var(--amber); outline: none; }
+  button.primary { background: rgba(240, 180, 60, 0.14); border-color: rgba(240, 180, 60, 0.65); color: var(--amber); }
+  button[hidden] { display: none; }
+
+  .tip { position: absolute; left: max(24px, 5vw); right: max(24px, 5vw); bottom: 30px; display: flex; gap: 16px; align-items: baseline; font: 500 14px/1.5 var(--mono); color: #b9b6aa; }
+  .tip-k { font-weight: 700; font-size: 10.5px; letter-spacing: 0.4em; color: var(--amber); border: 1px solid rgba(240, 180, 60, 0.45); padding: 3px 7px 2px 9px; }
+  @media (prefers-reduced-motion: reduce) { .static, .scan, h1 span, .sweep, .dot { animation: none; } }
+  /* the error screen is fully static: after a GPU reset it may stay up for minutes while the driver recovers */
+  .is-error .static, .is-error .scan, .is-error h1 span, .is-error .sweep, .is-error .dot { animation: none; will-change: auto; }
+  .is-error .scan { display: none; }
+</style>
+</head>
+<body>
+<div class="root" id="root">
+  <div class="static"></div><div class="scan"></div><div class="lines"></div><div class="vignette"></div>
+  <header class="top" id="top">
+    <span><i class="dot"></i>CH 07 &middot; 104.7 MHz &middot; <b id="carrier">SEARCHING</b></span>
+    <span id="meta">DESKTOP</span>
+  </header>
+  <main class="center">
+    <div class="kicker">Night shift salvage</div>
+    <h1><span>DEAD AIR</span></h1>
+    <div class="sub" id="sub">Clocking in</div>
+    <div class="bar"><i id="fill"></i><div class="sweep"></div></div>
+    <div class="row"><span class="step" id="step">Starting</span><span class="detail" id="detail"></span><span class="time" id="time">0.0 s</span></div>
+    <ul class="steps">
+      <li id="s-signal" class="on">Signal</li><li id="s-client">Client</li><li id="s-shaders">Shaders</li><li id="s-ready">Clock in</li>
+    </ul>
+    <section class="err" role="alert">
+      <div class="err-msg" id="err-msg"></div>
+      <div class="err-code" id="err-code"></div>
+      <div class="btns">
+        <button class="primary" id="b-retry" type="button">Retry</button>
+        <button id="b-reload" type="button" hidden>Reload</button>
+        <button id="b-config" type="button">Config folder</button>
+        <button id="b-quit" type="button">Quit</button>
+      </div>
+    </section>
+  </main>
+  <footer class="tip"><span class="tip-k">TIP</span><span id="tip">Wear a headset. The monsters hear what your friends hear.</span></footer>
+</div>
+<script>
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const ORDER = ['s-signal', 's-client', 's-shaders', 's-ready'];
+  const STEP_OF = { boot: 0, connecting: 0, joining: 0, loading: 1, warming: 2, ready: 3 };
+  let t0 = Date.now();
+  let retryAt = 0;
+  let shownPct = 2;
+
+  const setSteps = (i) => ORDER.forEach((id, k) => { $(id).className = k < i ? 'done' : k === i ? 'on' : ''; });
+
+  function render(s) {
+    if (!s || typeof s !== 'object') return;
+    if (typeof s.t0 === 'number') t0 = s.t0;
+    const root = $('root');
+    const err = s.phase === 'error' ? (s.error || {}) : null;
+    root.classList.toggle('is-error', !!err);
+    $('top').classList.toggle('ok', s.phase === 'warming' || s.phase === 'ready');
+    $('carrier').textContent = err ? 'NO CARRIER' : s.phase === 'warming' || s.phase === 'ready' ? 'CARRIER LOCKED' : 'SEARCHING';
+    $('meta').textContent = [s.server, s.version ? `DESKTOP ${s.version}` : '', s.steam || '', s.mode || ''].filter(Boolean).join(' · ');
+    $('sub').textContent = s.title || (err ? 'No carrier' : 'Clocking in');
+    if (err) {
+      $('err-msg').textContent = err.message || 'Something went wrong.';
+      $('err-code').textContent = err.code || '';
+      $('b-retry').hidden = err.canRetry === false;
+      $('b-reload').hidden = !err.canReload;
+      retryAt = typeof err.retryInSec === 'number' && err.retryInSec > 0 ? Date.now() + err.retryInSec * 1000 : 0;
+      ensureTicker();
+      return;
+    }
+    retryAt = 0;
+    ensureTicker();
+    $('step').textContent = s.step || '';
+    $('detail').textContent = s.detail || '';
+    const pct = Math.max(shownPct, Math.min(100, Number(s.pct) || 0));
+    shownPct = pct;
+    $('fill').style.transform = `scaleX(${Math.max(0.02, pct / 100)})`;
+    setSteps(STEP_OF[s.phase] ?? 0);
+    if (s.phase === 'ready') {
+      shownPct = 100;
+      $('fill').style.transform = 'scaleX(1)';
+      setSteps(4);
+      root.classList.add('fade');
+    } else {
+      root.classList.remove('fade');
+    }
+  }
+
+  const tick = () => {
+    $('time').textContent = `${((Date.now() - t0) / 1000).toFixed(1)} s`;
+    if (retryAt) {
+      const left = Math.max(0, Math.ceil((retryAt - Date.now()) / 1000));
+      $('b-retry').textContent = left > 0 ? `Retry (${left})` : 'Retrying';
+    } else {
+      $('b-retry').textContent = 'Retry';
+    }
+  };
+  // the clock ticks while loading or counting down to a retry; an error without a retry is a still frame
+  let ticker = 0;
+  function ensureTicker() {
+    const busy = !$('root').classList.contains('is-error') || retryAt > 0;
+    if (busy && !ticker) ticker = setInterval(tick, 100);
+    else if (!busy && ticker) {
+      clearInterval(ticker);
+      ticker = 0;
+      tick();
+    }
+  }
+  ensureTicker();
+
+  const api = window.deadAirSplash;
+  if (api) {
+    api.onStatus(render);
+    $('b-retry').addEventListener('click', () => api.action('retry'));
+    $('b-reload').addEventListener('click', () => api.action('reload'));
+    $('b-config').addEventListener('click', () => api.action('config'));
+    $('b-quit').addEventListener('click', () => api.action('quit'));
+  }
+  // preview without the shell: splash.html?demo=error|warming
+  const demo = new URLSearchParams(location.search).get('demo');
+  if (demo) render(demo === 'error'
+    ? { phase: 'error', server: 'PLAY.EXAMPLE.COM', version: '0.1.0', error: { message: "Can't reach the host's server.", code: 'ERR_CONNECTION_REFUSED', retryInSec: 8, canRetry: true } }
+    : { phase: demo, step: 'Warming up shaders', detail: '58 fps', pct: 72, server: 'PLAY.EXAMPLE.COM', version: '0.1.0', steam: 'STEAM · CONTRACTOR' });
+</script>
+</body>
+</html>
