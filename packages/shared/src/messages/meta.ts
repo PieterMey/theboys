@@ -97,6 +97,8 @@ export interface MetaShiftReview {
   letter: string | null;
   source: 'template' | 'ai';
   nextQuota: number | null;
+  /** true while the AI version is still being written: the client shows "drafting" instead of typing the template */
+  pending?: boolean;
 }
 
 /** private to the receiving player */

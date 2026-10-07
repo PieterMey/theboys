@@ -1,6 +1,6 @@
 // Owner: track (d) Meta. Per-contract results (scrip ledger, death cards, XP, "it heard -> it did") and the end-of-shift
 // Company Performance Review / termination letter (typewriter on company letterhead).
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ScreenProps } from '../core/ui/api.ts';
 import type { MetaContractResults, MetaShiftReview } from '@dead-air/shared/messages/meta.ts';
 import { metaOf, sfx, useTicker, useWorldV } from './state.ts';
@@ -131,12 +131,20 @@ export function ResultsScreen({ ctx }: ScreenProps) {
   );
 }
 
-function useTypewriter(text: string, cps = 140): string {
-  const [t0] = useState(() => performance.now());
+/** types `text` out at `cps`; the clock starts the first time `active` is true */
+function useTypewriter(text: string, cps = 140, active = true): string {
+  const t0 = useRef<number | null>(null);
   useTicker(40);
-  const n = Math.floor(((performance.now() - t0) / 1000) * cps);
+  if (!active) return '';
+  if (t0.current === null) t0.current = performance.now();
+  const n = Math.floor(((performance.now() - t0.current) / 1000) * cps);
   return text.slice(0, n);
 }
+
+/** memos already typed out (or skipped) this session: re-opening one shows it at once instead of re-typing it */
+const typedMemos = new Set<string>();
+/** how long the memo waits for the AI version before typing the template anyway (the server waits up to 60 s) */
+const DRAFT_WAIT_MS = 20_000;
 
 function memoText(rv: MetaShiftReview): string {
   const parts: string[] = [rv.comments];
@@ -149,10 +157,22 @@ function memoText(rv: MetaShiftReview): string {
 export function MemoScreen({ ctx }: ScreenProps) {
   useWorldV(ctx);
   const rv = metaOf(ctx)?.review ?? null;
+  const key = rv ? `${ctx.world.crew?.code ?? ''}|${rv.shiftIndex}|${rv.verdict}` : '';
+  const seen = typedMemos.has(key);
+  const [mountAt] = useState(() => performance.now());
+  const [skip, setSkip] = useState(seen);
+  // the AI version usually lands a few seconds after the shift ends: wait for it instead of typing the template first
+  // (a click shows whatever is there right away)
+  const drafting = !!rv?.pending && !seen && !skip && performance.now() - mountAt < DRAFT_WAIT_MS;
   const full = rv ? memoText(rv) : '';
-  const typed = useTypewriter(full);
-  const [skip, setSkip] = useState(false);
-  const text = skip ? full : typed;
+  const typed = useTypewriter(full, 140, !drafting);
+  const text = skip || seen ? full : typed;
+  const done = !!rv && !drafting && text.length >= full.length;
+  useEffect(() => { if (done && key) typedMemos.add(key); }, [done, key]);
+  // leaving mid-typing (RESULTS and back) counts as read too: never replay the typing
+  const draftingRef = useRef(drafting);
+  draftingRef.current = drafting;
+  useEffect(() => () => { if (key && !draftingRef.current) typedMemos.add(key); }, [key]);
   useEffect(() => { sfx(ctx, 'sfx.ui_confirm'); }, [ctx]);
   if (!rv) {
     return <div class="m-screen m-solid"><div class="m-wrap narrow"><div class="m-kicker">HUMAN RESOURCES</div><h1 class="m-h1">No memo on file</h1><div style={{ marginTop: '18px' }}><Continue ctx={ctx} label="BACK TO THE VAN" /></div></div></div>;
@@ -168,7 +188,8 @@ export function MemoScreen({ ctx }: ScreenProps) {
             <div class="ref">RE: COMPANY PERFORMANCE REVIEW<br />SHIFT {rv.shiftIndex + 1} · CREW {ctx.world.crew?.code ?? ''}<br />QUOTA {rv.quota} · HAULED {rv.hauled}{rv.overtime ? ` · OVERTIME +${rv.overtime}` : ''}</div>
           </div>
           <div class={`stamp ${rv.verdict}`}>{rv.verdict === 'promoted' ? 'PROMOTED' : 'TERMINATED'}</div>
-          {blocks.map((b, i) => {
+          {drafting && <p class="m-dim">Human Resources is drafting your review<span class="m-caret" /></p>}
+          {!drafting && blocks.map((b, i) => {
             if (b.startsWith('§')) {
               const lines = b.slice(1).split('\n');
               const isMemo = rv.memos.some((m) => m.title === lines[0]);
@@ -181,7 +202,7 @@ export function MemoScreen({ ctx }: ScreenProps) {
             }
             return <p key={i}>{b}</p>;
           })}
-          {text.length < full.length ? <span class="m-caret" /> : <div class="sig">— Human Resources (Night Division){rv.source === 'ai' ? <span class="m-ai"> · DRAFTED WITH AI</span> : null}</div>}
+          {drafting ? null : text.length < full.length ? <span class="m-caret" /> : <div class="sig">— Human Resources (Night Division){rv.source === 'ai' ? <span class="m-ai"> · DRAFTED WITH AI</span> : null}</div>}
         </div>
         <div class="m-board-foot static">
           <span class="m-small m-dim">{rv.verdict === 'promoted' ? `Next shift quota: ${rv.nextQuota ?? '?'} scrip. Levels and cosmetics are yours to keep.` : 'The run resets. Your levels and cosmetics stay.'} {text.length < full.length ? '(click to skip)' : ''}</span>

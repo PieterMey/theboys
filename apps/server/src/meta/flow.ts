@@ -1014,8 +1014,12 @@ function buildShiftReview(crew: Crew): void {
       contracts,
       template: review,
     };
+    review.pending = true;
     void A.reviewFor(summary, wait).then((ai) => {
-      if (ai && S(crew).review === review && mergeAiReview(review, ai)) markDirty(crew);
+      if (S(crew).review !== review) return;
+      if (ai) mergeAiReview(review, ai);
+      review.pending = false; // AI version or (timeout / failure) the template: final either way
+      markDirty(crew);
     });
   }
 }
