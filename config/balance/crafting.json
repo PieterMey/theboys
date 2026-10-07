@@ -1,0 +1,1 @@
+{ "_doc": "workshop v1.2: recipes, upgrades, salvage yields keyed by frozen LOOT_NAMES; numbers only", "firedWipes": true, "scrapHoldMs": 1200, "benchRangeM": 3, "recipes": [], "upgrades": [], "salvage": {}, "tierFallback": [1, 2, 4] }

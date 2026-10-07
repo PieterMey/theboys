@@ -13,9 +13,11 @@ import type { Crew } from '../core/types.ts';
 import { registry } from './registry.ts';
 import type { DirectorPicker, ListenerBrain, ListenerDecision } from './registry.ts';
 import type { DecisionEntry } from './types.ts';
+import type { MonsterEvent } from '@dead-air/shared/messages/monsters.ts';
 
 export type { ListenerBrain, ListenerBrainInput, ListenerIntent, ListenerDecision, DirectorPicker, DirectorPickState, ListenerAction } from './registry.ts';
 export type { DecisionEntry } from './types.ts';
+export type { MonsterEvent };
 
 /** Utterance shape from the AI track (onUtterance). Extra fields are ignored. */
 export interface HeardUtterance {
@@ -47,6 +49,9 @@ export interface MonstersImpl {
   decisionLog(crew: Crew): DecisionEntry[];
   positions(crew: Crew): { id: string; kind: string; x: number; z: number; active: boolean; state: string }[];
   listenerCanHear(crew: Crew, x: number, z: number, radiusM: number): boolean;
+  /** v1.2 (G2) */
+  ventInUse?(crew: Crew, ventItemId: string): boolean;
+  isGrabbed?(crew: Crew, pid: string): 'listener' | 'snatcher' | null;
 }
 
 let impl: MonstersImpl | null = null;
@@ -106,4 +111,24 @@ export function monsterPositions(crew: Crew): { id: string; kind: string; x: num
 /** would the Listener hear a sound of radius `radiusM` at (x, z)? (same path metric as everything else) */
 export function listenerCanHear(crew: Crew, x: number, z: number, radiusM: number): boolean {
   return impl ? impl.listenerCanHear(crew, x, z, radiusM) : false;
+}
+
+// ---------------------------------------------------------------- v1.2 contract (PLAN.md §13; G2 fills the impl)
+
+export function onMonsterEvent(fn: (crew: Crew, e: MonsterEvent) => void): () => void {
+  registry.monsterEventSubs.add(fn);
+  return () => registry.monsterEventSubs.delete(fn);
+}
+/** monsters internal: publish */
+export function emitMonsterEvent(crew: Crew, e: MonsterEvent): void {
+  for (const f of registry.monsterEventSubs) {
+    try { f(crew, e); } catch { /* subscriber bug */ }
+  }
+}
+/** true during any active snatch or a Listener vent trip on this grate's pair */
+export function ventInUse(crew: Crew, ventItemId: string): boolean {
+  return impl?.ventInUse ? impl.ventInUse(crew, ventItemId) : false;
+}
+export function isGrabbed(crew: Crew, pid: string): 'listener' | 'snatcher' | null {
+  return impl?.isGrabbed ? impl.isGrabbed(crew, pid) : null;
 }

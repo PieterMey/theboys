@@ -33,6 +33,31 @@ The browser co-op horror game we're building tonight. The full design is in PLAN
 | env | `tools/bin/**`, `tools/ai-*.mjs`, `docs/bench/**`, `services/stt/**` (in P0, handed to (e) afterwards) |
 | tests | `tests/lib/**` and `tests/gates/**` are integrator/skeleton-owned. Each track owns `tests/<track>/**` |
 
+## v1.2 build ownership (supersedes the rows above for this round)
+| Package (port) | Paths |
+|---|---|
+| G1 players-stealth (3801) | apps/client/src/players/**, apps/server/src/players/**, apps/server/src/net/movement.ts, apps/client/src/loading/LoadingScreen.tsx, apps/desktop/{src,static,test}/**, messages/players.ts, config/balance/players.json, tests/{players,stealth}/** |
+| G2 monsters-fair (3802) | apps/*/src/monsters/**, apps/server/src/director/**, apps/server/src/ai/director.ts, messages/monsters.ts, config/balance/monsters.json, tests/monsters/** |
+| G3 interaction-gear (3803) | apps/*/src/interaction/**, apps/*/src/safes/**, packages/shared/src/interactables.ts, messages/interaction.ts, config/balance/{interaction,safes}.json, tests/{interaction,safes,gear}/** |
+| G4 meta-records (3804) | apps/server/src/meta/** except crafting.ts, apps/client/src/meta/** except workbench.tsx/workbench.css/workshop.ts, apps/client/src/menu/**, messages/meta.ts, config/balance/meta.json (+ core.json economy), tests/meta/** |
+| G5 workshop (3805) | apps/server/src/meta/crafting.ts, apps/client/src/meta/{workbench.tsx,workbench.css,workshop.ts}, config/balance/crafting.json, tests/workshop/** |
+| G6 fieldguide (3806) | apps/*/src/fieldguide/**, messages/fieldguide.ts, config/balance/fieldguide.json, tests/fieldguide/** |
+| E1 env-layout (3811) | packages/shared/src/{procgen,nav,collide}/**, packages/shared/src/callsign.ts, apps/server/src/level/**, tools/gen-cli.ts, messages/level.ts, config/balance/level.json, tools/fetch-assets.mjs, tools/assets.manifest.json, packages/shared/src/assets.ts, .assets/{src,build}/** (never .assets/dist), C:/Users/Pieter/AppData/Local/Temp/dead-air-assets-stage, tests/level/** |
+| E2 env-render (3812) | apps/client/src/render/**, config/balance/render.json, tests/render/** |
+| E3 env-world (3813) | apps/client/src/level/**, tests/world/** |
+| E4 env-paranormal (3814) | apps/*/src/paranormal/**, messages/paranormal.ts, config/balance/paranormal.json, tests/paranormal/** |
+| E5 env-audio (3815) | apps/client/src/audio/**, tools/sfx-manifest.json, config/balance/audio.json, tests/audio/** |
+| integrator | the integrator row above + packages/shared/src/{catalog,progress}.ts, tests/fixtures/** (incl. the frozen tests/fixtures/identity-v11), tools/make-identity-fixtures.ts, apps/desktop/{package.json,config.json,build,scripts}, promotion into .assets/dist |
+Nobody edits objectives, voice, net (except movement.ts), ai (except director.ts), stt or services this round: request instead.
+
+- **Input (replaces the Input rule).** The web client never reads Ctrl or Meta (no ctrlKey/metaKey, no 'ControlLeft'): Ctrl+W closes the tab. Only the desktop shell maps Left Ctrl to crouch, via window.deadAirDesktop.onHotkey, ignoring AltGr. Crouch is C.
+- **Assets.** Never run tools/fetch-assets.mjs against .assets/dist. Stage with --dist C:/Users/Pieter/AppData/Local/Temp/dead-air-assets-stage/dist; test servers use ASSETS_DIR=C:/Users/Pieter/AppData/Local/Temp/dead-air-assets-stage. The integrator promotes additively.
+- **GPU (v1.2).** Dev server outside the guard; --max-sec 120 per run; iterate scenes in one browser session; SwiftShader lane (launchPlayer extraArgs --disable-gpu --use-angle=swiftshader --enable-unsafe-swiftshader, webgl true, ?preset=low) for UI/layout shots, still through the guard; your brief caps your runs.
+- **Cross-package calls** only through PLAN.md §13; a missing provider degrades to a no-op; interactable ids use catalog V12_KINDS prefixes.
+- **Flags gate behaviour, never persistence.**
+- **Dev and test servers (v1.2).** Every server you start (dev, e2e, selftest) sets `NODE_ENV=development AI_MODE=mock SAVES_DIR=<scratch>/saves SESSION_FILE=<scratch>/session.json`, with `<scratch>` your own scratchpad folder: the default `saves/` belongs to the live server. Kill only the PIDs you started.
+- **Never leave a file unparseable.** Every dev server imports every package at boot, so one syntax error in any file breaks all agents' servers. Write each change as a complete edit (never a half-written statement or file), and if a file you own stops parsing, fixing it comes before anything else.
+
 ## Commands (repo root)
 - `npm run dev`: game server + Vite middleware with HMR on `PORT` (default 3000).
 - `npm run build`: production client build into `apps/client/dist` (integrator only, see above).

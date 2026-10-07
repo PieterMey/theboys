@@ -23,7 +23,8 @@ export type MonsterCue =
   | 'tick' // Snatcher: soft clicking right before a drop
   | 'snatch' // Snatcher drops onto someone (creature_scream + body_fall)
   | 'scratch' // Snatcher: scratching/dragging inside the ducts at a grate (follow it)
-  | 'shriek'; // Snatcher: pulled loose, it shrieks and flees into the ducts
+  | 'shriek' // Snatcher: pulled loose, it shrieks and flees into the ducts
+  | 'notice'; // v1.2 Listener noticed a player: head snap + bone crack (distinct from 'click'; never breath, its retreat cue)
 
 export type DirectorEventKind =
   | 'flicker' | 'door_slam' | 'hound_relocate' | 'mannequin_relocate' | 'fixture_failure' | 'radio_static' | 'quiet'
@@ -96,4 +97,18 @@ export interface MonstersReqs {
   'monsters.pull': { args: { on?: boolean } | undefined; result: { ok: boolean; pull: number; inRange: boolean } };
   /** Listener decision log lines ('it heard "meet in BOILER" -> ambushed BOILER') for the results screen */
   'monsters.log': { args: Record<string, never> | undefined; result: { lines: string[] } };
+}
+
+/** v1.2 monster event bus (server only): api.onMonsterEvent. Consumers: meta stats, fieldguide, paranormal ('wake') */
+export interface MonsterEvent {
+  monster: MonsterKindX;
+  id: string;
+  event: 'seen' | 'heard' | 'notice' | 'alert' | 'charge' | 'grab' | 'knockdown' | 'freed' | 'escaped' | 'snatch' | 'rescued' | 'kill' | 'flinch' | 'wake';
+  /** perceiver for seen/heard, target/victim otherwise */
+  victim?: string;
+  /** freer / rescuer / cause */
+  by?: string;
+  p?: Vec3;
+  /** server ms */
+  at: number;
 }

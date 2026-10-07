@@ -1,0 +1,196 @@
+{
+  "v": 1,
+  "note": "Frozen v1.1 identity reference (plan checker #2). Generated once at gate C by tools/make-identity-fixtures.ts; never regenerate. tests/fixtures/layouts is separate.",
+  "head": "40227e4d6e9f6f9e1887eaef854768a3b73ac373",
+  "genVersion": 1,
+  "tuning": {
+    "footprint": {
+      "1": [
+        36,
+        27
+      ],
+      "2": [
+        40,
+        30
+      ],
+      "3": [
+        46,
+        34
+      ],
+      "4": [
+        54,
+        40
+      ],
+      "5": [
+        58,
+        44
+      ],
+      "6": [
+        64,
+        48
+      ]
+    },
+    "lotDepth": 12,
+    "corridorWidth": 2,
+    "marginMin": 5,
+    "marginMax": 9,
+    "blockTarget": 17,
+    "blockMin": 6,
+    "innerAbsent": 0.15,
+    "innerPartial": 0.3,
+    "bspMinSide": 5,
+    "bspMaxSide": 20,
+    "bspMaxAreaBase": 36,
+    "bspMaxAreaPerPlayer": 26,
+    "bspStopChance": 0.8,
+    "hallChance": 0.6,
+    "hallMinArea": 40,
+    "hallMaxArea": 320,
+    "hallKindArea": 56,
+    "roomsMin": 12,
+    "roomsMax": 28,
+    "roomsByPlayers": {
+      "1": [
+        13,
+        26
+      ],
+      "2": [
+        15,
+        26
+      ],
+      "3": [
+        17,
+        27
+      ],
+      "4": [
+        19,
+        28
+      ],
+      "5": [
+        21,
+        28
+      ],
+      "6": [
+        22,
+        28
+      ]
+    },
+    "landmarks": [
+      3,
+      5
+    ],
+    "decorAreaPerProp": 4.5,
+    "decorMaxPerRoom": 18,
+    "deadEnds": [
+      2,
+      3
+    ],
+    "roomRoomDoorChance": 0.08,
+    "locksByRisk": {
+      "1": 1,
+      "2": 1,
+      "3": 1
+    },
+    "rubbleBase": 0.12,
+    "rubblePerRisk": 0.05,
+    "rubbleMax": 3,
+    "fireDoorChance": 0.25,
+    "securityDoors": {
+      "1": 2,
+      "2": 2,
+      "3": 3,
+      "4": 3,
+      "5": 4,
+      "6": 4
+    },
+    "leverMinPathM": 18,
+    "leverIdealPathM": 26,
+    "hidingCoverageM": 16,
+    "hidingRoomChance": 0.6,
+    "notesMin": 4,
+    "notesMax": 6,
+    "ventPairs": {
+      "1": 2,
+      "2": 2,
+      "3": 2,
+      "4": 3,
+      "5": 3,
+      "6": 3
+    },
+    "intercomsMin": 2,
+    "intercomsMax": 3,
+    "lootAreaPerItem": 12,
+    "lootMaxPerRoom": 8,
+    "lightOffBase": 0.04,
+    "lightOffPerRisk": 0.05,
+    "lightOffDepth": 0.12,
+    "lightBrokenBase": 0.03,
+    "lightBrokenDepth": 0.14,
+    "lightBrokenPerRisk": 0.04,
+    "lightFlickerBase": 0.12,
+    "lightFlickerPerRisk": 0.05,
+    "fixtureDeviate": 0.15,
+    "vaultWingFrac": 0.5,
+    "maxAttempts": 16,
+    "avoidCallsigns": [
+      "RADIO",
+      "LOCKERS",
+      "VAULT"
+    ]
+  },
+  "entries": [
+    {
+      "file": "facility_s1_p2.json",
+      "kind": "facility",
+      "seed": "s1",
+      "players": 2,
+      "risk": 1,
+      "hash": "2dce6d0a",
+      "items": 517,
+      "spaces": 30,
+      "doors": 39
+    },
+    {
+      "file": "facility_s2_p4.json",
+      "kind": "facility",
+      "seed": "s2",
+      "players": 4,
+      "risk": 1,
+      "hash": "c980b0cb",
+      "items": 782,
+      "spaces": 37,
+      "doors": 54
+    },
+    {
+      "file": "facility_s3_p6.json",
+      "kind": "facility",
+      "seed": "s3",
+      "players": 6,
+      "risk": 1,
+      "hash": "331104cc",
+      "items": 1020,
+      "spaces": 59,
+      "doors": 91
+    },
+    {
+      "file": "facility_s4_p4_risk2.json",
+      "kind": "facility",
+      "seed": "s4",
+      "players": 4,
+      "risk": 2,
+      "hash": "4626aa19",
+      "items": 813,
+      "spaces": 38,
+      "doors": 59
+    },
+    {
+      "file": "hub.json",
+      "kind": "hub",
+      "seed": "hub",
+      "hash": "a16d6023",
+      "items": 25,
+      "spaces": 3,
+      "doors": 1
+    }
+  ]
+}

@@ -13,9 +13,11 @@ import { install as audio } from './audio/index.ts';
 import { install as objectives } from './objectives/index.ts';
 import { install as interaction } from './interaction/index.ts';
 import { install as monsters } from './monsters/index.ts';
+import { install as paranormal } from './paranormal/index.ts';
 import { install as menu } from './menu/index.ts';
 import { install as meta } from './meta/index.ts';
 import { install as safes } from './safes/index.ts';
+import { install as fieldguide } from './fieldguide/index.ts';
 import { install as ai } from './ai/index.ts';
 import { install as loading } from './loading/index.ts';
 
@@ -23,7 +25,8 @@ type Install = (ctx: ClientContext) => void | Promise<void>;
 const TRACKS: [string, Install][] = [
   // menu first: it only registers the title screen over the bare 'join' screen (no flash while render inits)
   ['menu', menu], ['net', net], ['render', render], ['level', level], ['players', players], ['voice', voice], ['audio', audio],
-  ['objectives', objectives], ['interaction', interaction], ['monsters', monsters], ['meta', meta], ['safes', safes], ['ai', ai],
+  ['objectives', objectives], ['interaction', interaction], ['monsters', monsters], ['paranormal', paranormal], ['meta', meta],
+  ['safes', safes], ['fieldguide', fieldguide], ['ai', ai],
   // v1.1 loading screen + telemetry: last, so its phase handlers run after meta's screen changes
   ['loading', loading],
 ];

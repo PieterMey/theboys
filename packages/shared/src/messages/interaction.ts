@@ -10,6 +10,8 @@ export interface DoorState {
   kind?: string;
   /** server time (ms) until the console may toggle it again (security doors) */
   cooldownUntil?: number;
+  /** v1.2 quiet hold-E in progress (server-timed) */
+  ease?: EaseState;
 }
 
 export interface ItemState {
@@ -37,6 +39,8 @@ export interface ItemState {
   armed?: boolean;
   /** lucky charm bonus (scrip) already added to value at deposit */
   bonus?: number;
+  /** v1.2: pouch item contents (MaterialType -> units) */
+  mats?: Record<string, number>;
 }
 
 /** a thrown flare burning on the floor (red area light; counts as lit for litAt) */
@@ -91,6 +95,12 @@ export interface InteractionState {
   hp: Record<string, number>;
   /** burning flares (v1.1 gear; optional so older mirrors stay valid) */
   flares?: Record<string, FlareState>;
+  /** v1.2: container id (host prop id) -> state; absent = closed */
+  containers?: Record<string, ContainerState>;
+  /** v1.2: player id -> night vision on */
+  nv?: Record<string, boolean>;
+  /** v1.2: player id -> salvage pouch (MaterialType -> units), no slot */
+  pouches?: Record<string, Record<string, number>>;
 }
 
 /** Incremental update; null deletes a key. `reset` replaces the whole state (layout rebuild). */
@@ -110,6 +120,9 @@ export interface InteractionPatch {
   respawns?: Record<string, number | null>;
   hp?: Record<string, number | null>;
   flares?: Record<string, FlareState | null>;
+  containers?: Record<string, ContainerState | null>;
+  nv?: Record<string, boolean | null>;
+  pouches?: Record<string, Record<string, number> | null>;
 }
 
 export type IxFxKind =
@@ -144,4 +157,35 @@ export interface InteractionReqs {
   'interaction.slot': { args: { slot: number }; result: IxResult };
   /** console operator toggles a security door (5 s cooldown, 12 m clank). open omitted = toggle */
   'interaction.consoleDoor': { args: { id: number; open?: boolean }; result: IxResult & { open?: boolean; cooldownMs?: number } };
+  /** v1.2 quiet hold-E on a door/container: on=true after E was held 220 ms, on=false on release; the server times it */
+  'interaction.ease': { args: { id: string; on: boolean }; result: IxResult & { t0?: number; ms?: number } };
+  /** v1.2 night vision (needs 'nvg' in any slot) */
+  'interaction.nv': { args: { on: boolean }; result: IxResult & { on?: boolean } };
+}
+
+/** server-timed quiet action: commits at t0 + ms (ctx.now clock) unless cancelled */
+export interface EaseState { by: string; to: boolean; t0: number; ms: number }
+/** container state; interactable 'cont:<container id>' */
+export interface ContainerState {
+  /** bitmask of open parts (ContainerPart.idx); 0 = closed */
+  open: number;
+  by?: string;
+  ease?: EaseState;
+}
+/** v1.2 item event bus (server only, never sent): api.onItemEvent */
+export interface ItemEvent {
+  kind: 'pickup' | 'acquire' | 'use' | 'consume' | 'deposit' | 'stash' | 'drop';
+  pid: string;
+  type: string;
+  id: string;
+  name?: string;
+  value?: number;
+  count?: number;
+  /** pickup of a world-spawned item nobody held before this contract */
+  fresh?: boolean;
+  /** acquire: how the player got it */
+  via?: 'handout' | 'buy' | 'craft' | 'safe' | 'container' | 'api';
+  space?: number;
+  p?: V3;
+  dir?: V3;
 }

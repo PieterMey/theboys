@@ -2,6 +2,7 @@
 // Additive only. The base MetaState fields (shift, careers, shop) are filled by the core defaultMeta() and the meta track.
 import type { WorkOrder } from '../workorder.ts';
 import type { Profile } from '../profile.ts';
+import type { StatsReply } from '../progress.ts';
 
 /** shop line shown in the van store (PLAN §3.5) */
 export interface MetaShopItem {
@@ -17,7 +18,7 @@ export interface MetaShopItem {
 
 /** one rule card shown on the drive (loading) screen, one per monster */
 export interface MetaRuleCard {
-  monster: 'hound' | 'listener' | 'mannequin';
+  monster: 'hound' | 'listener' | 'mannequin' | 'snatcher';
   title: string;
   rule: string;
   hint: string;
@@ -54,6 +55,26 @@ export interface MetaHeardDid {
   at?: string;
 }
 
+/** v1.2 workshop recipe (G5) */
+export interface MetaRecipe {
+  id: string; name: string; desc: string; tier: 1 | 2;
+  /** item type or shop pack id handed out next contract */
+  out: string; qty: number;
+  cost: Record<string, number>;
+  scrip?: number;
+  shopPrice?: number;
+  /** 'Needs: Soldering station' */
+  locked?: string;
+}
+export interface MetaUpgrade { id: string; name: string; desc: string; scrip: number; cost: Record<string, number>; owned: boolean }
+export interface MetaWorkbench {
+  stash: Record<string, number>; recipes: MetaRecipe[]; upgrades: MetaUpgrade[]; balance: number;
+  pool: Record<string, number>; poolSlots: number; maxPoolSlots: number;
+  /** requester's hand-out priority */
+  loadout: string[];
+}
+export interface MetaPlayerLine { player: string; name: string; hauled: number; items: number; deaths: number; revives: number; creptM: number; finds: string[] }
+
 /** per-contract instant results (PLAN §1.5) */
 export interface MetaContractResults {
   orderId: string;
@@ -79,6 +100,12 @@ export interface MetaContractResults {
   heardDid: MetaHeardDid[];
   /** true when this was the last contract of the shift (the HR memo follows) */
   shiftEnd: boolean;
+  /** v1.2 (workshop): materials committed to the stash + items scrapped this contract */
+  salvage?: { materials: Record<string, number>; scrapped: number };
+  /** v1.2 (meta): per-player result lines */
+  players?: MetaPlayerLine[];
+  /** v1.2 (meta): at most 3 */
+  superlatives?: { title: string; player: string; name: string; why: string }[];
 }
 
 /** end-of-shift Company Performance Review (template first, AI swaps in) */
@@ -143,6 +170,10 @@ export interface MetaState {
   continued?: string[];
   /** leader is holding DRIVE until this server time (ms) */
   holdUntil?: number;
+  /** v1.2: VanUpgrade ids owned */
+  unlocks?: string[];
+  /** v1.2: crew stash */
+  stash?: Record<string, number>;
 }
 
 export interface MetaEvents {
@@ -150,6 +181,10 @@ export interface MetaEvents {
   'meta.update': { meta: MetaState; workOrders: WorkOrder[]; activeOrder: WorkOrder | null };
   /** open a client screen (from a server-side interactable handler) */
   'meta.open': { screen: string; props?: Record<string, unknown> };
+  /** v1.2 crew stash changed (delta per MaterialType) */
+  'meta.stash': { delta: Record<string, number>; by: string | null; reason: 'scrap' | 'deposit' | 'craft' | 'upgrade' | 'contract' | 'fired' };
+  /** v1.2 first find of a collection-log entry (private to the finder) */
+  'meta.collection': { key: string; label: string; total: number; of: number };
 }
 
 export interface MetaReqs {
@@ -170,4 +205,12 @@ export interface MetaReqs {
    *  once every connected player has voted (or the countdown ends); waiting = players still reading */
   'meta.continue': { args: { vote?: boolean } | Record<string, never> | undefined; result: { ok: boolean; reason?: string; waiting?: number } };
   'meta.state': { args: Record<string, never> | undefined; result: { meta: MetaState; workOrders: WorkOrder[]; activeOrder: WorkOrder | null } };
+  /** v1.2 workshop (G5): hub only, within benchRangeM of the workbench */
+  'meta.workbench': { args: Record<string, never> | undefined; result: MetaWorkbench };
+  'meta.craft': { args: { recipe: string }; result: { ok: boolean; reason?: string; bench: MetaWorkbench } };
+  'meta.upgrade': { args: { id: string }; result: { ok: boolean; reason?: string; bench: MetaWorkbench } };
+  /** v1.2 (meta): hand-out priority, validated against POOL_TYPES + HANDOUT_ONLY */
+  'meta.loadout': { args: { order: string[] }; result: { ok: boolean; reason?: string; loadout: string[] } };
+  /** v1.2 (meta): personnel file (own, or a crewmate's in a shared crew) */
+  'meta.stats': { args: { saveId?: string } | undefined; result: StatsReply };
 }

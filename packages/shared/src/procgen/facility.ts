@@ -20,6 +20,7 @@ import { GenFail, ItemList, area, bsp, centreCell, clamp, graphDijkstra, normalO
 import type { GEdge } from './common.ts';
 import { addFixtures, rollLight } from './lights.ts';
 import { placeDecor } from './decor.ts';
+import { themeFor } from './themes.ts';
 
 export interface FacilityParams {
   seed: string;
@@ -27,6 +28,10 @@ export interface FacilityParams {
   players: number;
   /** 1..3 */
   risk: number;
+  /** v1.2: SiteTheme id; absent/unknown = 'facility' */
+  theme?: string;
+  /** v1.2: WorkOrder.modifiers chips (MODIFIER_SLUG maps the ones that change generation) */
+  modifiers?: readonly string[];
 }
 
 interface WS extends LayoutSpace { perimeter: boolean }
@@ -40,7 +45,7 @@ export function generateFacility(params: FacilityParams, tuning: LevelTuning = D
   const reasons: string[] = [];
   for (let attempt = 0; attempt < tuning.maxAttempts; attempt++) {
     try {
-      return generateOnce(seed, attempt, players, risk, tuning);
+      return generateOnce(seed, attempt, players, risk, tuning, params);
     } catch (e) {
       if (!(e instanceof GenFail)) throw e;
       reasons.push(e.message);
@@ -51,7 +56,7 @@ export function generateFacility(params: FacilityParams, tuning: LevelTuning = D
 
 const pairKey = (a: number, b: number) => (a < b ? a * 4096 + b : b * 4096 + a);
 
-function generateOnce(seed: string, attempt: number, players: number, risk: number, t: LevelTuning): LevelLayout {
+function generateOnce(seed: string, attempt: number, players: number, risk: number, t: LevelTuning, params: FacilityParams): LevelLayout {
   const key = `${attempt ? `${seed}#${attempt}` : seed}|${GEN_VERSION}`;
   const rL = makeRng(key, 'layout');
   const [W, FH] = footprintFor(players, t);
@@ -712,7 +717,7 @@ function generateOnce(seed: string, attempt: number, players: number, risk: numb
     kind: 'facility',
     seed,
     hash: '',
-    theme: 'facility',
+    theme: themeFor(params.theme),
     W, H,
     owner: Array.from(owner),
     spaces,

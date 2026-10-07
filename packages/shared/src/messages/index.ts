@@ -9,14 +9,18 @@ import type { InteractionEvents, InteractionReqs } from './interaction.ts';
 import type { MonstersEvents, MonstersReqs } from './monsters.ts';
 import type { MetaEvents, MetaReqs } from './meta.ts';
 import type { AiEvents, AiReqs } from './ai.ts';
+import type { ParanormalEvents, ParanormalReqs } from './paranormal.ts';
+import type { FieldguideEvents, FieldguideReqs } from './fieldguide.ts';
 
 /** event name -> payload (server -> client, reliable, ordered) */
 export interface EventMap
-  extends NetEvents, LevelEvents, PlayersEvents, VoiceEvents, ObjectivesEvents, InteractionEvents, MonstersEvents, MetaEvents, AiEvents {}
+  extends NetEvents, LevelEvents, PlayersEvents, VoiceEvents, ObjectivesEvents, InteractionEvents, MonstersEvents, MetaEvents, AiEvents,
+    ParanormalEvents, FieldguideEvents {}
 
 /** request name -> { args; result } (client -> server, answered by 'rep') */
 export interface ReqMap
-  extends NetReqs, LevelReqs, PlayersReqs, VoiceReqs, ObjectivesReqs, InteractionReqs, MonstersReqs, MetaReqs, AiReqs {}
+  extends NetReqs, LevelReqs, PlayersReqs, VoiceReqs, ObjectivesReqs, InteractionReqs, MonstersReqs, MetaReqs, AiReqs,
+    ParanormalReqs, FieldguideReqs {}
 
 export type EventName = keyof EventMap & string;
 export type EventPayload<E extends EventName> = EventMap[E];

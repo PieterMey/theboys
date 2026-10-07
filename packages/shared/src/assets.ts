@@ -282,19 +282,30 @@ export const ASSET_KEYS = [
 ] as const;
 export const MATERIAL_IDS = [
   'asphalt',
+  'asphalt_wet',
+  'brick',
+  'carpet',
   'ceiling_plaster',
   'ceiling_tiles',
   'concrete_floor',
   'corrugated_metal',
   'floor_linoleum',
   'floor_tiles',
+  'grating',
+  'insulated_panel',
   'metal_painted',
   'metal_plate',
   'metal_rusty',
+  'parquet',
   'rubber_floor',
+  'terrazzo',
+  'tiles_pool',
+  'tiles_subway',
   'tiles_white',
   'wall_concrete',
   'wall_plaster',
+  'wallpaper',
+  'wood_panel',
 ] as const;
 // </generated:keys>
 

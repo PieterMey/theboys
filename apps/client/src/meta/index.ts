@@ -15,6 +15,7 @@ import { ConsoleScreen, consoleMirror, resetMirror } from './console.tsx';
 import { MemoScreen, ResultsScreen } from './results.tsx';
 import { FLOW_SCREENS, ITEM_SCREEN, META_SCREENS, closeScreen, metaSlice, openScreen } from './nav.ts';
 import type { MetaClientSlice } from './nav.ts';
+import { installWorkshop } from './workshop.ts';
 
 function localPos(ctx: ClientContext): [number, number, number] | null {
   const lp = players(ctx)?.localPose?.();
@@ -231,4 +232,7 @@ export function install(ctx: ClientContext): void {
       layoutItems: () => (ctx.world.layout?.items ?? []).map((i) => ({ id: i.id, kind: i.kind, x: i.x, z: i.z, rot: i.rot ?? 0 })),
     };
   }
+
+  // v1.2 workshop (G5): 'workbench' screen + van upgrade sync
+  installWorkshop(ctx);
 }

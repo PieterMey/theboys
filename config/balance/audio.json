@@ -1,0 +1,1 @@
+{ "_doc": "env-audio v1.2: occlusion + reverb only for sounds played with occlude:true (ambience, paranormal)", "occlusionPerWallDb": -6, "occlusionLowpassHz": [20000, 2400, 1200, 700, 450], "occludeMonsters": false }

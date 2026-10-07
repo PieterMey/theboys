@@ -2,6 +2,7 @@
 // (set by the AI track), decision subscribers, the director picker. No imports of runtime code (no cycles).
 import type { Crew } from '../core/types.ts';
 import type { ListenerAction } from './types.ts';
+import type { MonsterEvent } from '@dead-air/shared/messages/monsters.ts';
 
 export type { ListenerAction };
 
@@ -57,6 +58,8 @@ export interface ListenerDecision {
   note: string;
   heard: string | null;
   speaker: string | null;
+  /** v1.2: speaker's player id */
+  speakerId?: string | null;
   source: string;
   valid: boolean;
   line: string;
@@ -82,6 +85,8 @@ export const registry = {
   brain: null as ListenerBrain | null,
   decisionSubs: new Set<(crew: Crew, d: ListenerDecision) => void>(),
   picker: null as DirectorPicker | null,
+  /** v1.2 monster event bus subscribers (api.onMonsterEvent) */
+  monsterEventSubs: new Set<(crew: Crew, e: MonsterEvent) => void>(),
 };
 
 /** director phase stored by the director module in crew.slices.director */

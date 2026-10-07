@@ -18,5 +18,19 @@
   "safes": true,
   "specialFinds": true,
   "snatcher": true,
-  "listenerVoice": true
+  "listenerVoice": true,
+  "stealthV12": true,
+  "listenerFairV12": true,
+  "crawlVents": true,
+  "gearV12": true,
+  "materials": true,
+  "crafting": true,
+  "nightVision": true,
+  "containers": true,
+  "easeDoors": true,
+  "statsV12": true,
+  "fieldGuide": true,
+  "siteThemes": true,
+  "paranormal": true,
+  "mirrors": true
 }

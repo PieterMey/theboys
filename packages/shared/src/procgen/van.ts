@@ -2,8 +2,9 @@
 //   cargo area (the sealed "cab" where the crew sits): VAN_CARGO_W x VAN_CARGO_L cells, its own space (type 'van'),
 //   rear opening (an 'open' doorway) on the -Z side, driver cab VAN_CAB_L cells of solid (-1) on the +Z side.
 // van.yaw = 0 means the van's nose points +Z (away from the facility); players board from the rear (-Z).
-import type { Rect, VanInfo } from '../layout.ts';
+import type { LevelLayout, Rect, VanInfo } from '../layout.ts';
 import type { AddItem } from './common.ts';
+import { normalOfYaw, r3 } from './common.ts';
 import { HALF_T } from './place.ts';
 
 export const VAN_CARGO_W = 2;
@@ -41,4 +42,91 @@ export function addVanSpawns(van: VanInfo, lotSpace: number, add: AddItem, yaw =
     const rot = la ? Math.round(Math.atan2(la.x - x, la.z - z) * 1e4) / 1e4 : yaw;
     add('spawn_player', lotSpace, x, z, { rot, data: { idx: r * 3 + i } });
   }
+}
+
+/** Stations: built-in items console | leave_lever | deposit | mirror, or kind 'prop' with data.station = StationKind
+ *  (data.prop van_workbench | van_stash | van_shelf | van_charger | van_mirror | noticeboard). Van wall solids <= 0.30 m deep. */
+export type StationKind = 'console' | 'leave_lever' | 'deposit' | 'workbench' | 'stash' | 'booklet' | 'mirror' | 'charger' | 'records';
+export interface Station {
+  kind: StationKind;
+  /** layout item id ('console:0', 'mirror:0', 'prop:57'); 'virtual:<kind>' for a virtual station */
+  itemId: string;
+  space: number;
+  /** item position (mount point y for wall pieces), world m */
+  x: number; y: number; z: number;
+  /** front faces normalOfYaw(rot) */
+  rot: number;
+  w: number; d: number; h: number;
+  /** interaction aim point and targeting radius */
+  p: [number, number, number];
+  r: number;
+  /** true = synthesized at env-layout's planned spot because the layout has no such station yet (layouts from before
+   *  gate L1, plan check #16). No layout item, never solid, never drawn; gameplay may register on it like a real one. */
+  virtual?: boolean;
+}
+const STATION_DIMS: Readonly<Record<StationKind, { w: number; d: number; h: number; py: number; front: number; r: number }>> = {
+  console: { w: 1.7, d: 0.55, h: 1.1, py: 0.95, front: 0, r: 0.7 },
+  leave_lever: { w: 0.2, d: 0.15, h: 0.4, py: 1.15, front: 0, r: 0.3 },
+  deposit: { w: 0.9, d: 0.6, h: 0.4, py: 0.4, front: 0, r: 0.9 },
+  workbench: { w: 1.3, d: 0.3, h: 0.92, py: 0.95, front: 0.32, r: 0.45 },
+  stash: { w: 0.6, d: 0.3, h: 1.9, py: 1.0, front: 0.25, r: 0.45 },
+  booklet: { w: 1.0, d: 0.22, h: 0.35, py: 1.85, front: 0.15, r: 0.35 },
+  mirror: { w: 0.45, d: 0.03, h: 0.9, py: 1.5, front: 0.1, r: 0.45 },
+  charger: { w: 0.4, d: 0.15, h: 0.3, py: 1.1, front: 0.12, r: 0.3 },
+  records: { w: 1.2, d: 0.04, h: 0.8, py: 1.55, front: 0.1, r: 0.6 },
+};
+const BUILTIN_STATION: Readonly<Record<string, StationKind>> = { console: 'console', leave_lever: 'leave_lever', deposit: 'deposit', mirror: 'mirror' };
+const num = (v: unknown, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+type StationSpot = { kind: StationKind; x: number; y: number; z: number; rot: number };
+/** env-layout's planned v1.2 van stations (gate L1: addVanStations), relative to the cab rect c (c.w = VAN_CARGO_W = 2):
+ *  workbench + shelf + charger on the right (+X) wall facing in, stash + mirror on the left wall. Hub mirror: the kind
+ *  'mirror' item (moved to the mirror spot at L1). The real props must use these spots (plan check #16). */
+export function plannedVanStations(c: Rect): StationSpot[] {
+  const right = c.x + c.w - HALF_T, left = c.x + HALF_T;
+  return [
+    { kind: 'workbench', x: r3(right - 0.15), y: 0, z: r3(c.y + 2.2), rot: -Math.PI / 2 },
+    { kind: 'stash', x: r3(left + 0.15), y: 0, z: r3(c.y + 2.85), rot: Math.PI / 2 },
+    { kind: 'booklet', x: r3(right - 0.11), y: 1.8, z: r3(c.y + 2.2), rot: -Math.PI / 2 },
+    { kind: 'charger', x: r3(right - 0.075), y: 1.1, z: r3(c.y + 1.0), rot: -Math.PI / 2 },
+    { kind: 'mirror', x: r3(left + 0.015), y: 1.5, z: r3(c.y + 0.95), rot: Math.PI / 2 },
+  ];
+}
+/** hub records board (personnel file): on the facade 2 m right of the entrance door prop (centre), facing the lot */
+export function plannedRecordsBoard(entrance: { x: number; z: number }): StationSpot {
+  return { kind: 'records', x: r3(entrance.x + 2), y: 1.55, z: r3(entrance.z), rot: 0 };
+}
+function stationAt(kind: StationKind, itemId: string, space: number, x: number, y: number, z: number, rot: number, data?: Record<string, unknown>): Station {
+  const dim = STATION_DIMS[kind];
+  const [nx, nz] = normalOfYaw(rot);
+  return {
+    kind, itemId, space, x, y, z, rot,
+    w: num(data?.w, dim.w), d: num(data?.d, dim.d), h: num(data?.h, dim.h),
+    p: [x + nx * dim.front, dim.py, z + nz * dim.front], r: dim.r,
+  };
+}
+/** every station in item order, then virtual ones for v1.2 stations the layout lacks (pure: server and clients agree).
+ *  Pass the whole layout: van and kind drive the virtual stations. */
+export function stationsOf(L: Pick<LevelLayout, 'items'> & Partial<Pick<LevelLayout, 'kind' | 'van'>>): Station[] {
+  const out: Station[] = [];
+  for (const it of L.items) {
+    const dk = it.kind === 'prop' ? it.data?.station : undefined;
+    const kind: StationKind | undefined = typeof dk === 'string' && dk in STATION_DIMS ? (dk as StationKind) : BUILTIN_STATION[it.kind];
+    if (!kind) continue;
+    out.push(stationAt(kind, it.id, it.space, it.x, it.y ?? 0, it.z, it.rot ?? 0, it.data));
+  }
+  const have = new Set(out.map((s) => s.kind));
+  const vanSpace = L.items.find((it) => it.kind === 'console')?.space;
+  const spots: (StationSpot & { space: number })[] = [];
+  if (L.van && vanSpace !== undefined) for (const s of plannedVanStations(L.van.cab)) spots.push({ ...s, space: vanSpace });
+  const door = L.kind === 'hub' ? L.items.find((it) => it.kind === 'prop' && it.data?.prop === 'entrance_door') : undefined;
+  if (door) spots.push({ ...plannedRecordsBoard(door), space: door.space });
+  for (const s of spots) {
+    if (have.has(s.kind)) continue;
+    have.add(s.kind);
+    out.push({ ...stationAt(s.kind, `virtual:${s.kind}`, s.space, s.x, s.y, s.z, s.rot), virtual: true });
+  }
+  return out;
+}
+export function stationOf(L: Pick<LevelLayout, 'items'> & Partial<Pick<LevelLayout, 'kind' | 'van'>>, kind: StationKind): Station | null {
+  return stationsOf(L).find((s) => s.kind === kind) ?? null;
 }

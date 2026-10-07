@@ -3,7 +3,7 @@
 // Every mutating call batches its changes into the crew's 'interaction.patch' (sent at the end of the next tick, <=33 ms).
 import type { Crew, ServerPlayer } from '../core/types.ts';
 import type { InteractableInfo } from '@dead-air/shared/interactables.ts';
-import type { BodyState, DeathCause, InteractionState, ItemState } from '@dead-air/shared/messages/interaction.ts';
+import type { BodyState, DeathCause, InteractionState, ItemEvent, ItemState } from '@dead-air/shared/messages/interaction.ts';
 import type { Vec3 } from '@dead-air/shared/state.ts';
 import * as E from './engine.ts';
 import type { DeathRecord, DepositFn, DoorFn, InteractFn, MeleeFn, ReviveFn } from './engine.ts';
@@ -219,3 +219,28 @@ export function doorOpenFn(crew: Crew): (id: number) => boolean {
 export function flushNow(crew: Crew): void {
   E.flush(crew);
 }
+
+// ---------------------------------------------------------------- v1.2 contract (PLAN.md §13; stubs until G3 fills them)
+
+const itemEventSubs = new Set<(crew: Crew, e: ItemEvent) => void>();
+/** v1.2 item events (server only) */
+export function onItemEvent(fn: (crew: Crew, e: ItemEvent) => void): () => void {
+  itemEventSubs.add(fn);
+  return () => itemEventSubs.delete(fn);
+}
+/** (b) internal: publish */
+export function emitItemEvent(crew: Crew, e: ItemEvent): void {
+  for (const f of itemEventSubs) {
+    try { f(crew, e); } catch { /* subscriber bug */ }
+  }
+}
+/** deposited materials + mat.* / pouch items in the van cargo rect +-0.6 m; returns and clears */
+export function takeVanMaterials(_crew: Crew): Record<string, number> { return {}; }
+export function vanMaterials(_crew: Crew): Record<string, number> { return {}; }
+export function pouchOf(_crew: Crew, _pid: string): Record<string, number> { return {}; }
+/** private item into a closed container (fieldguide pages); false if unknown/open */
+export function stockContainer(_crew: Crew, _containerId: string, _spec: { type: string; name?: string; value?: number }): boolean { return false; }
+/** programmatic hide (crawl: 'duct:<vent id>'): stance hidden, use/act blocked, monsters + litAt ignore; unhide() ends */
+export function hideIn(_crew: Crew, _pid: string, _spotId: string): boolean { return false; }
+/** an onInteract handler exists for kind (gate checks) */
+export function hasInteractHandler(_kind: string): boolean { return false; }

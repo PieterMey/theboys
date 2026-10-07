@@ -1,5 +1,6 @@
 // FROZEN CONTRACT (P0): host-side save files (saves/ is gitignored; never commit).
 import type { Profile } from './profile.ts';
+import type { CollectionEntry, CrewRecords, FieldGuideSave, PlayerStatsV1, ShiftStatLine } from './progress.ts';
 
 export interface PlayerSave {
   /** stable player id */
@@ -15,6 +16,14 @@ export interface PlayerSave {
   achievements: string[];
   createdAt: string;
   updatedAt: string;
+  /** v1.2 (meta): career counters; default lazily with emptyStats */
+  stats?: PlayerStatsV1;
+  /** v1.2 (meta): collection log, key -> first find */
+  collection?: Record<string, CollectionEntry>;
+  /** v1.2 (meta): hand-out priority (item types first handed out first) */
+  loadout?: string[];
+  /** v1.2 (fieldguide): booklet progress; default lazily with emptyFieldGuide */
+  fieldGuide?: FieldGuideSave;
 }
 
 export interface ContractResult {
@@ -45,6 +54,14 @@ export interface CrewSave {
   };
   history: ContractResult[];
   updatedAt: string;
+  /** v1.2 (workshop): MaterialType -> units */
+  stash?: Record<string, number>;
+  /** v1.2 (workshop): VanUpgrade ids owned */
+  unlocks?: string[];
+  /** v1.2 (meta): running shift per save id (HR memo survives a restart) */
+  shiftStats?: Record<string, ShiftStatLine>;
+  /** v1.2 (meta) */
+  records?: CrewRecords;
 }
 
 export interface SessionSave {

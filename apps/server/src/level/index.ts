@@ -27,6 +27,10 @@ export interface FacilityRequest {
   /** crew size for the footprint; default = connected players (1..6) */
   players?: number;
   risk?: number;
+  /** v1.2: SiteTheme id (WorkOrder.siteTheme); absent = 'facility' */
+  theme?: string;
+  /** v1.2: WorkOrder.modifiers */
+  modifiers?: readonly string[];
 }
 
 let ctxRef: ServerContext | null = null;
@@ -55,7 +59,7 @@ export function summarize(L: LevelLayout): LevelSummary {
 export function generateFacilityForCrew(crew: Crew, req: FacilityRequest): LevelLayout {
   const connected = [...crew.players.values()].filter((p) => p.connected).length;
   const players = Math.max(1, Math.min(6, Math.round(req.players ?? (connected || 1))));
-  const L = generateFacility({ seed: String(req.seed), players, risk: req.risk ?? 1 }, levelTuning());
+  const L = generateFacility({ seed: String(req.seed), players, risk: req.risk ?? 1, theme: req.theme, modifiers: req.modifiers }, levelTuning());
   crew.layout = L;
   levelOf(crew);
   return L;

@@ -619,6 +619,34 @@ New MCP servers load in a new Claude Code session. I can start without them. You
 - **Stable hosting:** a named Cloudflare tunnel on your own domain gives a fixed link, so claim codes become unnecessary; or a small VPS near you.
 - **v2 fidelity jump:** keep the Node game brain, add a **native Godot 4.8 client** (real-time global illumination, froxel volumetric fog, Steam invites and voice on your own $100 App ID), and keep the web version for zero install.
 
+## 13. v1.2 cross-package API (every name exists from the contract commit; additive only)
+### Server
+- interaction/api.ts (G3): onItemEvent -> G4, G6, G2 · takeVanMaterials, vanMaterials -> G5 · pouchOf -> G4 · stockContainer(crew, containerId, {type,name?,value?}) -> G6 · hideIn + unhide/hiddenIn -> G1 · hasInteractHandler -> gates · existing setLights, lightsOn, isDoorOpen, setDoorOpen, isHidden, isAlive, holding, deaths, state, litAt, onInteract, registerInteractables, removeItem, giveItem, itemsOf, onDeath, onRevive, onDeposit, onDoor, onMelee (keep signatures).
+- monsters/api.ts (G2): onMonsterEvent -> G4, G6, E4 ('wake') · ventInUse, isGrabbed -> G1, E4 · listener.onDecision (+speakerId) -> G4, E4 · monsterPositions, decisionEntries -> E4, G3. G2 keeps the crew.slices.director shape that E4 reads: {phase: 'build' | 'peak' | 'fade' | 'relax', tension: Record<pid, number>, events: {t, kind, source}[]}. MonsterEvent 'wake' = the Listener woke (E4 holds effects back 15 s after it).
+- players/api.ts (G1): stealthStance(crew, pid) -> G2: a STANCE value from the server's own seq-window speed (a crouch claim above crouchMaxSpeed reads as stand, above noiseSprintSpeed as sprint, hidden only while isHidden). Crouch sight and low cover apply only when it is STANCE.crouch; never read pose.stance for stealth. Contract stub = the claimed stance until G1 binds it (bindStealthStance).
+- meta/api.ts (G4): recordStat -> G1, G3, G5, G6 · unlocks -> G3 · poolAdd, poolView -> G5 · playerSave, updatePlayerSave, currentOrder -> G6.
+- meta/crafting.ts (G5): the 8 hooks, called by G4 only.
+- paranormal/api.ts (E4): onPhenomenon -> G4, G6 · paranormalQuietUntil -> G2 · setLoreTargets -> G6.
+- level/index.ts (E1): generateFacilityForCrew(crew, {seed, players, risk, theme?, modifiers?}) -> G4 · levelOf -> E4, G1.
+### Shared pure
+E1: stationsOf/stationOf, containersOf/containerById, loreSpotsOf, mirrorsOf, movableRefsOf, SITE_THEMES/THEMES/siteThemeOf/themeFor/themeOf/MODIFIER_SLUG/modifierSlugs/FIXTURE_KINDS/floorSurface(L, space) (L = the whole layout: theme, spaces and metrics, so 'mod:hardfloors' is visible). G1: stepNoiseRadius (messages/players.ts). Integrator: catalog.ts (incl. HANDOUT_ONLY), progress.ts.
+### Client services (cast structurally, call with ?.)
+- level (E3, level/api.ts): stations/stationObject/setVanUpgrades -> G5 · containers/setContainerOpen/containerOpen/containerAnim/setContainerProgress/containerPartMatrix/setDoorProgress -> G3 · loreSpots/setLorePage -> G6 · rattleDoor/propHandle/mirrorOf -> E4 · surfaceAt -> G1, E5 · fixtures[].rot/battery -> E2.
+- render (E2, render/api.ts): layers -> G1, G3, E3, E4 · brownout/failSpace -> G2, E4 · fixtureCurve/fixtureLevels -> E4, E5 · mirrors -> E3, E4 · setFogVolumes/puff/beams/beamInterference/ambientAt/coverMode -> E4 · setNightVision -> G3.
+- players (G1): setMirrorSelf -> E2 · settings().ctrlCrouch -> G4 · setFlashlightEnabled(enabled, reason?) is ref-counted per reason like freeze(): the light works only while no reason holds it off. Writers: G3 battery ('battery', the default when reason is omitted) and night vision ('nv'), G2 knockdown ('knockdown'). interaction (G3): holds(type) -> G1. paranormal (E4): settings/setSettings -> G4.
+- sfx (E5, audio/api.ts): synth(kind: SynthKind, pos?, opts?: SynthOpts) and play(..., {occlude}) -> E4 · fear(source, v, ms?) -> G2 (monsters.spotted), E4 (phenomena): the heartbeat follows the maximum over sources, v 0 clears a source, ms clears it after ms; setFear(v) = fear('default', v). SynthKind has no breath or whisper (breath is the Listener's retreat cue).
+- Screens: stats (G4), workbench (G5), fieldguide (G6).
+### Conventions
+- Van cargo 2x4 m; van wall solids <= 0.30 m deep; stations = console/leave_lever/deposit/hub mirror items or props with data.station.
+- Virtual stations: until E1's station props land, stationsOf appends the missing ones as virtual stations (Station.virtual true, itemId 'virtual:<kind>', no layout item, not solid) at E1's planned spots: van.ts plannedVanStations (workbench, stash, booklet shelf, charger; facility van mirror) and, in the hub, plannedRecordsBoard (records board on the facade 2 m right of the entrance door prop, y 1.55, facing the lot). E1 places the real props on exactly these spots. Find stations with stationOf(L, kind), never by item id.
+- Lore: props data.prop 'lore_<style>', data.lore. Mirrors: data.mirror. Containers: derived, id = host prop id. L.theme = SiteTheme; metrics['mod:<slug>'].
+- Interactable ids: cont:/wb:/stash:/rec:/fg:/lore:/crawl: + item id; never reuse built-in kinds; register after interaction's rebuild (phase hook or hubInteractables).
+- Noise kinds: doorSoft 1 m, drawer 4-6 m, drawerSoft 1 m, lockpick 6 m, ductThump 4/6 m, flash 6 m.
+- Themes: 14 ids; dressed now: facility, hospital, waterworks, records, cold_storage (MUST), industry, hospitality, comms (SHOULD); others resolve via ThemeDef.base.
+- Gear pool (G4): keyed by save id. To migrate an old live-id owner, a save's live ids are playerIdFromKey(key) for each sv.keys entry (apps/server/src/core/crews.ts: 'p' + base64url(sha256(key)).slice(0, 10)), never 'p' + a sha256 hex digest. poolAdd, the hand-out and meta.loadout accept POOL_TYPES + HANDOUT_ONLY ('soles'); carry-over stays POOL_TYPES.
+- Layout identity (E1, gate L1): tests/fixtures/identity-v11/ is the frozen v1.1 reference, generated at gate C by the HEAD generator for the tests/fixtures/layouts seeds/players/risk plus the hub. index.json lists the entries (seed, players, risk, hash) and the tuning used. identity.test.ts regenerates each entry with no theme or modifiers (generateFacility({seed, players, risk}, index.tuning); generateHub()) and compares per plan check #2. `node tools/make-identity-fixtures.ts --check` shows which layouts changed. Never regenerate the set; tests/fixtures/layouts stays as it is until the integrator regenerates it at L1.
+- Dev and test servers: NODE_ENV=development AI_MODE=mock SAVES_DIR=<scratch>/saves SESSION_FILE=<scratch>/session.json (CLAUDE.md).
+
 ---
 
 ### Appendix A: verified facts the build depends on

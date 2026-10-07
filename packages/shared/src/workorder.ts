@@ -25,6 +25,8 @@ export interface WorkOrder {
   risk: 1 | 2 | 3;
   siteName: string;
   theme: 'facility';
+  /** v1.2: SiteTheme id (procgen/themes.ts) stamped by meta from the template site; absent/unknown = 'facility' */
+  siteTheme?: string;
   size: 'S' | 'M' | 'L';
   payoutMult: number;
   modifiers: string[];

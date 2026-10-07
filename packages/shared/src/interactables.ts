@@ -22,6 +22,8 @@ export interface InteractableInfo {
   r?: number;
   /** source reference: layout item id, door id, item id, player id (bodies) */
   ref?: string | number;
+  /** v1.2: client sub-line with {item} = active slot's label, e.g. '{item} · no longer counts toward the quota' */
+  heldNote?: string;
 }
 
 /** Default targeting sphere radius per kind (m). Doors use their own box. */

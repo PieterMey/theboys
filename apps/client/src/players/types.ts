@@ -32,8 +32,13 @@ export interface PlayersService {
   spectating(): boolean;
   /** interaction track: force spectating on/off (death, revive). Dead pose = camera position. */
   setSpectate(on: boolean): void;
-  /** interaction track (battery): false forces the light off and ignores F until re-enabled */
-  setFlashlightEnabled(enabled: boolean): void;
+  /**
+   * interaction track (battery): false forces the light off and ignores F until re-enabled.
+   * v1.2 (PLAN.md §13): ref-counted per `reason` like freeze(): the light is usable only while no reason holds it off
+   * ('battery' | 'nv' | 'knockdown' ...); an omitted reason is 'battery' (the v1.1 single writer). Until players-stealth
+   * implements the ref-count, the last call wins.
+   */
+  setFlashlightEnabled(enabled: boolean, reason?: string): void;
   flashlightOn(): boolean;
   setFlashlight(on: boolean): void;
   /** interaction track: movement multiplier (e.g. carrying the Core = MOVE.carryCoreMult); 1 = normal */
@@ -65,6 +70,8 @@ export interface PlayersService {
   setStaminaFree?(ms: number): void;
   /** pointer lock active */
   locked(): boolean;
+  /** v1.2: local full-body avatar on RENDER_LAYERS.self only, castShadow false, no nameplate/step sfx */
+  setMirrorSelf?(on: boolean): THREE.Object3D | null;
 }
 
 export interface PlayerSettings {
@@ -73,6 +80,8 @@ export interface PlayerSettings {
   crouchToggle: boolean;
   invertY: boolean;
   headBob: boolean;
+  /** v1.2 desktop: Left Ctrl also crouches */
+  ctrlCrouch?: boolean;
 }
 
 /** services.level (provided by ② Level) — consumed here; every field optional at runtime. */

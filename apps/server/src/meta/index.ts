@@ -12,6 +12,7 @@ import {
 import type { RawResult } from './flow.ts';
 import { SaveStore, savesDir } from './saves.ts';
 import { economyFrom, levelFor } from './economy.ts';
+import { installCrafting } from './crafting.ts';
 
 const SCREEN_FOR: Record<string, string> = { board: 'board', shop: 'shop', mirror: 'mirror', kennel: 'kennel', console: 'console' };
 
@@ -55,6 +56,7 @@ export async function install(ctx: ServerContext): Promise<void> {
   };
   A.setAdapterLog(log, (name) => wire(name));
   await A.loadAll();
+  installCrafting(ctx);
 
   // ---- hooks
   const ensureHubLayout = (crew: Crew) => {
