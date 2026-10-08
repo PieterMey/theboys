@@ -22,14 +22,16 @@ export function glbPath(key: string): string | null {
 interface Node { name?: string; mesh?: number; children?: number[]; translation?: number[]; rotation?: number[]; scale?: number[]; matrix?: number[] }
 interface Json {
   nodes: Node[]; scenes: { nodes: number[] }[]; scene?: number;
-  meshes: { primitives: { attributes: Record<string, number>; indices?: number }[] }[];
+  meshes: { primitives: { attributes: Record<string, number>; indices?: number; material?: number }[] }[];
+  materials?: { name?: string }[];
   accessors: { bufferView: number; byteOffset?: number; componentType: number; count: number; type: string; normalized?: boolean }[];
   bufferViews: { byteOffset?: number; byteLength: number; byteStride?: number; extensions?: { EXT_meshopt_compression?: { byteOffset?: number; byteLength: number; byteStride: number; count: number; mode: string; filter?: string } } }[];
 }
 const SIZE: Record<string, number> = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
 
-/** decode a .glb into a THREE.Group (node names kept, TRS kept, one plain mesh per primitive) */
-export async function loadGlbModel(path: string): Promise<THREE.Group> {
+/** decode a .glb into a THREE.Group (node names kept, TRS kept, one plain mesh per primitive); opts.materials: one
+ *  material per glTF material (named like it) instead of one shared material (the level's batch split per material) */
+export async function loadGlbModel(path: string, opts: { materials?: boolean } = {}): Promise<THREE.Group> {
   await MeshoptDecoder.ready;
   const buf = readFileSync(path);
   const jl = buf.readUInt32LE(12);
@@ -68,6 +70,13 @@ export async function loadGlbModel(path: string): Promise<THREE.Group> {
     return out;
   };
   const mat = new THREE.MeshStandardNodeMaterial();
+  const perMat = new Map<number, THREE.Material>();
+  const matOf = (i: number | undefined): THREE.Material => {
+    if (!opts.materials || i === undefined) return mat;
+    let m = perMat.get(i);
+    if (!m) { m = new THREE.MeshStandardNodeMaterial(); m.name = json.materials?.[i]?.name ?? `m${i}`; perMat.set(i, m); }
+    return m;
+  };
   const build = (ni: number): THREE.Object3D => {
     const n = json.nodes[ni];
     const o = new THREE.Group();
@@ -82,7 +91,8 @@ export async function loadGlbModel(path: string): Promise<THREE.Group> {
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.BufferAttribute(read(pr.attributes.POSITION) as Float32Array, 3));
       if (pr.indices !== undefined) g.setIndex(new THREE.BufferAttribute(read(pr.indices) as Uint32Array, 1));
-      o.add(new THREE.Mesh(g, mat));
+      if (opts.materials) g.computeVertexNormals();
+      o.add(new THREE.Mesh(g, matOf(pr.material)));
     }
     for (const c of n.children ?? []) o.add(build(c));
     return o;

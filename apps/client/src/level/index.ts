@@ -40,6 +40,7 @@ function partDefsFor(it: LayoutItem): readonly PartDefLike[] {
   try { return fn?.(it)?.parts ?? []; } catch { return []; }
 }
 import { clutterFor } from '@dead-air/shared/procgen/clutter.ts';
+import { movableRefsOf } from '@dead-air/shared/procgen/movables.ts';
 import { makeRng } from '@dead-air/shared/rng.ts';
 import { NO_CAST_MATS, clutterParts, fillParts, plainParams, procPartGeometry, procParts, setMaterial, waterSheet } from './setpieces.ts';
 import type { Part } from './setpieces.ts';
@@ -47,6 +48,7 @@ import { mergeParts } from './geo.ts';
 import type { MergeItem } from './geo.ts';
 import { ContainerSystem, measuredFloor, partInstanceMatrix, restOf, slotInPart, swingPose } from './containers.ts';
 import type { PiecePose } from './containers.ts';
+import { SiteBatch } from './sitebatch.ts';
 import { applyLorePage, disposeLorePage, drawerPageOffset, loadLoreFont, loreHolderParts, makeLorePage, redrawLorePages } from './lore.ts';
 import type { DrawerPageSpec, LorePage } from './lore.ts';
 import { MirrorRegistry, makeMirrorGlass, mirrorFrameParts } from './mirrors.ts';
@@ -131,10 +133,14 @@ function safe<T>(fn: () => T, fallback: T, report?: (m: string) => void): T {
 }
 const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 
-/** one GLB furniture / clutter batch: every placement of `key` in `space` */
+/** one GLB furniture / clutter batch: every placement of `key` on the WHOLE site (furniture and clutter apart: their
+ *  shadow rules differ). Door-lag fix: one site-wide InstancedMesh per template mesh / part shape (sitebatch.ts),
+ *  compiled once at load, instead of one per room compiled at the room's first reveal. */
 interface GlbEntry {
-  space: number; key: string;
+  key: string;
   m: THREE.Matrix4[];
+  /** space per placement (the packing culls by it; a movable clone joins its space group) */
+  spaces: number[];
   /** layout item per placement (null for clutter) */
   items: (LayoutItem | null)[];
   /** container host id per placement (only the first copy of a host) */
@@ -142,9 +148,9 @@ interface GlbEntry {
   /** movable ref per placement ('prop:12' | 'clutter:7' | null) */
   refs: (string | null)[];
   clutter: boolean;
-  /** created instanced meshes: body meshes use instance = placement; part meshes map placement -> instances */
-  body: THREE.InstancedMesh[];
-  parts: { im: THREE.InstancedMesh; slots: { i: number; index: number; base: THREE.Matrix4 }[] }[];
+  /** created batches: body batches use logical id = placement; part batches map placement -> logical ids */
+  body: SiteBatch[];
+  parts: { batch: SiteBatch; slots: { i: number; id: number; base: THREE.Matrix4 }[] }[];
   tpl: THREE.Object3D | null;
 }
 interface ShapeGroup { geo: THREE.BufferGeometry; material: THREE.Material; members: TemplatePart[] }
@@ -193,8 +199,13 @@ export function install(ctx: ClientContext): void {
   let cacheSet = new Set<number>();
   let lastFull: unknown = null;
   const disposable: THREE.BufferGeometry[] = [];
-  /** instanced asset props of the current layout (instance buffers freed on rebuild; template geometry is shared) */
-  const instanced: THREE.InstancedMesh[] = [];
+  /** site-wide instanced batches of the current layout, children of the level root (instance buffers freed on rebuild;
+   *  template geometry is shared). Packed to the visible spaces whenever that set changes. */
+  const batches: SiteBatch[] = [];
+  /** visible-space mask the batches are packed to (null = every space: before the first frame, culling off) */
+  let packMask: Uint8Array | null = null;
+  let spareMask: Uint8Array | null = null;
+  let lastVis: Set<number> | null = null;
   let propStats = { furniture: 0, clutter: 0, staticMeshes: 0, instancedMeshes: 0, glbPlacements: 0, partMeshes: 0, containers: 0, lore: 0, mirrors: 0, kits: 0, decals: 0, exitSigns: 0 };
   // ---- v1.2 state (rebuilt with the layout)
   const containers = new ContainerSystem();
@@ -258,8 +269,11 @@ export function install(ctx: ClientContext): void {
   const clear = () => {
     for (const g of disposable) g.dispose();
     disposable.length = 0;
-    for (const im of instanced) im.dispose();
-    instanced.length = 0;
+    for (const b of batches) b.dispose();
+    batches.length = 0;
+    packMask = null;
+    spareMask = null;
+    lastVis = null;
     root.clear();
     groups = [];
     doorVis = [];
@@ -353,7 +367,8 @@ export function install(ctx: ClientContext): void {
       for (const g of [van.exterior, van.interior]) g.traverse((o) => { if ((o as THREE.Mesh).isMesh) { n++; if (o.visible) vis++; } });
       vanStats = { meshes: n, visible: vis };
     }
-    // furniture + clutter: static per-space batches (procedural set pieces merged per material, asset models instanced)
+    // furniture + clutter: static per-space meshes (procedural set pieces merged per material) + site-wide instanced
+    // batches (asset models, container parts)
     lap('van');
     const statics = buildStatics(L, conts, mirrorSpots, tm);
     tl = performance.now();
@@ -503,7 +518,8 @@ export function install(ctx: ClientContext): void {
     return new THREE.Matrix4().makeRotationY(it.rot ?? 0).setPosition(it.x, def?.proc ? it.y ?? 0 : y, it.z);
   };
 
-  /** furniture + clutter of a layout into per-space static meshes; asset models as InstancedMesh per space + key */
+  /** furniture + clutter of a layout into per-space static meshes; asset models + container parts as site-wide
+   *  instanced batches (one per key + template mesh / part shape, packed by visible space) */
   const buildStatics = (L: LevelLayout, conts: readonly ContainerInfo[], mirrorSpots: readonly MirrorSpot[], tm: Record<string, number> = {}) => {
     const ver = version;
     let tl = performance.now();
@@ -515,8 +531,8 @@ export function install(ctx: ClientContext): void {
     const contByHost = new Map(conts.map((c) => [c.id, c]));
     const loreByHost = new Map(loreList.filter((s) => s.style !== 'drawer').map((s) => [s.id, s]));
     const mirrorByItem = new Map(mirrorSpots.map((m) => [m.id, m]));
-    /** procedural movable parts: per space + part shape, the instances (container id, part idx, base) */
-    const procShapes = new Map<string, { space: number; mat: string; geo: THREE.BufferGeometry; entries: { cont: ContainerInfo; part: ContainerPart; base: THREE.Matrix4; pose?: PiecePose }[] }>();
+    /** procedural movable parts: per part shape (whole site), the instances (space, container id, part idx, base) */
+    const procShapes = new Map<string, { mat: string; geo: THREE.BufferGeometry; entries: { space: number; cont: ContainerInfo; part: ContainerPart; base: THREE.Matrix4; pose?: PiecePose }[] }>();
     /** queue parts (item-local, placed by m; prototype parts carry their own matrix) for the one-pass merge; a bucket
      *  casts when any casting item adds a part that may cast (no glass, glows, paper, pulls) */
     const push = (space: number, cast: boolean, parts: Part[], m: THREE.Matrix4 | null) => {
@@ -533,15 +549,15 @@ export function install(ctx: ClientContext): void {
       }
     };
     const addGlb = (space: number, key: string, m: THREE.Matrix4, meta: { item: LayoutItem | null; cont: string | null; ref: string | null; clutter: boolean }) => {
-      const k = `${space}|${key}`;
+      const k = `${key}|${meta.clutter ? 'c' : 'f'}`;
       let e2 = glbEntries.get(k);
-      if (!e2) { e2 = { space, key, m: [], items: [], cont: [], refs: [], clutter: meta.clutter, body: [], parts: [], tpl: null }; glbEntries.set(k, e2); }
+      if (!e2) { e2 = { key, m: [], spaces: [], items: [], cont: [], refs: [], clutter: meta.clutter, body: [], parts: [], tpl: null }; glbEntries.set(k, e2); }
       const i = e2.m.length;
       e2.m.push(m);
+      e2.spaces.push(space);
       e2.items.push(meta.item);
       e2.cont.push(meta.cont);
       e2.refs.push(meta.ref);
-      if (!meta.clutter) e2.clutter = false;
       if (meta.ref) refIndex.set(meta.ref, { entry: e2, i });
       placements++;
     };
@@ -578,18 +594,18 @@ export function install(ctx: ClientContext): void {
         const defParts = cont ? partDefsFor(it) : [];
         if (cont) for (const p of cont.parts) {
           const pg = procPartGeometry(key, p, slotInPart(defParts.find((dp) => dp.idx === p.idx)));
-          const sk = `${it.space}|${pg.shapeKey}`;
+          const sk = pg.shapeKey;
           let sh = procShapes.get(sk);
-          if (!sh) { sh = { space: it.space, mat: pg.mat, geo: pg.geo, entries: [] }; procShapes.set(sk, sh); } else pg.geo.dispose();
-          sh.entries.push({ cont, part: p, base: new THREE.Matrix4().makeTranslation(p.local[0], p.local[1], p.local[2]) });
+          if (!sh) { sh = { mat: pg.mat, geo: pg.geo, entries: [] }; procShapes.set(sk, sh); } else pg.geo.dispose();
+          sh.entries.push({ space: it.space, cont, part: p, base: new THREE.Matrix4().makeTranslation(p.local[0], p.local[1], p.local[2]) });
           // a piece with its own motion (a morgue door swinging aside): one more instanced shape, same material
           const pc = pg.piece;
           if (pc) {
-            const sk2 = `${it.space}|${pc.shapeKey}`;
+            const sk2 = pc.shapeKey;
             let sh2 = procShapes.get(sk2);
-            if (!sh2) { sh2 = { space: it.space, mat: pc.mat, geo: pc.geo, entries: [] }; procShapes.set(sk2, sh2); } else pc.geo.dispose();
+            if (!sh2) { sh2 = { mat: pc.mat, geo: pc.geo, entries: [] }; procShapes.set(sk2, sh2); } else pc.geo.dispose();
             const pose = swingPose([p.local[0] + pc.pivot[0], p.local[1] + pc.pivot[1], p.local[2] + pc.pivot[2]], pc.sign, pc.travel, pc.lead);
-            sh2.entries.push({ cont, part: p, base: new THREE.Matrix4().makeTranslation(p.local[0] + pc.offset[0], p.local[1] + pc.offset[1], p.local[2] + pc.offset[2]), pose });
+            sh2.entries.push({ space: it.space, cont, part: p, base: new THREE.Matrix4().makeTranslation(p.local[0] + pc.offset[0], p.local[1] + pc.offset[1], p.local[2] + pc.offset[2]), pose });
           }
         }
       } else {
@@ -659,27 +675,27 @@ export function install(ctx: ClientContext): void {
       staticMeshes++;
     }
     lap('s.merge');
-    // procedural container parts: one InstancedMesh per space + shape (no shadows), bounds taken fully open
+    // procedural container parts: one site-wide batch per part shape (no shadows), packed by visible space
     let partMeshes = 0;
     for (const sh of procShapes.values()) {
-      const im = new THREE.InstancedMesh(sh.geo, setMaterial(mats, sh.mat), sh.entries.length);
-      im.name = `parts:${sh.space}:${sh.mat}`;
-      sh.entries.forEach((en, j) => {
+      const b = new SiteBatch(sh.geo, setMaterial(mats, sh.mat), sh.entries.length, `parts:site:${sh.mat}`);
+      for (const en of sh.entries) {
         const host = containers.host(en.cont.id) ?? new THREE.Matrix4();
-        im.setMatrixAt(j, en.pose ? tmp.multiplyMatrices(host, en.pose(1, tmp2)).multiply(en.base) : partInstanceMatrix(host, en.part, 1, en.base, tmp));
-      });
-      im.instanceMatrix.needsUpdate = true;
-      im.computeBoundingSphere();
-      sh.entries.forEach((en, j) => containers.addSlot(en.cont.id, en.part.idx, im, j, en.base, en.pose));
-      im.castShadow = false;
-      im.receiveShadow = true;
-      groups[sh.space]?.add(im);
-      instanced.push(im);
+        const id = b.add(en.space, en.pose ? tmp.multiplyMatrices(host, en.pose(0, tmp2)).multiply(en.base) : partInstanceMatrix(host, en.part, 0, en.base, tmp));
+        // the container writes the part's current pose into its logical instance (kept while its space is hidden)
+        containers.addSlot(en.cont.id, en.part.idx, b, id, en.base, en.pose);
+      }
+      b.im.castShadow = false;
+      b.im.receiveShadow = true;
+      addBatch(b);
       disposable.push(sh.geo);
       partMeshes++;
     }
+    // keys paranormal may move: their handle draws a plain clone of the template (shoves / falls)
+    const movableKeys = new Set(safe(() => movableRefsOf(L), [] as ReturnType<typeof movableRefsOf>).map((r) => r.key.replace(/^prop\./, '')));
+    const warmClones = new Set<string>();
     for (const entry of glbEntries.values()) {
-      const { space, key, m } = entry;
+      const { key, m } = entry;
       const def = PROP_DEFS[key];
       void loadPropModel(key).then((tpl) => {
         if (version !== ver || !tpl) return;
@@ -692,20 +708,27 @@ export function install(ctx: ClientContext): void {
         const meshes: THREE.Mesh[] = info ? (split ? info.body : info.full()) : templateMeshes(tpl);
         for (const src of meshes) {
           if (Array.isArray(src.material)) continue;
-          const im = new THREE.InstancedMesh(src.geometry, src.material, m.length);
-          im.name = `glb:${space}:${key}`;
-          for (let i = 0; i < m.length; i++) im.setMatrixAt(i, info ? m[i] : tmp.multiplyMatrices(m[i], src.matrixWorld));
-          im.instanceMatrix.needsUpdate = true;
-          im.computeBoundingSphere();
-          im.castShadow = castShadow;
-          im.receiveShadow = true;
-          if (debugFlat) (im.material as THREE.Material & { fog?: boolean }).fog = false;
-          groups[space]?.add(im);
-          instanced.push(im);
-          entry.body.push(im);
+          const b = new SiteBatch(src.geometry, src.material, m.length, `glb:site:${key}`);
+          for (let i = 0; i < m.length; i++) b.add(entry.spaces[i], info ? m[i] : tmp.multiplyMatrices(m[i], src.matrixWorld));
+          b.im.castShadow = castShadow;
+          b.im.receiveShadow = true;
+          if (debugFlat) (b.im.material as THREE.Material & { fog?: boolean }).fog = false;
+          addBatch(b);
+          entry.body.push(b);
           propStats.instancedMeshes++;
         }
         if (split && info) { buildGlbParts(entry, info); liftDrawerPages(entry, info); }
+        // one hidden copy of that clone per movable key: render.warmSite compiles its (non-instanced) programs at
+        // load, so the first shove of a chair compiles nothing either; never drawn otherwise
+        if (movableKeys.has(key) && !warmClones.has(key) && m.length) {
+          warmClones.add(key);
+          const wc = tpl.clone(true);
+          wc.name = `warm-clone:${key}`;
+          wc.visible = false;
+          m[0].decompose(wc.position, wc.quaternion, wc.scale);
+          wc.traverse((o) => { const mm = o as THREE.Mesh; if (mm.isMesh) { mm.castShadow = false; mm.receiveShadow = true; } });
+          root.add(wc);
+        }
       });
     }
     lap('s.parts+glb');
@@ -713,11 +736,34 @@ export function install(ctx: ClientContext): void {
     return propStats;
   };
 
-  /** movable parts of a split GLB batch: one InstancedMesh per part shape; containers animate theirs */
+  /** a new site-wide batch: packed to the current visible spaces, then drawn from the level root */
+  const addBatch = (b: SiteBatch) => {
+    b.pack(packMask);
+    root.add(b.im);
+    batches.push(b);
+  };
+
+  /** pack every batch to the visible spaces (null = all); only when the set really changed */
+  const repack = (vis: Set<number> | null) => {
+    const n = layout?.spaces.length ?? 0;
+    let mask: Uint8Array | null = null;
+    if (vis) {
+      mask = spareMask && spareMask.length === n ? spareMask : new Uint8Array(n);
+      mask.fill(0);
+      for (const s of vis) if (s >= 0 && s < n) mask[s] = 1;
+    }
+    const same = mask === null ? packMask === null : !!packMask && packMask.length === mask.length && packMask.every((v, i) => v === mask![i]);
+    if (same) return;
+    spareMask = packMask;
+    packMask = mask;
+    for (const b of batches) b.pack(mask);
+  };
+
+  /** movable parts of a split GLB batch: one site-wide batch per part shape; containers animate theirs */
   const buildGlbParts = (entry: GlbEntry, info: PropTemplateInfo) => {
     const tmp = new THREE.Matrix4();
     for (const shape of partShapes(info)) {
-      const slots: { i: number; index: number; base: THREE.Matrix4; cont: string | null; part: ContainerPart | null }[] = [];
+      const slots: { i: number; id: number; base: THREE.Matrix4; cont: string | null; part: ContainerPart | null }[] = [];
       for (let i = 0; i < entry.m.length; i++) {
         const it = entry.items[i];
         const contId = entry.cont[i];
@@ -727,22 +773,18 @@ export function install(ctx: ClientContext): void {
           const cp = contInfo?.parts.find((p) => p.node && tp.nodes.includes(p.node)) ?? null;
           const dp = cp ?? (defParts.find((p) => p.node && tp.nodes.includes(p.node)) as ContainerPart | undefined) ?? null;
           const base = restOf(dp, new THREE.Matrix4()).multiply(new THREE.Matrix4().makeTranslation(tp.centre.x, tp.centre.y, tp.centre.z));
-          slots.push({ i, index: slots.length, base, cont: cp ? contId : null, part: cp });
+          slots.push({ i, id: -1, base, cont: cp ? contId : null, part: cp });
         }
       }
       if (!slots.length) continue;
-      const im = new THREE.InstancedMesh(shape.geo, shape.material, slots.length);
-      im.name = `parts:${entry.space}:${entry.key}`;
-      for (const s of slots) im.setMatrixAt(s.index, partInstanceMatrix(entry.m[s.i], s.part, s.part ? 1 : 0, s.base, tmp));
-      im.instanceMatrix.needsUpdate = true;
-      im.computeBoundingSphere();
-      for (const s of slots) if (s.part && s.cont) containers.addSlot(s.cont, s.part.idx, im, s.index, s.base);
-      im.castShadow = false;
-      im.receiveShadow = true;
-      if (debugFlat) (im.material as THREE.Material & { fog?: boolean }).fog = false;
-      groups[entry.space]?.add(im);
-      instanced.push(im);
-      entry.parts.push({ im, slots: slots.map((s) => ({ i: s.i, index: s.index, base: s.base })) });
+      const b = new SiteBatch(shape.geo, shape.material, slots.length, `parts:site:${entry.key}`);
+      for (const s of slots) s.id = b.add(entry.spaces[s.i], partInstanceMatrix(entry.m[s.i], s.part, 0, s.base, tmp));
+      for (const s of slots) if (s.part && s.cont) containers.addSlot(s.cont, s.part.idx, b, s.id, s.base);
+      b.im.castShadow = false;
+      b.im.receiveShadow = true;
+      if (debugFlat) (b.im.material as THREE.Material & { fog?: boolean }).fog = false;
+      addBatch(b);
+      entry.parts.push({ batch: b, slots: slots.map((s) => ({ i: s.i, id: s.id, base: s.base })) });
       propStats.partMeshes++;
     }
   };
@@ -827,14 +869,16 @@ export function install(ctx: ClientContext): void {
     mirrorOf: (itemId) => mirrorReg.of(itemId),
   };
 
-  /** zero-scale the instance, hand out a movable clone; commit bakes the clone's matrix back into the instances */
+  /** zero-scale the instance, hand out a movable clone; commit bakes the clone's matrix back into the instances
+   *  (logical ids: the write lands in the packed slot now, or when the prop's space is drawn again) */
   const makePropHandle = (entry: GlbEntry, i: number): PropHandle | null => {
     if (!entry.tpl || !entry.body.length) return null;
     const original = entry.m[i].clone();
     const ver = version;
+    const pm = new THREE.Matrix4();
     const write = (mat: THREE.Matrix4) => {
-      for (const im of entry.body) { im.setMatrixAt(i, mat); im.instanceMatrix.needsUpdate = true; }
-      for (const p of entry.parts) for (const s of p.slots) if (s.i === i) { p.im.setMatrixAt(s.index, mat === ZERO ? ZERO : new THREE.Matrix4().multiplyMatrices(mat, s.base)); p.im.instanceMatrix.needsUpdate = true; }
+      for (const b of entry.body) b.setMatrixAt(i, mat);
+      for (const p of entry.parts) for (const s of p.slots) if (s.i === i) p.batch.setMatrixAt(s.id, mat === ZERO ? ZERO : pm.multiplyMatrices(mat, s.base));
     };
     write(ZERO);
     const obj = entry.tpl.clone(true);
@@ -842,7 +886,7 @@ export function install(ctx: ClientContext): void {
     obj.matrixAutoUpdate = true;
     original.decompose(obj.position, obj.quaternion, obj.scale);
     obj.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.castShadow = false; m.receiveShadow = true; } });
-    groups[entry.space]?.add(obj);
+    groups[entry.spaces[i]]?.add(obj);
     let open = true;
     const finish = (mat: THREE.Matrix4) => {
       if (!open) return;
@@ -851,7 +895,6 @@ export function install(ctx: ClientContext): void {
       if (version !== ver) return;
       entry.m[i].copy(mat);
       write(mat);
-      for (const im of entry.body) im.boundingSphere = null;
     };
     return {
       object: obj,
@@ -907,6 +950,10 @@ export function install(ctx: ClientContext): void {
       door: (id: number) => ({ open: doorState[id] === 1, t: doorVis[id]?.t, override: doorVis[id]?.override ?? null, kind: layout?.doors[id]?.kind, ix: (ctx.world.full as { interaction?: { doors?: Record<number, unknown> } } | null)?.interaction?.doors?.[id] ?? null }),
       /** debug: disable adjacency culling */
       cull(on: boolean) { cullOn = on; },
+      /** debug: the site-wide instanced batches (door-lag fix): name, logical instances, drawn (packed) count, spaces */
+      batches: () => batches.map((b) => ({ name: b.im.name, size: b.size, count: b.im.count, visible: b.im.visible, spaces: b.spaces.size, cast: b.im.castShadow })),
+      /** debug: the packed slot of a logical instance of the batch at `index` (-1 = not drawn) */
+      batchSlot: (index: number, id: number) => batches[index]?.slotOfId(id) ?? -1,
       /** debug: show / hide the decal meshes (draw-call deltas) */
       decals(on: boolean) { let n = 0; root.traverse((o) => { if ((o as THREE.Mesh).isMesh && o.name.endsWith(':decal')) { o.visible = on; n++; } }); return n; },
       /** debug: a small bright marker at every container's main slot (env-layout's point where searched items lie):
@@ -943,8 +990,11 @@ export function install(ctx: ClientContext): void {
         let meshes = 0, visible = 0;
         root.traverse((o) => { if ((o as THREE.Mesh).isMesh) meshes++; });
         root.traverseVisible((o) => { if ((o as THREE.Mesh).isMesh) visible++; });
+        let packed = 0, instances = 0;
+        for (const b of batches) { packed += b.im.count; instances += b.size; }
         return {
           drawCalls: ri.drawCalls, calls: ri.calls, triangles: ri.triangles, levelMeshes: meshes, levelMeshesVisible: visible, props: propStats,
+          batches: { meshes: batches.length, instances, packed },
           van: vanStats, containers: containers.containers().length, lorePages: lorePages.size, mirrors: mirrorReg.count(), mirrorsPending: mirrorReg.hasPending(),
           upgrades: [...vanUpgrades], stations: stationList.map((s) => ({ kind: s.kind, id: s.itemId, virtual: !!s.virtual, object: stationObjs.has(s.kind) })),
           decals: { built: propStats.decals, atlas: decalAtlasSource, clipped: decalStats.clipped, dropped: decalStats.dropped },
@@ -1042,11 +1092,13 @@ export function install(ctx: ClientContext): void {
         three.camera.lookAt(...camOverride.t);
         three.camera.updateMatrixWorld();
       }
-      // adjacency culling
+      // adjacency culling: space groups + doors by visibility, the site-wide batches by packing (only when the set of
+      // visible spaces changed: a door opening or a step into the next room)
       const cp = three.camera.position;
-      const vis = cullOn ? visibleSpaces([cp.x, cp.y, cp.z]) : new Set(layout.spaces.map((s) => s.id));
-      for (let i = 0; i < groups.length; i++) groups[i].visible = vis.has(i);
-      for (const v of doorVis) if (v) v.group.visible = vis.has(v.spaces[0]) || vis.has(v.spaces[1]);
+      const vis = cullOn ? visibleSpaces([cp.x, cp.y, cp.z]) : null;
+      for (let i = 0; i < groups.length; i++) groups[i].visible = !vis || vis.has(i);
+      for (const v of doorVis) if (v) v.group.visible = !vis || vis.has(v.spaces[0]) || vis.has(v.spaces[1]);
+      if (vis !== lastVis) { lastVis = vis; repack(vis); }
     },
   });
 }

@@ -1,7 +1,8 @@
 // Owner: env-world (v1.2). Openable container visuals: drawers / trays slide along the host's local +Z, doors and lids
-// hinge about their pivot (env-layout's CONTAINER_DEFS conventions). Movable parts are InstancedMesh instances (per
-// space + prop key + part shape, no shadows, bounding spheres computed fully open), animated here with setMatrixAt +
-// needsUpdate: opening never adds a draw call. State (target mask, eased progress, quiet-open overrides) is kept per
+// hinge about their pivot (env-layout's CONTAINER_DEFS conventions). Movable parts are instances of the level's
+// site-wide batches (sitebatch.ts: one InstancedMesh per prop key + part shape for the whole site, no shadows, packed
+// by visible space; a slot addresses its LOGICAL instance id) or of a plain InstancedMesh (tests), animated here with
+// setMatrixAt: opening never adds a draw call. State (target mask, eased progress, quiet-open overrides) is kept per
 // container id from the layout, so calls that arrive before the async GLB templates exist are applied the moment the
 // instances are created.
 import * as THREE from 'three/webgpu';
@@ -37,9 +38,16 @@ export function restOf(part: PoseOf | null | undefined, out: THREE.Matrix4): THR
 /** host-local pose of a rendered piece at openness t (replaces partPose: e.g. a morgue door that swings aside while
  *  its tray slides out) */
 export type PiecePose = (t: number, out: THREE.Matrix4) => THREE.Matrix4;
+/** where a part's instance matrix goes: a site-wide batch (logical instance id; it uploads by itself) or a plain
+ *  InstancedMesh (instance index; flagged for upload here) */
+export interface SlotTarget { setMatrixAt(index: number, m: THREE.Matrix4): void }
+const touch = (t: SlotTarget): void => {
+  const im = t as Partial<THREE.InstancedMesh>;
+  if (im.isInstancedMesh === true && im.instanceMatrix) im.instanceMatrix.needsUpdate = true;
+};
 /** one rendered copy of a part: instance `index` of `im`; base = (rest . centre) matrix in the host frame; pose = an
  *  own motion for a piece of the part (default: the part's slide / hinge) */
-interface Slot { im: THREE.InstancedMesh; index: number; base: THREE.Matrix4; pose?: PiecePose }
+interface Slot { im: SlotTarget; index: number; base: THREE.Matrix4; pose?: PiecePose }
 interface PartState { part: ContainerPart; t: number; override: number | null; slots: Slot[] }
 interface ContState { info: ContainerInfo; host: THREE.Matrix4; mask: number; parts: Map<number, PartState> }
 
@@ -70,7 +78,7 @@ export class ContainerSystem {
   host(id: string): THREE.Matrix4 | null { return this.conts.get(id)?.host ?? null; }
 
   /** a rendered instance of a container part (async GLB arrival or the procedural build); applies the current pose */
-  addSlot(id: string, idx: number, im: THREE.InstancedMesh, index: number, base: THREE.Matrix4, pose?: PiecePose): void {
+  addSlot(id: string, idx: number, im: SlotTarget, index: number, base: THREE.Matrix4, pose?: PiecePose): void {
     const c = this.conts.get(id);
     const ps = c?.parts.get(idx);
     if (!c || !ps) return;
@@ -144,7 +152,7 @@ export class ContainerSystem {
     for (const s of ps.slots) {
       if (s.pose) s.im.setMatrixAt(s.index, _w2.multiplyMatrices(c.host, s.pose(t, _m4)).multiply(s.base));
       else s.im.setMatrixAt(s.index, _w2.multiplyMatrices(world, s.base));
-      s.im.instanceMatrix.needsUpdate = true;
+      touch(s.im);
     }
   }
 }

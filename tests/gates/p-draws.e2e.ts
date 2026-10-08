@@ -7,6 +7,8 @@
 //     --ws ws://127.0.0.1:3895/ws --tag v12 --seed gp-6 [--theme records] [--preset ultra] [--parts fac,mirror,para,prof]
 // The bots create the crew and the facility BEFORE the browser joins (no hub build: SwiftShader compiles are slow).
 // Results: <out>/<tag>.json (written after every step). Software frame times are NOT perf: only counts are reported.
+// Per view: total draws (compare runs by this), steady + warm (the warm-up draws, see INSTALL) and warmBy; a summary
+// line at the end. --dry 1: no browser, no server: the in-page draw classifier on a mock scene graph.
 // Real-GPU pass (integrator, with the user's OK): add --query loading=1 so the loading flow runs render.warmup() (the
 // v1.2 warm set) before the first mirror view, and use --w 2560 --h 1440 for hostperf-like counts.
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -49,8 +51,14 @@ async function ev<T>(page: Page, fn: string, ms = 20_000): Promise<T> {
 }
 
 // in-page instrumentation: every draw (renderer.info.update) is attributed to <scene root>/<category>|<pass> (main
-// camera, shadow camera, fullscreen post, other = mirror reflection / misc); transient warm-up meshes (any ancestor
-// scaled below 1 cm, or a warm-up instance) are keyed 'warm/...'; one record per drawn frame (info.reset)
+// camera, shadow camera, fullscreen post, other = mirror reflection / misc); one record per drawn frame (info.reset).
+// Warm-up draws ('warm' in the results, never in 'steady'; 'total' is every draw) are recognised by NAME only: anything
+// under an object named warm-* / ix-warm* (the level's hidden warm clones, the item pre-warm) or one of the other
+// warm-up roots (render's warm-set proxies, the mirror / paranormal / monster / avatar warm-ups) -> '<root>/WARM', plus
+// InstancedMeshes whose drawn instances are all zero-scale (a hidden batch slot) -> 'warm/<name>'. Never by size:
+// every GLB node carries a ~1e-5 dequantisation scale (the old 'an ancestor below 1 cm' test filed the avatars, the
+// hound and the view model as warm-up) and a site batch with one prop turned 90 degrees has m[0] = 0 (the old
+// '|m[0]| < 0.01' test filed real batches: gate P arrive, +25 'warm' draws after the site-batch change).
 const INSTALL = `(() => {
   if (window.__gp) return 'already';
   const t = window.__render && window.__render.three && window.__render.three();
@@ -63,16 +71,24 @@ const INSTALL = `(() => {
   const refresh = () => { shadowCams = new Set(); scene.traverse((o) => { if (o.isLight && o.castShadow && o.shadow && o.shadow.camera) shadowCams.add(o.shadow.camera); }); };
   refresh();
   const norm = (s) => String(s || '').split(':')[0].replace(/[.\\-_]?\\d+$/, '');
-  const tiny = (o) => { for (let p = o; p && p !== scene; p = p.parent) if (Math.abs(p.scale.x) < 0.01) return true; return false; };
+  const WARM = /^(warm-|ix-warm|render-warm-proxies$|mirror-warm|para-warm$|monsters:warmup$|avatar:__warm\\d)/;
+  const warmNamed = (o) => { for (let p = o; p && p !== scene; p = p.parent) if (WARM.test(p.name || '')) return true; return false; };
+  const BASIS = [0, 1, 2, 4, 5, 6, 8, 9, 10];
+  const zeroScale = (o) => {
+    const a = o.instanceMatrix && o.instanceMatrix.array;
+    if (!a || !(o.count > 0)) return false;
+    for (let i = 0; i < o.count; i++) for (const j of BASIS) if (a[i * 16 + j] !== 0) return false;
+    return true;
+  };
   const keyOf = (o) => {
-    if (o.isInstancedMesh && o.count === 1 && o.instanceMatrix && Math.abs(o.instanceMatrix.array[0]) < 0.01) return 'warm/' + norm(o.name || 'inst');
+    if (o.isInstancedMesh && zeroScale(o)) return 'warm/' + norm(o.name || 'inst');
     let k = cache.get(o); if (k) return k;
     const chain = []; for (let p = o; p && p !== scene; p = p.parent) chain.push(p);
     chain.reverse();
     const top = chain[0] || o;
     const tname = top.name || (top.isInstancedMesh ? 'InstancedMesh' : top.type);
     let cat = '';
-    if (tiny(o)) cat = 'WARM';
+    if (warmNamed(o)) cat = 'WARM';
     else if (tname === 'level') {
       let i = 1; while (i < chain.length && /^space:/.test(chain[i].name)) i++;
       const c = chain[i] || o;
@@ -144,17 +160,21 @@ async function place(page: Page, v: View): Promise<void> {
   v.bots.forEach((b, i) => { if (bots[i]) bots[i].target = { x: b.x, z: b.z, yaw: b.yaw, pitch: -0.08, light: 1, anim: 0 }; });
 }
 
-const warmOf = (by: Record<string, number> | null | undefined) => Object.entries(by ?? {}).filter(([k]) => k.startsWith('warm/') || k.includes('/WARM')).reduce((a, [, v]) => a + v, 0);
+/** the warm-up keys of a frame (see INSTALL) and their draws */
+const warmKeys = (by: Record<string, number> | null | undefined) => Object.fromEntries(Object.entries(by ?? {}).filter(([k]) => k.startsWith('warm/') || k.includes('/WARM')));
+const warmOf = (by: Record<string, number> | null | undefined) => Object.values(warmKeys(by)).reduce((a, v) => a + v, 0);
 async function measure(page: Page, v: View, label = v.name, settle = 800, n = 4): Promise<Record<string, unknown>> {
   await place(page, v);
   await sleep(settle);
   const s = await sample(page, n);
   const snap = await ev<Record<string, unknown>>(page, SNAP).catch((e) => ({ error: String(e) }));
   const warm = warmOf(s.max?.by);
-  const rec = { name: label, at: +el().toFixed(1), x: +v.x.toFixed(2), z: +v.z.toFixed(2), yaw: +v.yaw.toFixed(3), draws: s.draws, maxDraws: s.max?.draws ?? null, warm, steady: s.max ? s.max.draws - warm : null, minDraws: s.min?.draws ?? null, tris: s.max?.tris ?? null, pass: s.max?.pass ?? null, by: s.max?.by ?? null, ...snap };
+  const total = s.max?.draws ?? null;
+  // compare views and runs by total; steady = total - warm
+  const rec = { name: label, at: +el().toFixed(1), x: +v.x.toFixed(2), z: +v.z.toFixed(2), yaw: +v.yaw.toFixed(3), draws: s.draws, total, maxDraws: total, warm, steady: total === null ? null : total - warm, warmBy: warmKeys(s.max?.by), minDraws: s.min?.draws ?? null, tris: s.max?.tris ?? null, pass: s.max?.pass ?? null, by: s.max?.by ?? null, ...snap };
   R.views.push(rec);
   save();
-  log(`${label}: draws ${s.draws.join(',')} (warm ${warm}) pass ${JSON.stringify(s.max?.pass ?? {})} ready ${(snap as { ready?: boolean }).ready} pipes ${JSON.stringify((snap as { pipes?: unknown }).pipes)}`);
+  log(`${label}: total ${total} (steady ${rec.steady}, warm ${warm}${warm ? ` ${JSON.stringify(rec.warmBy)}` : ''}) frames ${s.draws.join(',')} pass ${JSON.stringify(s.max?.pass ?? {})} ready ${(snap as { ready?: boolean }).ready} pipes ${JSON.stringify((snap as { pipes?: unknown }).pipes)}`);
   return rec;
 }
 
@@ -169,6 +189,45 @@ async function ensureLight(page: Page): Promise<void> {
     await ev(page, `(window.__game.setInput({ flashlight: true }), 1)`);
     await sleep(500);
   }
+}
+
+// ---- --dry 1 (no browser, no server): the in-page draw classifier on a mock scene graph shaped like the client's
+if (arg('dry', '0') === '1') {
+  interface Obj { name: string; type: string; parent: Obj | null; children: Obj[]; scale: { x: number }; isInstancedMesh?: boolean; count?: number; instanceMatrix?: { array: Float32Array } }
+  const scene: Obj & { traverse(f: (o: Obj) => void): void } = { name: '', type: 'Scene', parent: null, children: [], scale: { x: 1 }, traverse(f) { const walk = (o: Obj) => { f(o); for (const c of o.children) walk(c); }; walk(this); } };
+  const add = (parent: Obj, name: string, extra: Partial<Obj> = {}): Obj => { const o: Obj = { name, type: 'Mesh', parent, children: [], scale: { x: 1 }, ...extra }; parent.children.push(o); return o; };
+  const inst = (parent: Obj, name: string, mats: number[][]): Obj => {
+    const a = new Float32Array(mats.length * 16);
+    mats.forEach((m, i) => a.set(m, i * 16));
+    return add(parent, name, { type: 'InstancedMesh', isInstancedMesh: true, count: mats.length, instanceMatrix: { array: a } });
+  };
+  const rotY90 = [0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 4, 0, 7, 1];
+  const hidden = new Array<number>(16).fill(0);
+  const level = add(scene, 'level', { type: 'Group' });
+  const cam = add(scene, '', { type: 'PerspectiveCamera' });
+  const cases: [Obj, string][] = [
+    [inst(level, 'glb:site:chair', [rotY90]), 'level/glb'], // one prop turned 90 degrees (m[0] = 0): a real draw
+    [inst(level, 'glb:site:desk', [hidden]), 'warm/glb'], // only a hidden (zero-scale) slot
+    [inst(level, 'parts:site:cabinet', [hidden, rotY90]), 'level/parts'],
+    [add(add(level, 'warm-clone:chair', { type: 'Group' }), 'Chair_1'), 'level/WARM'],
+    [add(add(add(scene, 'avatar:p7', { type: 'Group' }), 'Armature', { type: 'Object3D', scale: { x: 1.1e-4 } }), 'Body', { type: 'SkinnedMesh' }), 'avatar/Armature'], // GLB node scale
+    [add(add(add(scene, 'viewmodel', { type: 'Group' }), 'Hands', { type: 'Object3D', scale: { x: 1.9e-5 } }), 'Arm'), 'viewmodel/Hands'],
+    [add(add(add(add(scene, 'interaction', { type: 'Group' }), 'ix-warm', { type: 'Group' }), '', { type: 'Group', scale: { x: 2e-4 } }), 'ix-warm-proxy'), 'interaction/WARM'],
+    [inst(add(scene, 'monsters:warmup', { type: 'Group' }), '', [[0.004, 0, 0, 0, 0, 0.004, 0, 0, 0, 0, 0.004, 0, 0, 0, 0, 1]]), 'monsters:warmup/WARM'],
+    [add(add(add(add(cam, '', { type: 'Group' }), 'avatar:__warm0', { type: 'Group' }), 'Armature', { type: 'Object3D', scale: { x: 1.1e-4 } }), 'Body'), 'PerspectiveCamera/WARM'],
+  ];
+  const info = { render: { drawCalls: 0, triangles: 0 }, update(_o: unknown) { this.render.drawCalls++; }, reset() { this.render.drawCalls = 0; } };
+  const win: Record<string, unknown> = { __render: { three: () => ({ scene, renderer: { info, _currentRenderContext: { camera: cam, fullscreenPass: false } }, camera: cam }) } };
+  const installed = new Function('window', `return ${INSTALL}`)(win) as string;
+  const gp = win.__gp as { frames: Frame[] };
+  const got = cases.map(([o, want]) => { info.update(o); info.reset(); return { want: `${want}|main`, key: Object.keys(gp.frames[gp.frames.length - 1]?.by ?? {})[0] ?? '-' }; });
+  for (const [o] of cases) info.update(o);
+  info.reset();
+  const fr = gp.frames[gp.frames.length - 1]!;
+  const bad = got.filter((g) => g.key !== g.want);
+  console.log(JSON.stringify({ installed, keys: got.map((g) => g.key), frame: { total: fr.draws, steady: fr.draws - warmOf(fr.by), warm: warmOf(fr.by), warmBy: warmKeys(fr.by) } }));
+  console.log(bad.length ? `FAIL ${bad.length} draw keys: ${JSON.stringify(bad)}` : `ok: ${got.length} draw keys as expected`);
+  process.exit(bad.length ? 1 : 0);
 }
 
 // ---- bots first: the crew + the facility exist before the browser joins (no hub build in the page)
@@ -316,9 +375,12 @@ try {
   log(`FAILED: ${R.failed}`);
 } finally {
   R.totalSec = +el().toFixed(1);
+  // every view's total draws next to its steady / warm split (compare runs by total)
+  R.summary = R.views.map((v) => ({ name: v.name, total: v.total, steady: v.steady, warm: v.warm }));
   save();
   for (const b of bots) b.close();
   await player.close().catch(() => {});
+  if (R.views.length) log(`draws (total = steady + warm): ${R.views.map((v) => `${String(v.name)} ${String(v.total)} = ${String(v.steady)} + ${String(v.warm)}`).join(' | ')}`);
   log(`-> ${join(OUT, `${TAG}.json`)}`);
   process.exit(0);
 }

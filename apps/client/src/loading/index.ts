@@ -134,13 +134,20 @@ export function install(ctx: ClientContext): void {
     report('level', 0.5, levelBuilt() ? 'site geometry ready' : 'waiting for the site');
     while (!levelBuilt() && performance.now() < deadline - capMs * 0.3 && my()) await sleep(100);
     report('level', 1, '');
-    // warm-up frames with all six flashlight slots on (shadow + volume pipelines) over the real scene; the frames
-    // that follow compile whatever else is in view, behind this screen. (?warmall=1: compile every material of the
-    // whole scene via proxies, measured slower overall on a fresh shader cache: 20-45 s vs ~10 s.)
+    // v1.2 door-lag fix: render.warmSite() first draws EVERY mesh of the site once (all rooms, doors, prop batches;
+    // scene, pre and shadow passes), a few new shaders per frame, so opening a door or walking into an unseen room
+    // compiles nothing later; it resumes where a capped run stopped (the drive preload warms the facility, the arrival
+    // finds it warm). Then the spawn-view warm-up: frames with all six flashlight slots on (shadow + volume pipelines)
+    // + the v1.2 mirror warm set; the frames that follow compile whatever else is in view, behind this screen.
+    // (?warmall=1: the old proxy warm of every material, instead of the spawn-view warm-up.)
     const r = renderSvc();
     r?.hold?.(false);
     report('shaders', 0.1, 'compiling materials');
     if (r) {
+      if (r.warmSite) {
+        const site = Math.max(1500, deadline - performance.now() - 3500);
+        await Promise.race([r.warmSite(site, (k) => report('shaders', 0.1 + 0.75 * k, 'compiling materials')).catch(() => null), sleep(site + 1000)]);
+      }
       const left = Math.max(1500, deadline - performance.now() - 2000);
       await Promise.race([warmAll && r.warmupAll ? r.warmupAll(2) : r.warmup(), sleep(left)]);
     }

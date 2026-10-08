@@ -145,17 +145,20 @@ test('propHandle: zero-scales the instance, hands out a movable clone, commit ba
   const ref = refs.find((r) => r.key === `prop.${key}`)!;
   const ph = lv.propHandle(ref.ref, { key: ref.key, x: ref.x, z: ref.z });
   assert.ok(ph, 'handle');
-  const im = lv.spaceGroup(ref.space)!.children.find((o) => o.name === `glb:${ref.space}:${key}`) as THREE.InstancedMesh;
-  assert.ok(im, 'instanced mesh');
-  // the hidden instance is the one nearest the ref
+  // door-lag fix: one site-wide batch per key + template mesh, a child of the level root (never of a space group)
+  assert.equal(lv.spaceGroup(ref.space)!.children.some((o) => (o as THREE.InstancedMesh).isInstancedMesh), false, 'no per-room InstancedMesh');
+  const ims = lv.root.children.filter((o) => o.name === `glb:site:${key}`) as THREE.InstancedMesh[];
+  assert.ok(ims.length > 0, 'site-wide instanced mesh');
+  // the hidden instance is the one nearest the ref (no frame ran yet: every instance is packed)
+  let im: THREE.InstancedMesh | null = null;
   let hidden = -1;
   const m = new THREE.Matrix4();
-  for (let i = 0; i < im.count; i++) { im.getMatrixAt(i, m); if (m.elements[0] === 0 && m.elements[5] === 0) hidden = i; }
-  assert.ok(hidden >= 0, 'zero-scaled instance');
+  for (const c of ims) for (let i = 0; i < c.count; i++) { c.getMatrixAt(i, m); if (m.elements[0] === 0 && m.elements[5] === 0) { im = c; hidden = i; } }
+  assert.ok(im && hidden >= 0, 'zero-scaled instance');
   assert.ok(ph!.object.parent, 'clone in the scene');
   const moved = new THREE.Matrix4().makeTranslation(ref.x + 0.4, 0, ref.z);
   ph!.commit(moved);
-  im.getMatrixAt(hidden, m);
+  im!.getMatrixAt(hidden, m);
   assert.ok(Math.abs(m.elements[12] - (ref.x + 0.4)) < 1e-6, 'committed position baked into the instance');
   assert.equal(ph!.object.parent, null, 'clone removed');
   assert.equal(lv.propHandle('prop:999999'), null);

@@ -70,6 +70,19 @@ export interface RenderPerf {
   auto: string;
 }
 
+/** render.warmSite() outcome (done = every mesh of the level drawn once; false = paused at the time limit) */
+export interface SiteWarmResult {
+  done: boolean;
+  /** wall time since the warm of this level started (ms) */
+  ms: number;
+  frames: number;
+  meshes: number;
+  signatures: number;
+  /** signature groups still queued */
+  left: number;
+  total: number;
+}
+
 export interface RenderService {
   backend: 'webgpu' | 'webgl2';
   /** active preset name ('low' | 'medium' | 'high' | 'ultra') */
@@ -93,6 +106,12 @@ export interface RenderService {
   /** v1.1 loading screen: render `frames` frames with EVERY level space visible and no frustum culling (all six
    *  flashlight slots on), so every material / shadow / volume pipeline compiles now; resolves after them */
   warmupAll(frames?: number): Promise<void>;
+  /** v1.2 door-lag fix: draw EVERY mesh of the current level once (all spaces, doors, the site-wide prop batches,
+   *  hidden pages / upgrades; pre-pass, scene pass and every shadow slot), a few new shader signatures per frame,
+   *  so a door or a first walk into a room compiles nothing later. Call it only while a loading / drive screen covers
+   *  the view (the warm frames use the warm beams). Resolves when done, or with done:false after maxMs (paused: the
+   *  next call resumes; a level rebuild starts over; an already warm level resolves at once). */
+  warmSite?(maxMs?: number, onProgress?: (k: number) => void): Promise<SiteWarmResult>;
   /** frame-interval statistics over the last `spanMs` */
   frameStats(spanMs: number): { n: number; fps: number; p50: number; p95: number; max: number; long: number };
   /** telemetry snapshot (last telemetrySec seconds) */

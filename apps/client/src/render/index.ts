@@ -22,7 +22,7 @@ import { FrameTimes, coverMode, createAutoQuality, createPerfPanel, drawInterval
 import type { AutoState, CoverInputs, CoverMode, DrawGate } from './perf.ts';
 import type { TestScene, TestView } from './testscene.ts';
 import { useLoose } from './types.ts';
-import type { FixtureInfo, FlashlightInfo, LevelView, PlayersView, RenderFx, RenderService, RenderStats, V3 } from './types.ts';
+import type { FixtureInfo, FlashlightInfo, LevelView, PlayersView, RenderFx, RenderService, RenderStats, SiteWarmResult, V3 } from './types.ts';
 import { RENDER_LAYERS } from './api.ts';
 import type { FogVolume, RenderCoverMode, RenderServiceV12 } from './api.ts';
 import { GRID_DEFAULTS, createLightGrid, gridNodes } from './lightgrid.ts';
@@ -35,6 +35,7 @@ import type { MistCfg } from './mist.ts';
 import { MIRROR_BUDGETS, createMirrorSystem } from './mirrors.ts';
 import type { MirrorBudget } from './mirrors.ts';
 import { createPuffs } from './motes.ts';
+import { createSiteWarm } from './sitewarm.ts';
 import type { PuffKind } from './motes.ts';
 import { moodFor, roomParams } from './moods.ts';
 import type { LevelLayout } from '@dead-air/shared/layout.ts';
@@ -77,6 +78,8 @@ export interface RenderTestApi {
   hideParked(on: boolean): void;
   /** v1.2 gate P look-dev: beam ranges (m) of your own beam / teammates' beams (= their shadow far planes) */
   flashRanges(local: number, remote: number): { local: number; remote: number };
+  /** v1.2 door-lag fix: render.warmSite() progress (meshes / signatures warmed, frames, adaptive batch, timings) */
+  siteWarm(): Record<string, unknown>;
 }
 
 declare global {
@@ -389,7 +392,7 @@ export async function install(ctx: ClientContext): Promise<void> {
     pipe.setMistSteps(featureLevel >= 2 ? Math.max(4, Math.ceil(p.volSteps / 2)) : null);
     warmFrames = Math.max(warmFrames, 2);
   };
-  const steady = () => !document.hidden && !backdropActive && warmAll <= 0 && mirrorWarmFrames <= 0 && ctx.ui.screen.value.name === 'none' && !document.querySelector('[data-loading-active]');
+  const steady = () => !document.hidden && !backdropActive && warmAll <= 0 && mirrorWarmFrames <= 0 && !siteWarm.active() && ctx.ui.screen.value.name === 'none' && !document.querySelector('[data-loading-active]');
   /** auto quality features: 1 = no live mirror, 2 = half the march steps */
   const FEATURE_NAMES = ['', 'live mirror', 'mist steps'];
   let featureLevel = 0;
@@ -410,7 +413,7 @@ export async function install(ctx: ClientContext): Promise<void> {
   }, autoQ);
 
   // ---- mirrors (flag 'mirrors': off = fallback glass only)
-  const levelSvc = () => useLoose<LevelView & { doorAnim?(id: number): number; spaceGroup?(s: number): THREE.Group | null; layout?: LevelLayout | null }>(ctx, 'level');
+  const levelSvc = () => useLoose<LevelView & { doorAnim?(id: number): number; spaceGroup?(s: number): THREE.Group | null; layout?: LevelLayout | null; root?: THREE.Object3D; version?: number }>(ctx, 'level');
   const camSpace = (): number => {
     const L = currentLayout();
     if (!L) return -1;
@@ -473,15 +476,30 @@ export async function install(ctx: ClientContext): Promise<void> {
   let warmWaiters: (() => void)[] = [];
   let proxies: THREE.Group | null = null;
   let warmSet: THREE.Group | null = null;
+  /** real site-wide batches the warm set's forced reflection draws (visible + unculled during its frames) */
+  let warmSetIms: THREE.Object3D[] = [];
+  const warmImSaved: { o: THREE.Object3D; visible: boolean; frustumCulled: boolean }[] = [];
+  // ---- v1.2 door-lag fix: render.warmSite() (sitewarm.ts) over the level root
+  const warmLayers = (1 << 0) | (1 << RENDER_LAYERS.firstPerson) | (1 << RENDER_LAYERS.detail) | (1 << RENDER_LAYERS.phantom);
+  const siteWarm = createSiteWarm({
+    root: () => (backdropActive ? null : levelSvc()?.root ?? null),
+    version: () => levelSvc()?.version,
+    skip: (m) => (m as unknown as { isSkinnedMesh?: boolean }).isSkinnedMesh === true || m.name === 'mirror-live' || m.name.startsWith('mirror-warm')
+      || (Array.isArray(m.material) ? m.material : [m.material]).some((x) => x?.name === 'mirror-live') || (m.layers.mask & warmLayers) === 0,
+    now: () => performance.now(),
+  });
   const volMeshRef = pipe.volMesh;
-  /** v1.2: one tiny proxy per unique (material, vertex layout, instancing, shadow flags, layer mask); filter limits
-   *  the meshes (warm set: mirror rooms + the ghost / self / phantom layers). Proxies keep each mesh's layer mask so
-   *  ghost / self meshes compile through the forced reflection and phantom meshes through the warm beams' shadows. */
+  /** v1.2: one tiny proxy per unique (material, vertex layout, shadow flags, layer mask); filter limits the meshes
+   *  (warm set: mirror rooms + the ghost / self / phantom layers). Proxies keep each mesh's layer mask so ghost / self
+   *  meshes compile through the forced reflection and phantom meshes through the warm beams' shadows.
+   *  Never an InstancedMesh proxy (door-lag finding): three r186 builds each InstancedMesh's shaders for that object
+   *  alone (its uuid is in the node cache key, its instance buffer's name in the shader), so a proxy only warmed
+   *  itself. The level's site-wide batches are warmed for real: warmSite(), and the warm set forces the mirror rooms'
+   *  batches into its reflection (warmSetIms). */
   const buildProxies = (filter?: (o: THREE.Mesh) => boolean): THREE.Group => {
     const g = new THREE.Group();
     g.name = 'render-warm-proxies';
     const seen = new Set<string>();
-    const ident = new THREE.Matrix4();
     let i = 0;
     scene.traverse((o) => {
       const m = o as THREE.Mesh;
@@ -491,19 +509,13 @@ export async function install(ctx: ClientContext): Promise<void> {
       if (filter && !filter(m)) return;
       const mats = Array.isArray(m.material) ? m.material : [m.material];
       if (!mats.length || mats.some((x) => !x)) return;
+      if ((m as unknown as THREE.InstancedMesh).isInstancedMesh === true) return;
       const geo = m.geometry;
-      const inst = (m as unknown as THREE.InstancedMesh).isInstancedMesh === true;
       const sig = `${Object.keys(geo.attributes).sort().join(',')}${geo.index ? ':i' : ''}:${Object.keys(geo.morphAttributes).length}`;
-      const key = `${mats.map((x) => x.uuid).join('+')}|${sig}|${inst ? `I${(m as unknown as THREE.InstancedMesh).instanceColor ? 'c' : ''}` : ''}${m.castShadow ? 'C' : ''}${m.receiveShadow ? 'R' : ''}|L${o.layers.mask}`;
+      const key = `${mats.map((x) => x.uuid).join('+')}|${sig}|${m.castShadow ? 'C' : ''}${m.receiveShadow ? 'R' : ''}|L${o.layers.mask}`;
       if (seen.has(key)) return;
       seen.add(key);
-      let p: THREE.Mesh;
-      if (inst) {
-        const im = new THREE.InstancedMesh(geo, m.material, 1);
-        im.setMatrixAt(0, ident);
-        if ((m as unknown as THREE.InstancedMesh).instanceColor) im.setColorAt(0, new THREE.Color(1, 1, 1));
-        p = im;
-      } else p = new THREE.Mesh(geo, m.material);
+      const p = new THREE.Mesh(geo, m.material);
       p.castShadow = m.castShadow;
       p.receiveShadow = m.receiveShadow;
       p.layers.mask = o.layers.mask;
@@ -563,9 +575,18 @@ export async function install(ctx: ClientContext): Promise<void> {
     // never a live-glass proxy: it samples the reflection target the forced reflection draws into (the warm glass
     // itself compiles the live-glass program); never the first-person view model (no mirror camera sees it)
     const liveGlass = (m: THREE.Mesh) => m.name === 'mirror-live' || (Array.isArray(m.material) ? m.material : [m.material]).some((x) => x?.name === 'mirror-live');
+    // the level's site-wide prop batches with instances in a mirror room: drawn for real through the forced reflection
+    // (an InstancedMesh cannot be proxied)
+    warmSetIms = [];
+    if (reg.length > 0) lv?.root?.traverse((o) => {
+      const sp = (o as THREE.InstancedMesh).isInstancedMesh ? (o.userData?.siteSpaces as Set<number> | undefined) : undefined;
+      if (!sp) return;
+      for (const s of sp) if (everything || mirrorSpaces.has(s)) { warmSetIms.push(o); return; }
+    });
     return buildProxies((m) => !liveGlass(m) && m.layers.mask !== fpOnly && (everything || (m.layers.mask & special) !== 0 || m.name === 'render-puffs' || (m.material as THREE.Material)?.name === 'mirror-fallback' || (reg.length > 0 && inMirrorView(m))));
   };
   const endWarmSet = () => {
+    warmSetIms = [];
     if (warmSet) { warmSet.removeFromParent(); warmSet = null; }
     // also releases the forced mirror self (the mirror system keeps it only while a mirror is within 8 m)
     mirrorSys.warm(null);
@@ -597,7 +618,7 @@ export async function install(ctx: ClientContext): Promise<void> {
     // nothing a reflection could compile: Low, the flag off, no mirror registered
     if (!liveMirrorBudget() || mirrorSys.list().length === 0) { mirrorWarm.state = 'done'; return; }
     // a warm-up is running (boot frames, the loading flow's warmup / warmupAll): decide when it is over
-    if (warmSet || warmFrames > 0 || warmAll > 0 || mirrorWarmFrames > 0) return;
+    if (warmSet || warmFrames > 0 || warmAll > 0 || mirrorWarmFrames > 0 || siteWarm.active()) return;
     const ready = contentReady();
     if (!ready && now - mirrorWarm.since < MIRROR_WARM_CAP_MS) return;
     try {
@@ -608,7 +629,7 @@ export async function install(ctx: ClientContext): Promise<void> {
       mirrorWarmFrames = 3;
       mirrorWarm.runs++;
       mirrorWarm.state = ready ? 'done' : 'early';
-      ctx.diag.mirrorWarm = { proxies: warmSet.children.length, ready, runs: mirrorWarm.runs, atMs: Math.round(now) };
+      ctx.diag.mirrorWarm = { proxies: warmSet.children.length, ims: warmSetIms.length, ready, runs: mirrorWarm.runs, atMs: Math.round(now) };
     } catch (e) {
       console.warn('[render] mirror warm', e);
       warmSet = null;
@@ -689,12 +710,14 @@ export async function install(ctx: ClientContext): Promise<void> {
     stats: () => ({ fps: ctx.loop.perf.fps, frameMs: ctx.loop.perf.frameMs, gpuMs, drawCalls: lastDraws }),
     warmup() {
       // v1.2 warm set (always): the mirror rooms' materials through a forced reflection, ghost / self / phantom
-      // layers, particles + glass; then four frames, the camera turned 90 degrees further each time
+      // layers, particles + glass; then four frames, the camera turned 90 degrees further each time. The forced
+      // reflection only where a live mirror can ever show (not Low / mirrors off): door-lag run, Low preset, it
+      // compiled reflection programs for the whole spawn view (one 5.4 s software frame) that no mirror would use
       if (!warmSet) {
         try {
           warmSet = buildWarmSet();
           camera.add(warmSet);
-          mirrorSys.warm(warmSet);
+          if (liveMirrorBudget()) mirrorSys.warm(warmSet);
           ctx.diag.warmSet = warmSet.children.length;
           // the same scope as the automatic mirror warm: a pending one is covered (again later if content is missing)
           if (mirrorWarm.state === 'pending' && mirrorWarm.version === mirrorSys.version()) mirrorWarm.state = contentReady() ? 'done' : 'early';
@@ -715,6 +738,12 @@ export async function install(ctx: ClientContext): Promise<void> {
       warmFrames = Math.max(warmFrames, frames + 1);
       autoCtl.busy(performance.now());
       return new Promise<void>((res) => { warmAllWaiters.push(res); });
+    },
+    warmSite(maxMs = 20_000, onProgress?: (k: number) => void): Promise<SiteWarmResult> {
+      autoCtl.busy(performance.now());
+      const p = siteWarm.run(maxMs, onProgress);
+      void p.then((r) => { ctx.diag.siteWarm = r; autoCtl.busy(performance.now()); });
+      return p;
     },
     frameStats: (spanMs: number) => times.stats(spanMs, performance.now()),
     perf() {
@@ -1042,8 +1071,10 @@ export async function install(ctx: ClientContext): Promise<void> {
       pipe.volDensity.value = cfg.volume.density * (1 - 0.6 * outdoorK);
       pipe.mistScatter.value = cfg.mist12.scatter * (1 - 0.35 * outdoorK);
     }
+    // v1.2 site warm (render.warmSite): this frame's batch of level meshes is drawn once (forced visible, unculled)
+    const siteFrame = siteWarm.begin();
     let list = flashlightList();
-    if (warmFrames > 0) {
+    if (warmFrames > 0 || siteFrame) {
       // warm-up: every slot sees real geometry so shadow/volume pipelines get created now, not mid-game
       camera.getWorldDirection(warmDir);
       const p = camera.position;
@@ -1074,7 +1105,7 @@ export async function install(ctx: ClientContext): Promise<void> {
     flashOpts.frame = drawnFrames;
     flashOpts.now = nowMs;
     flash.update(list, camera, t, dt, flashOpts);
-    if (warmFrames > 0) for (const s of flash.slots) s.light.intensity = Math.max(s.light.intensity * 1e-4, 1e-4);
+    if (warmFrames > 0 || siteFrame) for (const s of flash.slots) s.light.intensity = Math.max(s.light.intensity * 1e-4, 1e-4);
     const fsrc = fixtureSource();
     fixLayout = L;
     fixOpts.max = Math.min(preset.fixtures, poolFixtures);
@@ -1116,7 +1147,7 @@ export async function install(ctx: ClientContext): Promise<void> {
 
     // one world-matrix update per frame (scene.matrixWorldAutoUpdate is off: every pass used to redo it)
     scene.updateMatrixWorld();
-    if (warmFrames > 0 || warmAll > 0 || mirrorWarmFrames > 0) gate.last = nowMs;
+    if (warmFrames > 0 || warmAll > 0 || mirrorWarmFrames > 0 || siteFrame) gate.last = nowMs;
     else if (!gateDraw(gate, nowMs, drawInterval(mode, gateCfg, mode !== 'menu' || document.hasFocus()))) {
       // skipped frame: no GPU work at all (the rAF loop and every other system keep running)
       if (spun) { camera.quaternion.copy(savedQ); camera.updateMatrixWorld(); }
@@ -1147,10 +1178,21 @@ export async function install(ctx: ClientContext): Promise<void> {
     renderer.info.reset();
     // v1.2: shadow maps render once per drawn frame (needsUpdate), never once per camera
     shadowsArmed = flash.armShadows();
+    // the warm set's forced reflection also draws the mirror rooms' real prop batches (never proxied)
+    const forceIms = warmSet !== null && warmSetIms.length > 0;
+    if (forceIms) for (const o of warmSetIms) { warmImSaved.push({ o, visible: o.visible, frustumCulled: o.frustumCulled }); o.visible = true; o.frustumCulled = false; }
+    const tRender = performance.now();
     // the live mirror's reflection: one top-level render before the pipeline (it renders the armed shadow maps
     // first; the pipeline's passes then reuse them)
     mirrorSys.renderLive();
     pipe.render();
+    const renderMs = performance.now() - tRender;
+    // restores in reverse order of the forcing (the warm set's batches first, then the site warm's batch)
+    if (forceIms) {
+      for (let i = warmImSaved.length - 1; i >= 0; i--) { const w = warmImSaved[i]; w.o.visible = w.visible; w.o.frustumCulled = w.frustumCulled; }
+      warmImSaved.length = 0;
+    }
+    if (siteFrame) siteWarm.end(renderMs);
     if (spun) { camera.quaternion.copy(savedQ); camera.updateMatrixWorld(); }
     lastDraws = renderer.info.render.drawCalls;
     if (warmFrames > 0 && --warmFrames === 0) {
@@ -1238,6 +1280,7 @@ export async function install(ctx: ClientContext): Promise<void> {
       mirrorDebug: (p) => mirrorSys.debug(p),
       hideParked: (on) => { fixtures.setHideParked(on); },
       flashRanges: (local, remote) => { flash.setRanges(local, remote); return flash.ranges(); },
+      siteWarm: () => ({ ...siteWarm.info(), last: ctx.diag.siteWarm ?? null }),
       volBounds(min, max) {
         if (min && max) pipe.setVolumeBounds(new THREE.Box3(new THREE.Vector3(min[0], min[1], min[2]), new THREE.Vector3(max[0], max[1], max[2])));
         else if (test) pipe.setVolumeBounds(test.bounds);
