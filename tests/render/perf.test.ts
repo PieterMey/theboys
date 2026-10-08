@@ -115,3 +115,46 @@ test('telemetry: tokens and admin links are redacted; the log line is compact', 
   assert.match(line, /^Ann: 58fps p50 16\.7 p95 21\.0ms long 0 gpu 6\.1ms \| ultra 2560x1440 dpr 1\.50/);
   assert.ok(line.length < 200);
 });
+
+// ---- v1.2 auto quality feature ladder (env-render): live mirror, then mist steps, before resolution / preset; back
+// into Ultra once frames recover.
+function harness12(preset: string, frameMs: () => number, gpu: () => number) {
+  const ft = new FrameTimes();
+  const state: AutoState = { enabled: true, presetFree: true, scale: 1, last: '', steps: 0 };
+  const calls: string[] = [];
+  let cur = preset;
+  let level = 0;
+  const ctl = createAutoQuality(PERF_DEFAULTS, ft, {
+    preset: () => cur, presets: ['low', 'medium', 'high', 'ultra'],
+    setPreset: (n) => { cur = n; calls.push(`preset ${n}`); }, setScale: (s) => calls.push(`scale ${s}`),
+    gpuMs: gpu, steady: () => true,
+    features: { level: () => level, max: () => 2, set: (n) => { level = n; calls.push(`features ${n}`); } },
+  }, state);
+  let t = 0;
+  const run = (ms: number) => { const end = t + ms; while (t < end) { const f = frameMs(); t += f; ft.push(f, t); ctl.tick(t); } };
+  return { run, state, calls, preset: () => cur, level: () => level };
+}
+
+test('auto quality v1.2: features drop first (live mirror, then mist steps), then resolution / preset', () => {
+  const h = harness12('high', () => 30, () => 25);
+  h.run(3000 + 5000 * 4 + 200);
+  assert.deepEqual(h.calls.slice(0, 2), ['features 1', 'features 2']);
+  assert.ok(h.calls.slice(2).some((c) => c.startsWith('scale')), `then the resolution: ${h.calls.join(', ')}`);
+  assert.equal(h.preset(), 'high');
+});
+
+test('auto quality v1.2: Ultra below 90 fps drops a feature before leaving Ultra; recovers back into Ultra', () => {
+  let slow = true;
+  const h = harness12('ultra', () => (slow ? 16.7 : 6.9), () => (slow ? 14 : 4));
+  h.run(3000 + 5000 + 200);
+  assert.equal(h.calls[0], 'features 1', 'the live mirror goes first');
+  assert.equal(h.preset(), 'ultra');
+  h.run(5000 * 2);
+  assert.ok(h.preset() !== 'ultra' || h.level() === 2, `${h.calls.join(', ')}`);
+  // frames recover: climbs back (resolution, preset into Ultra after 3 fast windows, then the features)
+  slow = false;
+  h.run(65_000 + 5000 * 14);
+  assert.equal(h.preset(), 'ultra', `${h.calls.join(', ')}`);
+  assert.equal(h.level(), 0, 'every feature back');
+  assert.equal(h.state.scale, 1);
+});

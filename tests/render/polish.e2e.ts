@@ -29,14 +29,17 @@ mkdirSync(OUT, { recursive: true });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // cfg: ultra | medium | high (WebGPU), low (= ?webgl=1 Low), <preset>-webgl (that preset on the WebGL2 backend)
 const webglCfg = CFG === 'low' || CFG.endsWith('-webgl');
-const query: Record<string, string> = { test: '1', autojoin: '1', preset: CFG.replace(/-webgl$/, ''), ...(webglCfg ? { webgl: '1' } : {}) };
+const SOFTWARE = process.env.DEADAIR_RENDER === 'swiftshader';
+const query: Record<string, string> = { test: '1', autojoin: '1', preset: CFG.replace(/-webgl$/, ''), ...(webglCfg || SOFTWARE ? { webgl: '1' } : {}) };
 const crew = `PL${'BCDFGHJKLMNPQRSTVWXZ'[Date.now() % 20]}${'BCDFGHJKLMNPQRSTVWXZ'[Math.floor(Date.now() / 20) % 20]}`;
 
 const wav = join(REPO, 'tests/fixtures/voice/silence.wav');
 const browser = await chromium.launch({
   channel: 'chrome', headless: true,
   args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${wav}`, '--autoplay-policy=no-user-gesture-required',
-    '--disable-gpu-vsync', '--disable-frame-rate-limit'],
+    '--disable-gpu-vsync', '--disable-frame-rate-limit',
+    // tools/gpu-guard.mjs software lane (hardware GPU off for agent tests): SwiftShader WebGL2
+    ...(process.env.DEADAIR_RENDER === 'swiftshader' ? ['--disable-gpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : []),],
 });
 const context = await browser.newContext({ viewport: VIEW });
 await context.grantPermissions(['microphone']).catch(() => {});

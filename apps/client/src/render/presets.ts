@@ -1,4 +1,5 @@
 // Owner: track ③ Render. Quality presets (PLAN §4.9 table, values in config/balance/render.json) + GPU heuristics.
+// v1.2 gate P: High / Ultra shadow 4 beams (yours + the 3 best remote ones); the other 2 use unshadowed batched slots.
 import type { ClientContext } from '../core/context.ts';
 
 export interface Preset {
@@ -21,8 +22,8 @@ export const PRESET_NAMES = ['low', 'medium', 'high', 'ultra'] as const;
 const FALLBACK: Record<string, Omit<Preset, 'name'>> = {
   low: { shadowed: 2, unshadowed: 4, shadowMap: 512, volumetric: false, volScale: 0.25, volSteps: 8, gtao: false, aoScale: 0.5, res: 0.75, fixtures: 8, traa: false },
   medium: { shadowed: 4, unshadowed: 2, shadowMap: 1024, volumetric: true, volScale: 0.25, volSteps: 8, gtao: true, aoScale: 0.5, res: 1, fixtures: 16, traa: true },
-  high: { shadowed: 6, unshadowed: 0, shadowMap: 1024, volumetric: true, volScale: 0.25, volSteps: 12, gtao: true, aoScale: 0.5, res: 1, fixtures: 24, traa: true },
-  ultra: { shadowed: 6, unshadowed: 0, shadowMap: 2048, volumetric: true, volScale: 0.5, volSteps: 16, gtao: true, aoScale: 1, res: 1, fixtures: 32, traa: true },
+  high: { shadowed: 4, unshadowed: 2, shadowMap: 1024, volumetric: true, volScale: 0.25, volSteps: 12, gtao: true, aoScale: 0.5, res: 1, fixtures: 24, traa: true },
+  ultra: { shadowed: 4, unshadowed: 2, shadowMap: 2048, volumetric: true, volScale: 0.5, volSteps: 16, gtao: true, aoScale: 1, res: 1, fixtures: 32, traa: true },
 };
 
 export function presetTable(ctx: ClientContext): Record<string, Preset> {

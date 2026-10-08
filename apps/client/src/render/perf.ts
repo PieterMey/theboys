@@ -1,5 +1,7 @@
-// Owner: track ③ Render (v1.1). Frame-time statistics, internal-resolution policy (DPR clamp + per-preset cap),
-// AUTO QUALITY (resolution scale first, then the preset; never pool sizes / castShadow / lights) and the F3 perf panel.
+// Owner: track ③ Render (v1.1) / env-render (v1.2). Frame-time statistics, internal-resolution policy (DPR clamp +
+// per-preset cap), AUTO QUALITY (v1.2: features first - live mirror, then mist steps, then motes - then the resolution
+// scale, then the preset; never pool sizes / castShadow / lights; back up the same ladder, into Ultra again once the
+// frames recover) and the F3 perf panel.
 import type { Preset } from './presets.ts';
 
 // ---------------------------------------------------------------- frame-time sampler
@@ -194,6 +196,15 @@ export interface AutoState {
   steps: number;
 }
 
+/** v1.2 feature ladder: level 0 = everything on; each rung drops one more feature (live mirror, mist steps, motes) */
+export interface FeatureHooks {
+  level(): number;
+  max(): number;
+  set(level: number): void;
+  /** name of rung n (1-based: the feature dropped at that level), for the F3 panel / log */
+  name?(level: number): string;
+}
+
 export interface AutoHooks {
   preset(): string;
   presets: readonly string[];
@@ -202,6 +213,10 @@ export interface AutoHooks {
   gpuMs(): number | undefined;
   /** measuring makes sense now (in game, visible, no loading screen) */
   steady(): boolean;
+  /** v1.2: features dropped before resolution / preset (optional: absent = the v1.1 ladder) */
+  features?: FeatureHooks;
+  /** v1.2: windows of fast frames needed to climb back into Ultra (default 3) */
+  ultraUpWindows?: number;
 }
 
 /** Auto quality controller: call tick(now) every frame; measures windowMs windows after warmupMs of steady frames. */
@@ -211,15 +226,25 @@ export function createAutoQuality(cfg: PerfCfg, times: FrameTimes, hooks: AutoHo
   let windowStart = -1;
   let fastWindows = 0;
   let longBefore = false;
-  let upLocked = false;
+  /** a fresh step-down right after a step-up locks climbing for a while (v1.1: for good; v1.2: 60 s) */
+  let upLockUntil = -Infinity;
   let lastUpAt = -Infinity;
   const rungs = cfg.scales.filter((s) => s >= cfg.minScale);
   const scaleIdx = () => { let i = rungs.findIndex((s) => Math.abs(s - state.scale) < 0.01); if (i < 0) i = 0; return i; };
+  const F = hooks.features;
   const stepDown = (why: string, now: number) => {
     const i = scaleIdx();
     const pi = hooks.presets.indexOf(hooks.preset());
-    // a fresh step-down right after a step-up: the faster rung is not sustainable, stay down for good
-    if (now - lastUpAt < cfg.windowMs * 3) upLocked = true;
+    // a fresh step-down right after a step-up: the faster rung is not sustainable, stay down a while
+    if (now - lastUpAt < cfg.windowMs * 3) upLockUntil = F ? now + 60_000 : Infinity;
+    if (F && F.level() < F.max()) {
+      // v1.2: drop a feature first (live mirror, then mist steps, then motes): resolution and preset stay
+      F.set(F.level() + 1);
+      state.steps++;
+      state.last = `down: ${why} -> no ${F.name?.(F.level()) ?? `feature ${F.level()}`}`;
+      console.info(`[render] auto quality ${state.last}`);
+      return;
+    }
     if (state.presetFree && hooks.preset() === 'ultra' && why.startsWith('ultra')) {
       hooks.setPreset(hooks.presets[pi - 1] ?? 'high');
     } else if (i < rungs.length - 1) {
@@ -235,8 +260,11 @@ export function createAutoQuality(cfg: PerfCfg, times: FrameTimes, hooks: AutoHo
   const stepUp = (why: string, now: number) => {
     const i = scaleIdx();
     const pi = hooks.presets.indexOf(hooks.preset());
+    // the reverse ladder: resolution, then the preset (into Ultra only with the v1.2 feature ladder and after
+    // ultraUpWindows fast windows), then the features dropped first come back last
     if (i > 0) { state.scale = rungs[i - 1]; hooks.setScale(state.scale); }
-    else if (state.presetFree && pi < ceiling && hooks.presets[pi + 1] !== 'ultra') hooks.setPreset(hooks.presets[pi + 1]);
+    else if (state.presetFree && pi < ceiling && (hooks.presets[pi + 1] !== 'ultra' || (F && fastWindows >= (hooks.ultraUpWindows ?? 3)))) hooks.setPreset(hooks.presets[pi + 1]);
+    else if (F && F.level() > 0 && (!state.presetFree || pi >= ceiling)) F.set(F.level() - 1);
     else return;
     lastUpAt = now;
     state.steps++;
@@ -274,7 +302,10 @@ export function createAutoQuality(cfg: PerfCfg, times: FrameTimes, hooks: AutoHo
       }
       const fast = s.p95 < cfg.fastP95Ms && s.long === 0 && (gpu === undefined || gpu < cfg.fastP95Ms * 0.6);
       fastWindows = fast ? fastWindows + 1 : 0;
-      if (fastWindows >= 2 && !upLocked) { fastWindows = 0; stepUp(`p95 ${s.p95.toFixed(1)} ms`, now); return; }
+      const pi = hooks.presets.indexOf(hooks.preset());
+      const needUltra = !!F && state.presetFree && scaleIdx() === 0 && hooks.presets[pi + 1] === 'ultra' && pi < ceiling;
+      const need = needUltra ? (hooks.ultraUpWindows ?? 3) : 2;
+      if (fastWindows >= need && now >= upLockUntil) { stepUp(`p95 ${s.p95.toFixed(1)} ms`, now); fastWindows = 0; return; }
       state.last = `ok: ${s.fps.toFixed(0)} fps p50 ${s.p50.toFixed(1)} p95 ${s.p95.toFixed(1)}${displayCapped ? ' (display-capped)' : ''}`;
     },
   };

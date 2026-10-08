@@ -6,6 +6,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { LevelLayout, LayoutDoor } from '@dead-air/shared/layout.ts';
 import { makeEmissive, makeSurfaceMaterial } from './materials.ts';
 import type { FixtureInfo, FixtureState, FlashlightInfo, V3 } from './types.ts';
+import { RENDER_LAYERS } from './api.ts';
+import type { FogVolume, MirrorHandle, MirrorService, RenderServiceV12 } from './api.ts';
 
 export interface TestView {
   name: string;
@@ -24,6 +26,14 @@ export interface TestScene {
   bounds: THREE.Box3;
   views: Record<string, TestView>;
   update(t: number): void;
+  /** v1.2: per-view setup (fog volumes of the mist view, the mirror ghost) */
+  onView?(name: string, render: Partial<RenderServiceV12>): void;
+  dispose?(): void;
+}
+
+export interface TestSceneOpts {
+  /** v1.2: register a test mirror (the 'mirror' view) with this service */
+  mirrors?: MirrorService;
 }
 
 const T = 0.12; // wall thickness
@@ -39,7 +49,7 @@ function doorOpen(d: LayoutDoor): boolean {
   return d.kind === 'open' || d.initiallyOpen;
 }
 
-export function buildTestScene(L: LevelLayout): TestScene {
+export function buildTestScene(L: LevelLayout, opts: TestSceneOpts = {}): TestScene {
   const group = new THREE.Group();
   group.name = 'render-testscene';
   const { W, H, owner } = L;
@@ -304,6 +314,64 @@ export function buildTestScene(L: LevelLayout): TestScene {
     views.exit = { name: 'exit', cam, look: [sx, 1.9, sz], lights: [handLight(cam, [sx, 0.9, sz])], power: { all: false, off: [] } };
   }
 
+  // ---- v1.2 views: a wall mirror in the lit room (live / fallback, ghost layer, no first-person hands in it),
+  // a cold room with a floor-hugging fog volume crossed by a teammate's beam
+  let mirror: MirrorHandle | null = null;
+  let ghostFig: THREE.Object3D | null = null;
+  const mirrorRoom = litRoom ?? bigRoom;
+  if (mirrorRoom && opts.mirrors) {
+    const { x, y, w } = mirrorRoom.rect;
+    // on the room's north wall (z = y), facing +z into the room, at eye height
+    const gx = x + w * 0.5, gz = y + 0.07;
+    const glass = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 1.25), new THREE.MeshBasicNodeMaterial());
+    glass.name = 'test-mirror-glass';
+    glass.position.set(gx, 1.5, gz);
+    glass.receiveShadow = true;
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(1.12, 1.37, 0.05), mSteel);
+    frame.position.set(gx, 1.5, gz - 0.03);
+    frame.castShadow = frame.receiveShadow = true;
+    group.add(frame, glass);
+    mirror = opts.mirrors.register(glass, { space: mirrorRoom.id, w: 1.0, h: 1.25, kind: 'hall', itemId: 'test:mirror' });
+    // a figure that stands only in the reflection (ghost layer), behind the viewer
+    const fig = new THREE.Group();
+    const figMat = makeSurfaceMaterial({ color: 0x5a6058, roughness: 0.8, metalness: 0, grime: 0.7 });
+    const fb = new THREE.Mesh(new THREE.CapsuleGeometry(0.22, 1.0, 6, 12), figMat);
+    fb.position.y = 0.85;
+    const fh = new THREE.Mesh(new THREE.SphereGeometry(0.15, 14, 10), figMat);
+    fh.position.y = 1.55;
+    fig.add(fb, fh);
+    fig.position.set(0.35, -1.5, 4.0); // glass-local: 4 m out from the glass, on the floor
+    fig.visible = false;
+    mirror.ghost.add(fig);
+    ghostFig = fig;
+    const cam: V3 = [gx - 0.25, eye, y + 2.6];
+    const lookAt: V3 = [gx, 1.45, gz];
+    views.mirror = { name: 'mirror', cam, look: lookAt, lights: [handLight(cam, lookAt)], power: { all: true, off: [mirrorRoom.id] } };
+    views.mirrorlit = { name: 'mirrorlit', cam, look: lookAt, lights: [], power: { all: true, off: [] } };
+  }
+  const coldRoom = rooms.find((r) => r !== mirrorRoom && r !== bigRoom) ?? bigRoom;
+  let mistVols: FogVolume[] = [];
+  if (coldRoom) {
+    const { x, y, w, h } = coldRoom.rect;
+    const cam: V3 = [x + 0.6, eye, y + 0.6];
+    const lookAt: V3 = [x + w * 0.8, 0.5, y + h * 0.8];
+    mistVols = [{ p: [x + w / 2, 0.6, y + h / 2], r: Math.max(w, h) * 0.45, density: 0.14, frost: 0.6, ground: true, color: '#b8c8d8' }];
+    views.mist = {
+      name: 'mist', cam, look: lookAt,
+      lights: [handLight(cam, lookAt), remote([x + w * 0.85, 1.5, y + h * 0.25], [x + w * 0.2, 0.2, y + h * 0.7], 'p2', 2)],
+      power: { all: true, off: [coldRoom.id] },
+    };
+  }
+  // fake first-person hand (firstPerson layer: the main camera sees it, a mirror never does)
+  const hand = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, 0.22), makeSurfaceMaterial({ color: 0xc89070, roughness: 0.6, metalness: 0 }));
+  hand.name = 'test-firstperson-hand';
+  hand.layers.set(RENDER_LAYERS.firstPerson);
+  hand.position.set(0.21, -0.2, -0.42);
+  hand.castShadow = false;
+  hand.visible = false;
+  group.add(hand);
+  let handCam: THREE.Object3D | null = null;
+
   return {
     group,
     layout: L,
@@ -314,5 +382,25 @@ export function buildTestScene(L: LevelLayout): TestScene {
       const c = group.getObjectByName('core');
       if (c) c.rotation.y = t * 0.6;
     },
+    onView(name, render) {
+      render.setFogVolumes?.(name === 'mist' ? mistVols : []);
+      if (ghostFig) ghostFig.visible = name === 'mirror';
+      if (name === 'mist' && views.mist) render.puff?.([views.mist.cam[0] + 0.5, 1.45, views.mist.cam[2] + 0.5], 'breath', 1.2);
+      // the hand rides the camera in the mirror views (it must not appear in the reflection)
+      if (!handCam) {
+        let sc: THREE.Object3D | null = group;
+        while (sc?.parent) sc = sc.parent;
+        sc?.traverse((o) => { if (!handCam && (o as THREE.PerspectiveCamera).isPerspectiveCamera) handCam = o; });
+      }
+      const showHand = name === 'mirror' || name === 'mirrorlit';
+      if (handCam && showHand) handCam.add(hand);
+      else group.add(hand);
+      hand.visible = showHand;
+    },
+    dispose() {
+      mirror?.dispose();
+      hand.removeFromParent();
+    },
   };
 }
+

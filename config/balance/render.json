@@ -1,5 +1,5 @@
 {
- "_doc": "Track 3 Render defaults (PLAN 4.9), look pass tuned from tests/render/polish.e2e.ts contact sheets (tests/artifacts/polish/*). Units: light intensities in candela (physical); the flashlight cookie is normalised (hot core = 1) and stops brightening closer than flashlight.nearClamp m (no blown-out hot spot up close); decay 1.6 for game-readable throw. fog: exponential height fog indoors, blended to outdoorDensity/outdoorColor while the camera stands in an open space (lot); moon = extra cold hemisphere sky light (colour + intensity) blended in while the camera stands outdoors (no DirectionalLight: its DynamicLighting arrays overflow the 12 fragment uniform buffers on Medium/Low). adapt = faint cold dark-adaptation fill light riding above the camera (visual only); core = cyan point light following the Core canister. flashlight.volLocal/volRemote weight the scattering of your own beam (subtle haze down its axis) vs teammates' beams (readable shafts). volume.density is the scattering scale of the depth-clamped ray march (maxDist m); bloom.threshold is luminance (HDR, pre-tonemap); fx.ca is ChromaticAberrationNode strength; grade.contrast is a toe-preserving power curve (never clips darks). fixture.kinds: per-kind colour / intensity multiplier / range (tube = cold green-white fluorescent, lamp = sodium lot lamp, wall = entrance wall pack, van = cargo light). Pool sizes (shadowed/unshadowed/fixtures) and shadowMap apply at page load; everything else switches live via services.render.setPreset.",
+ "_doc": "Track 3 Render defaults (PLAN 4.9), look pass tuned from tests/render/polish.e2e.ts contact sheets (tests/artifacts/polish/*). Units: light intensities in candela (physical); the flashlight cookie is normalised (hot core = 1) and stops brightening closer than flashlight.nearClamp m (no blown-out hot spot up close); decay 1.6 for game-readable throw; distance = your own beam's range, remoteDistance = teammates' beams (a shadowed beam's shadow far plane = its range, so distant casters drop out of its pass; gate P), shadowHold = metres of score bonus that keep a remote beam in its shadowed slot (no flip-flop). High / Ultra shadow 4 beams (yours + the 3 nearest / most centred teammates) and give the other 2 unshadowed batched slots (gate P draw budget). fog: exponential height fog indoors, blended to outdoorDensity/outdoorColor while the camera stands in an open space (lot); moon = extra cold hemisphere sky light (colour + intensity) blended in while the camera stands outdoors (no DirectionalLight: its DynamicLighting arrays overflow the 12 fragment uniform buffers on Medium/Low). adapt = faint cold dark-adaptation fill light riding above the camera (visual only); core = cyan point light following the Core canister. flashlight.volLocal/volRemote weight the scattering of your own beam (subtle haze down its axis) vs teammates' beams (readable shafts). volume.density is the scattering scale of the depth-clamped ray march (maxDist m); bloom.threshold is luminance (HDR, pre-tonemap); fx.ca is ChromaticAberrationNode strength; grade.contrast is a toe-preserving power curve (never clips darks). fixture.kinds: per-kind colour / intensity multiplier / range (tube = cold green-white fluorescent, lamp = sodium lot lamp, wall = entrance wall pack, van = cargo light). Pool sizes (shadowed/unshadowed/fixtures) and shadowMap apply at page load; everything else switches live via services.render.setPreset.",
  "exposure": 1,
  "ambient": {
   "sky": "#6f819c",
@@ -31,7 +31,9 @@
   "angle": 0.62,
   "penumbra": 0.9,
   "decay": 1.6,
-  "distance": 28,
+  "distance": 24,
+  "remoteDistance": 18,
+  "shadowHold": 2,
   "intensity1": 74,
   "intensity2": 105,
   "color1": "#ffe3bd",
@@ -46,7 +48,8 @@
   "plainAngle": 0.48,
   "coneAngle": 0.3,
   "volLocal": 0.6,
-  "volRemote": 1.8
+  "volRemote": 1.8,
+  "halfRateFar": 8
  },
  "volume": {
   "density": 1.6,
@@ -60,7 +63,7 @@
  },
  "fixture": {
   "color": "#cfeedd",
-  "intensity": 12,
+  "intensity": 14,
   "distance": 9,
   "decay": 2,
   "halo": 0.5,
@@ -71,12 +74,25 @@
     "mult": 11,
     "distance": 22
    }
+  },
+  "omni": 4,
+  "hideParked": true,
+  "battery": {
+   "color": "#ff2a1a",
+   "level": 0.32
+  },
+  "curves": {
+   "die": 520,
+   "surge_die": 420,
+   "brown": 1600,
+   "pulse": 2400,
+   "revive": 760
   }
  },
  "bloom": {
-  "strength": 0.32,
+  "strength": 0.14,
   "radius": 0.55,
-  "threshold": 1.1
+  "threshold": 1.6
  },
  "fx": {
   "ca": 0.12,
@@ -96,7 +112,12 @@
    0.9
   ],
   "contrast": 1.06,
-  "lift": 0.018
+  "lift": 0.018,
+  "liftTint": [
+   1,
+   1,
+   1
+  ]
  },
  "presets": {
   "low": {
@@ -126,8 +147,8 @@
    "traa": true
   },
   "high": {
-   "shadowed": 6,
-   "unshadowed": 0,
+   "shadowed": 4,
+   "unshadowed": 2,
    "shadowMap": 1024,
    "volumetric": true,
    "volScale": 0.25,
@@ -139,8 +160,8 @@
    "traa": true
   },
   "ultra": {
-   "shadowed": 6,
-   "unshadowed": 0,
+   "shadowed": 4,
+   "unshadowed": 2,
    "shadowMap": 2048,
    "volumetric": true,
    "volScale": 0.5,
@@ -195,5 +216,84 @@
   ],
   "coverFps": 60,
   "maxFps": 0
+ },
+ "v12": {
+  "_doc": "v1.2 env-render switches (?r12=fog:0,mist:0,gi:0 or ?r12=0 overrides per page). fog = fog.ts as scene.fogNode on every preset (the ONE density: closed-form haze + ground mist + local volumes, grid-coloured in-scatter); mist = mist.ts beam march through the same density (Medium+, shadowed beams only); gi = light-grid GI through the scene-pass context (AO multiplies it) + the hemisphere drops to hemi (neutral); hideParked = parked batched fixture lights visible=false (one sentinel per type); giK = grid irradiance -> GI irradiance; lumClamp = HDR luminance clamp before bloom; ambientK = grid -> render.ambientAt scale.",
+  "fog": true,
+  "mist": true,
+  "gi": true,
+  "hideParked": true,
+  "giK": 0.05,
+  "hemi": 0.45,
+  "hemiSky": "#8b9096",
+  "hemiGround": "#2b2925",
+  "lumClamp": 12,
+  "ambientK": 0.09
+ },
+ "fog12": {
+  "_doc": "v1.2 shared medium (fog.ts). Extinction 1/m: haze = d0 * exp(-y/hazeHeight) (indoor / outdoor), ground mist = mist * sat((top - y)/soft) with top ~ mistTop carved by a noise bank at the y=1.2 crossing (bankScale 1/m), haze breakup hazeScale 1/m, wind m/s. In-scatter = color (dark floor) + grid irradiance x litK + moon (outdoors). bubble = clear sphere around the camera (m); capT = minimum transmittance within capNear m (relaxing to 0 at capFar). Room types / themes scale mist + haze (moods.ts).",
+  "color": "#05070a",
+  "outdoorColor": "#0a0f16",
+  "haze": 0.028,
+  "outdoorHaze": 0.016,
+  "hazeHeight": 6,
+  "mist": 0.06,
+  "mistTop": 1.15,
+  "mistSoft": 0.6,
+  "outdoorMist": 1.4,
+  "bankScale": 0.085,
+  "hazeScale": 0.21,
+  "wind": [
+   0.09,
+   0.012,
+   0.05
+  ],
+  "litK": 0.0065,
+  "moon": "#2c3848",
+  "bubble": 1.5,
+  "capT": 0.4,
+  "capNear": 15,
+  "capFar": 40,
+  "frost": "#cfe4ff"
+ },
+ "mist12": {
+  "_doc": "v1.2 beam march (mist.ts): scatter = scattering scale of the shared density for the shadowed beams; maxDist m; bubble/bubbleSoft = smooth clear sphere (m); blur = 4-channel depth-aware separable blur (taps each side, sigma in taps, depth sharpness), then a depth-aware upsample. Steps / resolution per preset (presets.volSteps / volScale).",
+  "scatter": 0.11,
+  "maxDist": 15,
+  "bubble": 1.5,
+  "bubbleSoft": 1.6,
+  "blurTaps": 3,
+  "blurSigma": 1.8,
+  "blurSharp": 9
+ },
+ "grid": {
+  "_doc": "v1.2 light grid (lightgrid.ts): spill = share of a room's door-side light entering the neighbour through a door open more than doorOpen; spillReach m.",
+  "spill": 0.25,
+  "spillReach": 4,
+  "doorOpen": 0.02
+ },
+ "mirrors": {
+  "_doc": "v1.2 live mirror budget per preset (mirrors.ts, flag 'mirrors'): live = mirrors live at once (0 = fallback glass), scale = reflection resolution of the drawing buffer (RT fixed when it goes live, capped at 1024x576), maxDist m, halfRateStill = update every other frame while the camera is still.",
+  "low": {
+   "live": 0
+  },
+  "medium": {
+   "live": 1,
+   "scale": 0.25,
+   "maxDist": 5,
+   "halfRateStill": true
+  },
+  "high": {
+   "live": 1,
+   "scale": 0.3,
+   "maxDist": 8,
+   "halfRateStill": true
+  },
+  "ultra": {
+   "live": 1,
+   "scale": 0.5,
+   "maxDist": 8,
+   "halfRateStill": false
+  }
  }
 }

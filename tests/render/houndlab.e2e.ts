@@ -11,12 +11,15 @@ const BASE = arg('base', 'http://127.0.0.1:3098');
 const OUT = join(REPO, 'tests/artifacts/polish/lab');
 mkdirSync(OUT, { recursive: true });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required'] });
+const SOFTWARE = process.env.DEADAIR_RENDER === 'swiftshader';
+const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required',
+  // tools/gpu-guard.mjs software lane (hardware GPU off for agent tests): SwiftShader WebGL2
+  ...(SOFTWARE ? ['--disable-gpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : [])] });
 const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
 await context.routeWebSocket((url) => !url.pathname.endsWith('/ws'), (ws) => { ws.close(); });
 const page = await context.newPage();
 page.on('console', (m) => { if (m.type() === 'error') console.log('console:', m.text()); });
-await page.goto(`${BASE}/?test=1&autojoin=1&preset=ultra#HLAB`, { waitUntil: 'domcontentloaded' });
+await page.goto(`${BASE}/?test=1&autojoin=1&preset=ultra${SOFTWARE ? '&webgl=1' : ''}#HLAB`, { waitUntil: 'domcontentloaded' });
 const dbg = (r: string, a: unknown = {}) => page.evaluate(([rr, aa]) => window.__game!.dbg(rr as string, aa), [r, a] as const);
 async function shot(name: string) {
   const cdp = await page.context().newCDPSession(page);

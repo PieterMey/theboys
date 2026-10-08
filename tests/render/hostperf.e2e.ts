@@ -39,6 +39,8 @@ const browser = await chromium.launch({
     '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${join(VOICE_DIR, 'silence.wav')}`,
     '--autoplay-policy=no-user-gesture-required',
     ...(UNCAPPED ? ['--disable-frame-rate-limit', '--disable-gpu-vsync'] : []),
+    // tools/gpu-guard.mjs software lane (hardware GPU off for agent tests): SwiftShader WebGL2, counts only
+    ...(process.env.DEADAIR_RENDER === 'swiftshader' ? ['--disable-gpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : []),
   ],
 });
 const context = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: DSF });
@@ -71,7 +73,7 @@ await page.addInitScript(() => {
   } catch { /* no LoAF */ }
 });
 
-const q = new URLSearchParams({ test: '1', nobright: '1', ...(PRESET ? { preset: PRESET } : {}), ...EXTRA });
+const q = new URLSearchParams({ test: '1', nobright: '1', ...(PRESET ? { preset: PRESET } : {}), ...EXTRA, ...(process.env.DEADAIR_RENDER === 'swiftshader' ? { webgl: '1' } : {}) });
 const url = `${BASE}/?${q}`;
 log(`${label}: ${url}`);
 await page.goto(url, { waitUntil: 'domcontentloaded' });

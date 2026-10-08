@@ -1,8 +1,10 @@
-// Owner: track ③ Render (apps/client/src/render/**). WebGPURenderer (WebGL2 with ?webgl=1), RenderPipeline post
-// stack, flashlight + fixture light pools, presets, warm-up, stats. Provides services.three + services.render.
-// Consumes services.players (flashlights) and services.level (fixtures, visibleSpaces), tolerating absence.
+// Owner: track ③ Render / env-render (v1.2) (apps/client/src/render/**). WebGPURenderer (WebGL2 with ?webgl=1),
+// RenderPipeline post stack, flashlight + fixture light pools, the light grid, the shared fog/mist medium, mirrors,
+// presets, warm-up, stats. Provides services.three + services.render (RenderService & RenderServiceV12).
+// Consumes services.players (flashlights, setMirrorSelf) and services.level (fixtures, visibleSpaces, doorAnim,
+// spaceGroup), tolerating absence.
 import * as THREE from 'three/webgpu';
-import { color as tslColor, exponentialHeightFogFactor, fog, uniform } from 'three/tsl';
+import { Fn, exponentialHeightFogFactor, fog, normalWorld, positionWorld, renderGroup, smoothstep, uniform, float } from 'three/tsl';
 import { DynamicLighting } from 'three/addons/lighting/DynamicLighting.js';
 import { h } from 'preact';
 import type { ClientContext } from '../core/context.ts';
@@ -10,22 +12,40 @@ import { SYS } from '../core/loop.ts';
 import { createFlashlightPool } from './flashlights.ts';
 import type { FlashCfg } from './flashlights.ts';
 import { createFixturePool } from './fixtures.ts';
-import type { FixtureCfg } from './fixtures.ts';
+import type { FixtureCfg, FixtureCurveName, FixtureUpdateOpts } from './fixtures.ts';
 import { createPipeline } from './pipeline.ts';
 import type { PipeCfg } from './pipeline.ts';
 import { PRESET_NAMES, gpuName, presetForGpu, presetTable } from './presets.ts';
 import { auditSceneMaterials, makeEmissive, makeSurfaceMaterial } from './materials.ts';
 import { buildTestScene, loadFixtureLayout } from './testscene.ts';
 import { FrameTimes, coverMode, createAutoQuality, createPerfPanel, drawInterval, gateDraw, pixelRatioFor, readPerfCfg } from './perf.ts';
-import type { AutoState, CoverMode, DrawGate, FrameStats } from './perf.ts';
+import type { AutoState, CoverInputs, CoverMode, DrawGate } from './perf.ts';
 import type { TestScene, TestView } from './testscene.ts';
 import { useLoose } from './types.ts';
 import type { FixtureInfo, FlashlightInfo, LevelView, PlayersView, RenderFx, RenderService, RenderStats, V3 } from './types.ts';
+import { RENDER_LAYERS } from './api.ts';
+import type { FogVolume, RenderCoverMode, RenderServiceV12 } from './api.ts';
+import { GRID_DEFAULTS, createLightGrid, gridNodes } from './lightgrid.ts';
+import type { LightGridCfg } from './lightgrid.ts';
+import { noiseTexture3D } from './noise3d.ts';
+import { FOG_DEFAULTS, buildFogNode, cpuDensity, createFogUniforms, fogNodes } from './fog.ts';
+import type { FogCfg } from './fog.ts';
+import { MIST_DEFAULTS, mistFrame } from './mist.ts';
+import type { MistCfg } from './mist.ts';
+import { MIRROR_BUDGETS, createMirrorSystem } from './mirrors.ts';
+import type { MirrorBudget } from './mirrors.ts';
+import { createPuffs } from './motes.ts';
+import type { PuffKind } from './motes.ts';
+import { moodFor, roomParams } from './moods.ts';
+import type { LevelLayout } from '@dead-air/shared/layout.ts';
 
 export type { RenderService, FlashlightInfo, FixtureInfo } from './types.ts';
+export type { RenderServiceV12 } from './api.ts';
 
-const VOL_LAYER = 10;
+const VOL_LAYER = RENDER_LAYERS.vol;
 const MAX_FLASHLIGHTS = 6;
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
+const isLocalBeam = (b: { local: boolean }) => b.local;
 
 export interface RenderTestApi {
   views(): string[];
@@ -43,6 +63,20 @@ export interface RenderTestApi {
   camera(pos: V3, look: V3): void;
   /** test-only: the live scene + renderer (look-dev experiments from Playwright) */
   three(): { scene: THREE.Scene; renderer: THREE.WebGPURenderer; camera: THREE.PerspectiveCamera; THREE: typeof THREE };
+  /** v1.2: compiled render pipelines / shader modules so far */
+  pipelines(): { pipelines: number; vs: number; fs: number };
+  /** v1.2: night vision on/off (render.setNightVision) */
+  nightVision(on: boolean): void;
+  /** v1.2: the RenderServiceV12 surface (fog volumes, curves, mirrors, ...) */
+  v12(): RenderService & RenderServiceV12;
+  /** v1.2 test: override the march volume box (null = back to the scene's bounds) */
+  volBounds(min: number[] | null, max: number[] | null): void;
+  /** v1.2 diagnostics: mirror path toggles (ctx swap, rim light, reflection renders, explicit top-level render) */
+  mirrorDebug(p: Partial<{ ctx: boolean; rim: boolean; render: boolean; explicit: boolean }>): Record<string, boolean>;
+  /** v1.2 test: parked batched fixture lights visible=false (the pipeline count must stay flat) */
+  hideParked(on: boolean): void;
+  /** v1.2 gate P look-dev: beam ranges (m) of your own beam / teammates' beams (= their shadow far planes) */
+  flashRanges(local: number, remote: number): { local: number; remote: number };
 }
 
 declare global {
@@ -51,10 +85,12 @@ declare global {
   }
 }
 
+type V12Cfg = { fog: boolean; mist: boolean; gi: boolean; hideParked: boolean; giK: number; hemi: number; hemiSky: string; hemiGround: string; lumClamp: number; ambientK: number };
+
 type Cfg = {
   exposure: number;
   ambient: { sky: string; ground: string; intensity: number };
-  /** indoor fog + the outdoor (lot) variant the camera blends to when it stands in an open space */
+  /** indoor fog + the outdoor (lot) variant the camera blends to when it stands in an open space (v1.1 fog) */
   fog: { color: string; density: number; height: number; outdoorColor?: string; outdoorDensity?: number };
   /** cold moonlight, outdoors only: extra hemisphere sky intensity + colour while the camera stands in the lot */
   moon?: { color: string; intensity: number; dir?: number[] };
@@ -64,6 +100,13 @@ type Cfg = {
   adapt?: { color: string; intensity: number; distance: number; decay: number };
   flashlight: FlashCfg;
   fixture: FixtureCfg;
+  /** v1.2 switches + GI */
+  v12: V12Cfg;
+  /** v1.2 shared medium */
+  fog12: FogCfg;
+  mist12: MistCfg;
+  grid: LightGridCfg;
+  mirrors: Record<string, Partial<MirrorBudget>>;
 } & PipeCfg;
 
 const DEFAULTS: Cfg = {
@@ -79,6 +122,11 @@ const DEFAULTS: Cfg = {
   bloom: { strength: 0.38, radius: 0.5, threshold: 0.9 },
   fx: { ca: 0.22, grain: 0.07, vignette: 0.42, desat: 0.32 },
   grade: { shadowTint: [0.82, 0.92, 1.12], midTint: [1.02, 1.04, 0.9], contrast: 1.06, lift: 0.012 },
+  v12: { fog: true, mist: true, gi: true, hideParked: true, giK: 0.05, hemi: 0.45, hemiSky: '#8b9096', hemiGround: '#2b2925', lumClamp: 12, ambientK: 0.09 },
+  fog12: FOG_DEFAULTS,
+  mist12: MIST_DEFAULTS,
+  grid: GRID_DEFAULTS,
+  mirrors: {},
 };
 
 function readCfg(ctx: ClientContext): Cfg {
@@ -99,9 +147,22 @@ function lsSet(k: string, v: string): void {
   try { localStorage.setItem(k, v); } catch { /* ignore */ }
 }
 
+/** ?r12=fog:0,mist:1,gi:0 overrides the render.json v12 switches (look-dev / A-B) */
+function v12Switches(ctx: ClientContext, base: V12Cfg): V12Cfg {
+  const out = { ...base };
+  const q = ctx.params.get('r12');
+  if (q === '0') { out.fog = false; out.mist = false; out.gi = false; return out; }
+  for (const kv of (q ?? '').split(',').filter(Boolean)) {
+    const [k, v] = kv.split(':');
+    if (k === 'fog' || k === 'mist' || k === 'gi' || k === 'hideParked') (out as Record<string, unknown>)[k] = v !== '0';
+  }
+  return out;
+}
+
 export async function install(ctx: ClientContext): Promise<void> {
   const done = ctx.readiness.require('render');
   const cfg = readCfg(ctx);
+  const v12 = v12Switches(ctx, cfg.v12);
   const container = document.getElementById('game')!;
   const forceWebGL = ctx.params.get('webgl') === '1';
   const sceneMode = ctx.params.get('scene'); // 'test' = render test scene, camera owned by __render
@@ -110,7 +171,7 @@ export async function install(ctx: ClientContext): Promise<void> {
   const renderer = new THREE.WebGPURenderer({ antialias: false, forceWebGL, trackTimestamp: !forceWebGL });
   await renderer.init();
   const backend = (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend ? 'webgpu' : 'webgl2';
-  const device = (renderer.backend as unknown as { device?: EventTarget }).device;
+  const device = (renderer.backend as unknown as { device?: EventTarget & { pushErrorScope?(f: string): void; popErrorScope?(): Promise<{ message?: string } | null> } }).device;
   device?.addEventListener('uncapturederror', (e) => {
     ctx.reportError(`WebGPU: ${(e as unknown as { error?: { message?: string } }).error?.message ?? 'uncaptured error'}`);
   });
@@ -125,9 +186,15 @@ export async function install(ctx: ClientContext): Promise<void> {
   const poolShadowed = preset.shadowed;
   const poolUnshadowed = Math.max(0, MAX_FLASHLIGHTS - poolShadowed);
   const poolFixtures = Math.max(...PRESET_NAMES.map((n) => table[n].fixtures).filter((f) => f <= Math.max(preset.fixtures, 8)));
+  const poolOmni = cfg.fixture.omni ?? 4;
 
   const dbg0 = new Set((ctx.params.get('rdebug') ?? '').split(',').filter(Boolean));
-  if (!dbg0.has('nodyn')) renderer.lighting = new DynamicLighting({ maxPointLights: poolFixtures + 2, maxSpotLights: 8, maxHemisphereLights: 2, maxDirectionalLights: 2 });
+  // v1.2 caps, sized once at load: spots = fixture spots + unshadowed flashlights + the mirror bounce + 4 reserved for
+  // gameplay (2 flares + the flashbulb); points = the omni sub-pool + core glow + dark adaptation + the mirror ghost
+  // rim + 2 reserved. No new light TYPES (the lit shaders sit at 12/12 uniform buffers).
+  const capSpots = poolFixtures + poolUnshadowed + 1 + 4;
+  const capPoints = poolOmni + 2 + 1 + 2;
+  if (!dbg0.has('nodyn')) renderer.lighting = new DynamicLighting({ maxPointLights: capPoints, maxSpotLights: capSpots, maxHemisphereLights: 2, maxDirectionalLights: 2 });
   renderer.toneMapping = THREE.AgXToneMapping;
   renderer.toneMappingExposure = Number(lsGet('deadair.render.exposure')) || cfg.exposure;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -139,10 +206,9 @@ export async function install(ctx: ClientContext): Promise<void> {
   // ?dprclamp=0 / ?rescap=0 restore the old full-DPR behaviour (measurements).
   const perfCfg = readPerfCfg((ctx.balance.render as Record<string, unknown> | undefined)?.perf);
   const resOpts = { clamp: ctx.params.get('dprclamp') !== '0', cap: ctx.params.get('rescap') !== '0' };
-  // 2026-10-07 host crashes: the title menu drew the full Ultra backdrop at the display's 240 Hz (about half a
-  // RTX 5090, also behind other apps in the desktop shell). Covered states now draw capped (perf.menuFps /
-  // menuBlurFps / coverFps) and the menu backdrop at a reduced internal resolution (perf.menuResCap).
-  // ?menufps= / ?menublurfps= / ?coverfps= / ?maxfps= override (0 = every frame), ?menures=0 keeps full resolution.
+  // 2026-10-07 host crashes: covered states draw capped (perf.menuFps / menuBlurFps / coverFps) and the menu
+  // backdrop at a reduced internal resolution (perf.menuResCap). ?menufps= / ?menublurfps= / ?coverfps= / ?maxfps=
+  // override (0 = every frame), ?menures=0 keeps full resolution.
   const fpsParam = (k: string, d: number): number => {
     const v = ctx.params.get(k);
     if (v === null || v === '') return d;
@@ -156,7 +222,6 @@ export async function install(ctx: ClientContext): Promise<void> {
     maxFps: fpsParam('maxfps', Number(lsGet('deadair.render.maxFps')) > 0 ? Number(lsGet('deadair.render.maxFps')) : perfCfg.maxFps),
   };
   const menuResOn = ctx.params.get('menures') !== '0';
-  /** the menu backdrop currently renders under perf.menuResCap */
   let menuRes = false;
   const autoQ: AutoState = {
     enabled: ctx.params.get('autoq') !== '0' && lsGet('deadair.render.autoq') !== '0',
@@ -176,36 +241,64 @@ export async function install(ctx: ClientContext): Promise<void> {
   container.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  // every pass of the RenderPipeline (pre-pass, scene, volumetrics) and every shadow map re-renders the scene, and each
-  // render traversed the whole graph to update world matrices (12 % of the main thread at 4K in the v1.1 profile):
-  // update once per frame in frame() instead
+  // every pass of the RenderPipeline and every shadow map re-renders the scene: world matrices update once per frame
   scene.matrixWorldAutoUpdate = false;
   const fogIn = new THREE.Color(cfg.fog.color);
   const fogOut = new THREE.Color(cfg.fog.outdoorColor ?? cfg.fog.color);
   const fogCol = fogIn.clone();
   scene.background = fogCol;
-  const fogDensity = uniform(cfg.fog.density);
-  const fogHeight = uniform(cfg.fog.height);
-  const fogColor = uniform(fogCol);
-  scene.fogNode = fog(fogColor, exponentialHeightFogFactor(fogDensity, fogHeight));
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 120);
   camera.position.set(0, 1.6, 3);
+  // v1.2 layers: the main camera sees layer 0 + first person (view model) + detail (small props / items); mirrors
+  // see 0 + ghost + self + detail; shadow cameras 0 + phantom (+ detail in your own beam); the march pass only vol
+  camera.layers.enable(RENDER_LAYERS.firstPerson);
+  camera.layers.enable(RENDER_LAYERS.detail);
   scene.add(camera);
 
-  // minimum ambient floor: never pure black on uncalibrated monitors
-  const hemi = new THREE.HemisphereLight(cfg.ambient.sky, cfg.ambient.ground, cfg.ambient.intensity);
+  // ---- the light grid + the shared medium (fog.ts owns all extinction on every preset)
+  const grid = createLightGrid(cfg.grid);
+  const gridN = gridNodes(grid);
+  const noise = noiseTexture3D();
+  const fogU = createFogUniforms(cfg.fog12);
+  const F = fogNodes(fogU, gridN, noise);
+  // v1.1 fog (?r12=fog:0): per-material exponential height fog towards a near-black colour
+  const fogDensity = uniform(cfg.fog.density);
+  const fogHeight = uniform(cfg.fog.height);
+  const fogColorU = uniform(fogCol);
+  scene.fogNode = v12.fog ? buildFogNode(F) : fog(fogColorU, exponentialHeightFogFactor(fogDensity, fogHeight));
+  const fogBase = new THREE.Color(cfg.fog12.color);
+  const fogBaseOut = new THREE.Color(cfg.fog12.outdoorColor);
+  const moonFog = new THREE.Color(cfg.fog12.moon);
+
+  // ---- GI from the light grid (tag-aware so light never crosses a wall), AO multiplies it (pipeline.ts context)
+  const giU = { k: uniform(cfg.v12.giK).setGroup(renderGroup), wallH: uniform(3).setGroup(renderGroup) };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const giNode: any = v12.gi ? Fn(() => {
+    const p = positionWorld;
+    const n = normalWorld;
+    const qx = p.x.add(n.x.mul(0.3)), qz = p.z.add(n.z.mul(0.3));
+    const tag = gridN.tagAt(qx, qz);
+    const e = gridN.bilinear(qx, qz, tag);
+    // a little less bounce up under the ceiling (the fixtures throw their light down)
+    const hk = smoothstep(giU.wallH.add(0.4), float(0.3), p.y).mul(0.3).add(0.7);
+    return e.mul(giU.k).mul(hk);
+  })() : null;
+
+  // minimum ambient floor: never pure black on uncalibrated monitors (v1.2 with GI: a dimmer neutral floor, the grid
+  // brings the room colour)
+  const hemi = v12.gi
+    ? new THREE.HemisphereLight(cfg.v12.hemiSky, cfg.v12.hemiGround, cfg.v12.hemi)
+    : new THREE.HemisphereLight(cfg.ambient.sky, cfg.ambient.ground, cfg.ambient.intensity);
   scene.add(hemi);
-  // moonlight for the lot: the hemisphere's sky term blends to a cold moon sky outdoors (a DirectionalLight would add
-  // DynamicLighting's directional uniform arrays: 13 > 12 fragment uniform buffers on Medium/Low, both backends)
+  const hemiBase = hemi.intensity;
   const moonCfg = cfg.moon ?? DEFAULTS.moon!;
-  const skyIn = new THREE.Color(cfg.ambient.sky);
+  const skyIn = hemi.color.clone();
   const skyMoon = new THREE.Color(moonCfg.color);
   let outdoorK = 0;
 
   const flash = createFlashlightPool(scene, cfg.flashlight, poolShadowed, poolUnshadowed, preset.shadowMap, VOL_LAYER);
-  const fixtures = createFixturePool(scene, cfg.fixture, poolFixtures);
-  // the Core lights its surroundings (the vault, then the carriers + corridor walls on the way out): one fixed
-  // unshadowed point light that follows the objectives track's 'canister' object and pulses with its glow
+  const fixtures = createFixturePool(scene, { ...cfg.fixture, hideParked: v12.hideParked }, poolFixtures, poolOmni);
+  // the Core lights its surroundings: one fixed unshadowed point light following the objectives track's 'canister'
   const coreLight = new THREE.PointLight(0x46ecff, 0, cfg.core?.distance ?? 7, 2);
   coreLight.castShadow = false;
   coreLight.name = 'core-glow';
@@ -214,26 +307,25 @@ export async function install(ctx: ClientContext): Promise<void> {
   let coreObj: THREE.Object3D | null = null;
   let coreSeek = 0;
   const coreTmp = new THREE.Vector3();
-  // dark adaptation: a faint cold fill riding just above the camera (short, soft falloff). The first metres around
-  // you stay readable in a blackout (silhouettes, door frames, a shape right next to you) while depth falls to black.
-  // Visual only: the server's lit-checks never see it.
+  // dark adaptation: a faint cold fill at chest height (never above the head: a hot ceiling patch). Visual only.
   const adaptCfg = cfg.adapt ?? DEFAULTS.adapt!;
   const adapt = new THREE.PointLight(adaptCfg.color, 0, adaptCfg.distance, adaptCfg.decay);
   adapt.castShadow = false;
   adapt.name = 'dark-adaptation';
   adapt.position.set(0, -430, 0);
   scene.add(adapt);
-  const pipe = createPipeline(renderer, scene, camera, cfg, VOL_LAYER);
+  const pipe = createPipeline(renderer, scene, camera, cfg, VOL_LAYER, { fogNodes: v12.mist ? F : null, mist: cfg.mist12, giNode, lumClamp: cfg.v12.lumClamp });
   const dbg = new Set((ctx.params.get('rdebug') ?? '').split(',').filter(Boolean));
   pipe.build(preset, dbg);
-  if (dbg.has('nofog')) scene.fogNode = null;
+  if (dbg.has('nofog')) { scene.fogNode = null; fogU.k.value = 0; }
 
   // keepNames proof (DynamicLighting batches by class name): must survive the production build
-  ctx.diag.keepNames = fixtures.lights[0]?.constructor.name === 'PointLight';
-  if (!ctx.diag.keepNames) ctx.reportError(`keepNames missing: PointLight minified to '${fixtures.lights[0]?.constructor.name}'`);
+  ctx.diag.keepNames = fixtures.spots[0]?.constructor.name === 'SpotLight' && (fixtures.omnis[0]?.constructor.name ?? 'PointLight') === 'PointLight';
+  if (!ctx.diag.keepNames) ctx.reportError(`keepNames missing: SpotLight minified to '${fixtures.spots[0]?.constructor.name}'`);
   ctx.diag.backend = backend;
   ctx.diag.renderPreset = presetName;
   ctx.diag.gpu = gpu;
+  ctx.diag.renderV12 = { fog: v12.fog, mist: v12.mist, gi: v12.gi, hideParked: v12.hideParked, capSpots, capPoints };
 
   // ---- state ----
   let reduceFlicker = lsGet('deadair.render.reduceFlicker') === '1';
@@ -247,17 +339,14 @@ export async function install(ctx: ClientContext): Promise<void> {
   let testView: TestView | null = null;
   let backdropActive = false;
   let t = 0;
-  /** what covers the canvas this frame (perf.ts coverMode) + the frame-cap slot */
   let mode: CoverMode = 'game';
   const gate: DrawGate = { last: 0 };
-  /** draws per second (the rAF rate stays at the display refresh: skipped frames do no GPU work) */
   let drawsInWindow = 0;
   let drawFps = 0;
   let drawWindowAt = 0;
-  // desktop shell (apps/desktop preload): in a crew it never lets Chromium hide the page (voice + net keep running),
-  // so a minimized window would keep drawing at full rate; deadAirDesktop.windowState() / onWindowState(cb) report
-  // { minimized, visible, focused }: nothing is drawn while minimized / hidden (warm-up frames still are). Without the
-  // shell (a browser tab) rAF simply stops in a hidden tab. Unfocused title menu: menuBlurFps via document.hasFocus().
+  let drawnFrames = 0;
+  let shadowsArmed = 0;
+  // desktop shell: nothing is drawn while its window is minimized / hidden (warm-up frames still are)
   let winHidden = false;
   try {
     type WinState = { minimized?: boolean; visible?: boolean } | null | undefined;
@@ -266,7 +355,6 @@ export async function install(ctx: ClientContext): Promise<void> {
     apply(desk?.windowState?.());
     desk?.onWindowState?.(apply);
   } catch { /* optional shell API */ }
-  /** published on the canvas once a second for the desktop shell's heartbeat (its preload only sees the DOM) */
   let shownDraw = '';
 
   const applyPower = (v: TestView) => {
@@ -275,20 +363,21 @@ export async function install(ctx: ClientContext): Promise<void> {
     for (const s of v.power.off) fixtures.setPower(s, false);
   };
 
+  // night vision (G3's nvg): grade uniforms, eased
+  const nvState = { on: false, k: 0, gain: 6 };
   const fxState = { ca: cfg.fx.ca, grain: cfg.fx.grain, vignette: cfg.fx.vignette, desat: cfg.fx.desat };
+  let moodDesat = 0;
   const applyFx = () => {
     pipe.fx.ca.value = reduceFlicker ? 0 : fxState.ca;
     pipe.fx.grain.value = fxState.grain;
     pipe.fx.vignette.value = fxState.vignette;
-    pipe.fx.desat.value = fxState.desat;
+    pipe.fx.desat.value = Math.max(0, fxState.desat + moodDesat);
   };
   applyFx();
 
-  // ---- v1.1: frame times, auto quality, F3 panel, full warm-up ----
+  // ---- v1.1: frame times, auto quality (v1.2 feature ladder), F3 panel, warm-up ----
   const times = new FrameTimes();
-  /** draw-to-draw intervals (= the rAF intervals unless a frame cap skips frames): what auto quality judges */
   const drawTimes = new FrameTimes();
-  /** live preset switch without persisting it (auto quality) */
   const applyPreset = (name: string) => {
     const p = table[name];
     if (!p) return;
@@ -297,10 +386,19 @@ export async function install(ctx: ClientContext): Promise<void> {
     ctx.diag.renderPreset = name;
     applySize();
     pipe.build(p, dbg);
+    pipe.setMistSteps(featureLevel >= 2 ? Math.max(4, Math.ceil(p.volSteps / 2)) : null);
     warmFrames = Math.max(warmFrames, 2);
   };
-  /** in game, visible tab, no loading / full-screen menu over the canvas */
-  const steady = () => !document.hidden && !backdropActive && warmAll <= 0 && ctx.ui.screen.value.name === 'none' && !document.querySelector('[data-loading-active]');
+  const steady = () => !document.hidden && !backdropActive && warmAll <= 0 && mirrorWarmFrames <= 0 && ctx.ui.screen.value.name === 'none' && !document.querySelector('[data-loading-active]');
+  /** auto quality features: 1 = no live mirror, 2 = half the march steps */
+  const FEATURE_NAMES = ['', 'live mirror', 'mist steps'];
+  let featureLevel = 0;
+  const setFeatureLevel = (n: number) => {
+    featureLevel = Math.max(0, Math.min(FEATURE_NAMES.length - 1, n));
+    mirrorSys.setSuspended(featureLevel >= 1);
+    pipe.setMistSteps(featureLevel >= 2 ? Math.max(4, Math.ceil(preset.volSteps / 2)) : null);
+    ctx.diag.renderFeatures = featureLevel;
+  };
   const autoCtl = createAutoQuality(perfCfg, drawTimes, {
     preset: () => presetName,
     presets: PRESET_NAMES,
@@ -308,11 +406,38 @@ export async function install(ctx: ClientContext): Promise<void> {
     setScale: () => { applySize(); autoCtl.busy(performance.now()); },
     gpuMs: () => gpuMs,
     steady,
+    features: { level: () => featureLevel, max: () => FEATURE_NAMES.length - 1, set: (n) => { setFeatureLevel(n); autoCtl.busy(performance.now()); }, name: (n) => FEATURE_NAMES[n] ?? '' },
   }, autoQ);
+
+  // ---- mirrors (flag 'mirrors': off = fallback glass only)
+  const levelSvc = () => useLoose<LevelView & { doorAnim?(id: number): number; spaceGroup?(s: number): THREE.Group | null; layout?: LevelLayout | null }>(ctx, 'level');
+  const camSpace = (): number => {
+    const L = currentLayout();
+    if (!L) return -1;
+    const cx = Math.floor(camera.position.x), cz = Math.floor(camera.position.z);
+    return cx >= 0 && cz >= 0 && cx < L.W && cz < L.H ? L.owner[cz * L.W + cx] : -1;
+  };
+  const mirrorSys = createMirrorSystem({
+    renderer, scene, camera,
+    enabled: ctx.flags.mirrors !== false && !dbg0.has('nomirrors'),
+    budget: () => ({ ...MIRROR_BUDGETS[presetName] ?? MIRROR_BUDGETS.medium, ...(cfg.mirrors[presetName] ?? {}) }),
+    coverMode: () => mode as RenderCoverMode,
+    visibleSpaces: (c) => { const src = fixtureSource(); return src?.visibleSpaces ? src.visibleSpaces(c) : null; },
+    inVan: () => { const L = currentLayout(); const s = camSpace(); return !!L && s >= 0 && L.spaces[s]?.type === 'van'; },
+    localBeam: () => flash.beams().find(isLocalBeam) ?? null,
+    players: () => useLoose<{ setMirrorSelf?(on: boolean): THREE.Object3D | null }>(ctx, 'players'),
+    reflectionContext: () => pipe.reflectionContext(),
+    reflecting: (on) => pipe.reflecting(on),
+    nested: dbg0.has('mirrornested'),
+  });
+  const puffs = createPuffs(scene);
+
   const perfLines = (): string[] => {
     const now = performance.now();
     const s = times.stats(2000, now);
     const net = ctx.net;
+    const mi = mirrorSys.info();
+    const gs = grid.stats();
     return [
       `DEAD AIR PERF  [F3]`,
       `fps ${s.fps.toFixed(0).padStart(4)}   frame p50 ${s.p50.toFixed(1)} p95 ${s.p95.toFixed(1)} max ${s.max.toFixed(0)} ms`,
@@ -321,11 +446,13 @@ export async function install(ctx: ClientContext): Promise<void> {
       `preset ${presetName}   ${backend}   internal ${renderer.domElement.width}x${renderer.domElement.height}`,
       `css ${window.innerWidth}x${window.innerHeight}  dpr ${(window.devicePixelRatio || 1).toFixed(2)} -> ${internal.pr.toFixed(3)}  scale ${autoQ.scale.toFixed(2)}`,
       `auto ${autoQ.enabled ? (autoQ.presetFree ? 'on' : 'scale only') : 'off'}: ${autoQ.last}`,
+      `v12 fog ${v12.fog ? 'on' : 'off'} mist ${pipe.mistActive() ? 'on' : 'off'} gi ${v12.gi ? 'on' : 'off'}  features -${featureLevel}`,
+      `mirrors ${mi.live}/${mi.registered} live  rt ${mi.rt ? `${mi.rt[0]}x${mi.rt[1]}` : '-'}  renders ${mi.renders}${mi.suspended ? ' (suspended)' : ''}`,
+      `lights fix ${fixtures.litCount()} shadows ${shadowsArmed}/${flash.usedShadowed()}  grid ${gs.uploads} uploads`,
       `link ${net.status === 'joined' ? `${Math.round(net.rtt)} ms` : net.status}`,
     ];
   };
   const panel = createPerfPanel(perfLines);
-  // scene changes restart the auto-quality warm-up (their compile hitches are not a resolution problem)
   ctx.bus.on('world:phase', () => autoCtl.busy(performance.now()));
   ctx.bus.on('net:welcome', () => autoCtl.busy(performance.now()));
   void ctx.services.wait('level').then((lv) => lv.onRebuild(() => autoCtl.busy(performance.now())));
@@ -334,20 +461,23 @@ export async function install(ctx: ClientContext): Promise<void> {
     e.preventDefault();
     panel.toggle();
   });
-  /** frames left of the full warm-up: one tiny proxy per unique (material, vertex layout, instancing, shadow flags)
-   *  of the whole scene (hidden spaces included) rides in front of the camera, inside every warm flashlight cone, so
-   *  each material's main / pre-pass / shadow pipelines compile now. (Forcing every object visible instead created a
-   *  render object per object per pass: a 20 s frame for a facility.) */
+
+  /** frames left of the full warm-up */
   let warmAll = 0;
   /** warm-up frames left that render with the camera spun about the world up axis */
   let spin = 0;
   const spinQ = new THREE.Quaternion();
   const savedQ = new THREE.Quaternion();
-  /** loading screen covers the canvas: skip drawing (except warm-up frames), at most one draw per second */
   let holdDraw = false;
   let warmAllWaiters: (() => void)[] = [];
+  let warmWaiters: (() => void)[] = [];
   let proxies: THREE.Group | null = null;
-  const buildProxies = (): THREE.Group => {
+  let warmSet: THREE.Group | null = null;
+  const volMeshRef = pipe.volMesh;
+  /** v1.2: one tiny proxy per unique (material, vertex layout, instancing, shadow flags, layer mask); filter limits
+   *  the meshes (warm set: mirror rooms + the ghost / self / phantom layers). Proxies keep each mesh's layer mask so
+   *  ghost / self meshes compile through the forced reflection and phantom meshes through the warm beams' shadows. */
+  const buildProxies = (filter?: (o: THREE.Mesh) => boolean): THREE.Group => {
     const g = new THREE.Group();
     g.name = 'render-warm-proxies';
     const seen = new Set<string>();
@@ -355,14 +485,16 @@ export async function install(ctx: ClientContext): Promise<void> {
     let i = 0;
     scene.traverse((o) => {
       const m = o as THREE.Mesh;
-      if (!m.isMesh || (m as unknown as { isSkinnedMesh?: boolean }).isSkinnedMesh || o === volMeshRef || !o.layers.isEnabled(0)) return;
-      if (o.parent === g || o.name === 'render-warm-proxies') return;
+      if (!m.isMesh || (m as unknown as { isSkinnedMesh?: boolean }).isSkinnedMesh || o === volMeshRef) return;
+      if (o.name === 'render-warm-proxies' || o.parent?.name === 'render-warm-proxies' || o.name === 'mirror-warm' || o.name === 'mirror-warm-fallback') return;
+      if (o.layers.mask === 1 << VOL_LAYER) return;
+      if (filter && !filter(m)) return;
       const mats = Array.isArray(m.material) ? m.material : [m.material];
       if (!mats.length || mats.some((x) => !x)) return;
       const geo = m.geometry;
       const inst = (m as unknown as THREE.InstancedMesh).isInstancedMesh === true;
       const sig = `${Object.keys(geo.attributes).sort().join(',')}${geo.index ? ':i' : ''}:${Object.keys(geo.morphAttributes).length}`;
-      const key = `${mats.map((x) => x.uuid).join('+')}|${sig}|${inst ? `I${(m as unknown as THREE.InstancedMesh).instanceColor ? 'c' : ''}` : ''}${m.castShadow ? 'C' : ''}${m.receiveShadow ? 'R' : ''}`;
+      const key = `${mats.map((x) => x.uuid).join('+')}|${sig}|${inst ? `I${(m as unknown as THREE.InstancedMesh).instanceColor ? 'c' : ''}` : ''}${m.castShadow ? 'C' : ''}${m.receiveShadow ? 'R' : ''}|L${o.layers.mask}`;
       if (seen.has(key)) return;
       seen.add(key);
       let p: THREE.Mesh;
@@ -374,6 +506,7 @@ export async function install(ctx: ClientContext): Promise<void> {
       } else p = new THREE.Mesh(geo, m.material);
       p.castShadow = m.castShadow;
       p.receiveShadow = m.receiveShadow;
+      p.layers.mask = o.layers.mask;
       p.frustumCulled = false;
       p.renderOrder = m.renderOrder;
       p.position.set(((i % 9) - 4) * 0.03, -0.12 + Math.floor(i / 9) % 6 * 0.03, -1.4);
@@ -383,9 +516,149 @@ export async function install(ctx: ClientContext): Promise<void> {
     });
     return g;
   };
-  const volMeshRef = pipe.volMesh;
+  /** this preset can show a live mirror (flag on, budget > 0) */
+  const liveMirrorBudget = () => ctx.flags.mirrors !== false && !dbg0.has('nomirrors') && ({ ...MIRROR_BUDGETS[presetName] ?? MIRROR_BUDGETS.medium, ...(cfg.mirrors[presetName] ?? {}) }).live > 0;
+  /** the v1.2 warm set: everything a mirror can show, seen through a forced reflection (and inside the warm beams
+   *  when the loading flow's warmup() runs it): every material of the mirror rooms (+ the rooms visible from them),
+   *  everything outside the level's space groups (doors, players, monsters, items, fixtures, particles), the ghost /
+   *  self / phantom layer meshes and the glass. Other rooms' materials never show in a mirror and stay out (compile
+   *  time). Gate P: the doors, avatars, items and monsters a mirror shows were missing (+64 pipelines at the first
+   *  live mirror). */
+  const buildWarmSet = (): THREE.Group => {
+    const lv = levelSvc();
+    const mirrorSpaces = new Set<number>();
+    const L = currentLayout();
+    // no live mirror on this preset (Low) or flag off: nothing to compile through a reflection
+    const reg = liveMirrorBudget() ? mirrorSys.spaces() : [];
+    for (const s of reg) {
+      mirrorSpaces.add(s);
+      if (L && lv?.visibleSpaces) {
+        const sp = L.spaces[s];
+        if (sp) for (const n of lv.visibleSpaces([sp.rect.x + sp.rect.w / 2, 1.5, sp.rect.y + sp.rect.h / 2])) mirrorSpaces.add(n);
+      }
+    }
+    // every space group (to leave out the rooms no mirror sees) and the mirror rooms' groups
+    const groups = new Set<THREE.Object3D>();
+    const allGroups = new Set<THREE.Object3D>();
+    if (lv?.spaceGroup && L) {
+      for (let s = 0; s < L.spaces.length; s++) {
+        const g = lv.spaceGroup(s);
+        if (!g) continue;
+        allGroups.add(g);
+        if (mirrorSpaces.has(s)) groups.add(g);
+      }
+    }
+    const special = (1 << RENDER_LAYERS.ghost) | (1 << RENDER_LAYERS.self) | (1 << RENDER_LAYERS.phantom);
+    /** in a mirror room, or outside every space group (doors, avatars, monsters, items, fixtures ...) */
+    const inMirrorView = (o: THREE.Object3D) => {
+      for (let p: THREE.Object3D | null = o; p; p = p.parent) {
+        if (groups.has(p)) return true;
+        if (allGroups.has(p)) return false;
+      }
+      return true;
+    };
+    // mirrors without level space groups (the test scene, a hub prop): every material may show in the glass
+    const everything = reg.length > 0 && allGroups.size === 0;
+    const fpOnly = 1 << RENDER_LAYERS.firstPerson;
+    // never a live-glass proxy: it samples the reflection target the forced reflection draws into (the warm glass
+    // itself compiles the live-glass program); never the first-person view model (no mirror camera sees it)
+    const liveGlass = (m: THREE.Mesh) => m.name === 'mirror-live' || (Array.isArray(m.material) ? m.material : [m.material]).some((x) => x?.name === 'mirror-live');
+    return buildProxies((m) => !liveGlass(m) && m.layers.mask !== fpOnly && (everything || (m.layers.mask & special) !== 0 || m.name === 'render-puffs' || (m.material as THREE.Material)?.name === 'mirror-fallback' || (reg.length > 0 && inMirrorView(m))));
+  };
+  const endWarmSet = () => {
+    if (warmSet) { warmSet.removeFromParent(); warmSet = null; }
+    // also releases the forced mirror self (the mirror system keeps it only while a mirror is within 8 m)
+    mirrorSys.warm(null);
+  };
 
-  const service: RenderService = {
+  // ---- v1.2 automatic mirror warm (gate P: the warm set ran only from the loading flow, so ?test=1 pages and any
+  // level shown without the loading screen compiled +64 pipelines at the first live mirror). Whenever the registered
+  // mirror set changes (a level rebuild, a late registration, the test scene), what a mirror can show compiles
+  // through ONE forced reflection (2 frames, behind the drive / loading screen in play), as soon as the level's
+  // content is in or after MIRROR_WARM_CAP_MS, and once more if the content lands after such a capped warm. The real
+  // beams stay on (no warm-beam frames).
+  const MIRROR_WARM_CAP_MS = 12_000;
+  const mirrorWarm = { version: -1, since: 0, state: 'idle' as 'idle' | 'pending' | 'early' | 'done', runs: 0 };
+  let mirrorWarmFrames = 0;
+  const contentReady = (): boolean => {
+    if (backdropActive) return true;
+    const lv = levelSvc() as { contentReady?(): boolean; texturesReady?(): boolean } | undefined;
+    if (!lv) return true;
+    try {
+      if (typeof lv.contentReady === 'function') return lv.contentReady();
+      return typeof lv.texturesReady === 'function' ? lv.texturesReady() : true;
+    } catch { return true; }
+  };
+  const mirrorAutoWarm = (now: number) => {
+    const v = mirrorSys.version();
+    if (v !== mirrorWarm.version) { mirrorWarm.version = v; mirrorWarm.since = now; mirrorWarm.state = 'pending'; }
+    if (mirrorWarm.state === 'early' && contentReady()) mirrorWarm.state = 'pending';
+    if (mirrorWarm.state !== 'pending') return;
+    // nothing a reflection could compile: Low, the flag off, no mirror registered
+    if (!liveMirrorBudget() || mirrorSys.list().length === 0) { mirrorWarm.state = 'done'; return; }
+    // a warm-up is running (boot frames, the loading flow's warmup / warmupAll): decide when it is over
+    if (warmSet || warmFrames > 0 || warmAll > 0 || mirrorWarmFrames > 0) return;
+    const ready = contentReady();
+    if (!ready && now - mirrorWarm.since < MIRROR_WARM_CAP_MS) return;
+    try {
+      warmSet = buildWarmSet();
+      camera.add(warmSet);
+      mirrorSys.warm(warmSet);
+      // 3 frames: the forced mirror self (players.setMirrorSelf) shows from the second one
+      mirrorWarmFrames = 3;
+      mirrorWarm.runs++;
+      mirrorWarm.state = ready ? 'done' : 'early';
+      ctx.diag.mirrorWarm = { proxies: warmSet.children.length, ready, runs: mirrorWarm.runs, atMs: Math.round(now) };
+    } catch (e) {
+      console.warn('[render] mirror warm', e);
+      warmSet = null;
+      mirrorWarm.state = 'done';
+    }
+  };
+  // belt and braces: every level rebuild re-arms it (E3 re-registers its glass in the rebuild)
+  void ctx.services.wait('level').then((lv) => lv.onRebuild(() => { mirrorWarm.version = -1; }));
+
+  // ---- v1.2 service surface ----
+  const curveName = (c: string): FixtureCurveName | null => (c === 'die' || c === 'surge_die' || c === 'brown' || c === 'pulse' || c === 'revive' ? c : null);
+  const ambientAt = (x: number, _y: number, z: number): V3 => {
+    const g = grid.sample(x, z);
+    const k = cfg.v12.ambientK;
+    const amb = hemi.intensity * 0.04;
+    return [g[0] * k + amb, g[1] * k + amb, g[2] * k + amb];
+  };
+  const v12Service: RenderServiceV12 = {
+    layers: RENDER_LAYERS,
+    brownout: (space, ms, depth) => fixtures.brownout(space, ms, depth),
+    failSpace: (space) => fixtures.failSpace(space),
+    fixtureCurve: (indices, curve, startMs, stepMs) => { const c = curveName(curve); if (c) fixtures.fixtureCurve(indices, c, startMs, stepMs); },
+    fixtureLevels: () => fixtures.levels(),
+    mirrors: mirrorSys,
+    setFogVolumes(list: readonly FogVolume[]) {
+      grid.setVolumes(list);
+      refreshHaloMist();
+    },
+    puff(pos, kind, strength = 1) {
+      const k: PuffKind = kind === 'steam' || kind === 'dust' || kind === 'frost' ? kind : 'breath';
+      // brightness: the fixture light here + the local beam if it reaches the spot (breath only shows when lit)
+      const a = ambientAt(pos[0], pos[1], pos[2]);
+      let lit = (a[0] + a[1] + a[2]) / 3;
+      const b = flash.beams().find((x) => x.local);
+      if (b) {
+        const dx = pos[0] - b.pos[0], dy = pos[1] - b.pos[1], dz = pos[2] - b.pos[2];
+        const d = Math.hypot(dx, dy, dz) || 1e-3;
+        const cos = (dx * b.dir[0] + dy * b.dir[1] + dz * b.dir[2]) / d;
+        if (cos > Math.cos(b.angle)) lit += Math.min(3, (b.intensity / (d * d + 1)) * 0.02) * Math.min(1, (cos - Math.cos(b.angle)) * 6);
+      }
+      puffs.puff(pos, k, strength, Math.min(2.5, lit * 1.4 + 0.02), performance.now(), b?.dir);
+    },
+    beams: () => flash.beams(),
+    beamInterference: (who, ms, depth) => flash.interfere(who, ms, depth),
+    ambientAt,
+    coverMode: () => mode as RenderCoverMode,
+    setNightVision(on, opts) { nvState.on = on; if (opts?.gain !== undefined) nvState.gain = Math.max(1, opts.gain); },
+  };
+
+  const service: RenderService & RenderServiceV12 = {
     backend,
     get preset() { return presetName; },
     presets: PRESET_NAMES,
@@ -393,7 +666,6 @@ export async function install(ctx: ClientContext): Promise<void> {
       if (!table[name]) return;
       lsSet('deadair.render.preset', name);
       applyPreset(name);
-      // an explicit choice: auto quality restarts from it (it may still lower the resolution scale)
       autoQ.scale = 1;
       applySize();
       autoCtl.busy(performance.now());
@@ -416,19 +688,27 @@ export async function install(ctx: ClientContext): Promise<void> {
     flickerSpace: (space, ms) => fixtures.flickerSpace(space, ms),
     stats: () => ({ fps: ctx.loop.perf.fps, frameMs: ctx.loop.perf.frameMs, gpuMs, drawCalls: lastDraws }),
     warmup() {
-      // four frames, the camera turned 90 degrees further each time (restored after each): everything around the
-      // spawn compiles behind the loading screen, not on the first look around
+      // v1.2 warm set (always): the mirror rooms' materials through a forced reflection, ghost / self / phantom
+      // layers, particles + glass; then four frames, the camera turned 90 degrees further each time
+      if (!warmSet) {
+        try {
+          warmSet = buildWarmSet();
+          camera.add(warmSet);
+          mirrorSys.warm(warmSet);
+          ctx.diag.warmSet = warmSet.children.length;
+          // the same scope as the automatic mirror warm: a pending one is covered (again later if content is missing)
+          if (mirrorWarm.state === 'pending' && mirrorWarm.version === mirrorSys.version()) mirrorWarm.state = contentReady() ? 'done' : 'early';
+        } catch (e) { console.warn('[render] warm set', e); warmSet = null; }
+      }
       warmFrames = Math.max(warmFrames, 4);
       spin = 4;
-      return new Promise((res) => {
-        const check = () => (warmFrames <= 0 ? res() : requestAnimationFrame(check));
-        requestAnimationFrame(check);
-      });
+      return new Promise((res) => { warmWaiters.push(res); });
     },
     warmupAll(frames = 3) {
       if (!proxies) {
         proxies = buildProxies();
         camera.add(proxies);
+        mirrorSys.warm(proxies);
         ctx.diag.warmProxies = proxies.children.length;
       }
       warmAll = Math.max(warmAll, frames);
@@ -449,6 +729,7 @@ export async function install(ctx: ClientContext): Promise<void> {
       autoQ.enabled = on;
       lsSet('deadair.render.autoq', on ? '1' : '0');
       if (!on && autoQ.scale !== 1) { autoQ.scale = 1; applySize(); }
+      if (!on && featureLevel) setFeatureLevel(0);
     },
     busy: () => autoCtl.busy(performance.now()),
     hold(on) {
@@ -465,6 +746,7 @@ export async function install(ctx: ClientContext): Promise<void> {
     volumeLayer: VOL_LAYER,
     setFlashlightSource(fn) { flashOverride = fn; },
     setFixtureSource(src) { fixtureOverride = src; },
+    ...v12Service,
   };
 
   ctx.services.provide('three', { renderer, scene, camera, backend });
@@ -479,12 +761,11 @@ export async function install(ctx: ClientContext): Promise<void> {
   });
 
   // ---- test scene / idle backdrop (replaced as soon as a real level or players exist) ----
-  // a real level = a layout exists (world.layout from the server, or services.level.layout)
   const levelPresent = () => !!ctx.world.layout || !!useLoose<LevelView>(ctx, 'level')?.layout;
   try {
     const L = await loadFixtureLayout(ctx.params.get('layout') ?? 'facility_s2_p4');
     if (L && (sceneMode === 'test' || !levelPresent())) {
-      test = buildTestScene(L);
+      test = buildTestScene(L, sceneMode === 'test' ? { mirrors: mirrorSys } : undefined);
       scene.add(test.group);
       pipe.setVolumeBounds(test.bounds);
       backdropActive = true;
@@ -512,7 +793,6 @@ export async function install(ctx: ClientContext): Promise<void> {
     }
     if (backdropActive && testView) {
       if (sceneMode === 'test') return testView.lights;
-      // idle backdrop: the local beam slowly searches the corridor
       const base = testView.lights[0];
       if (!base) return [];
       const sway = Math.sin(t * 0.37) * 0.22;
@@ -523,15 +803,61 @@ export async function install(ctx: ClientContext): Promise<void> {
     return [];
   }
 
+  // the fixture source: one persistent object per kind (frame() and the mirror system call this every frame)
+  const NO_FIXTURES: FixtureInfo[] = [];
+  let srcLevel: LevelView | null = null;
+  const levelVis = (c: V3) => (srcLevel ? srcLevel.visibleSpaces(c) : new Set<number>());
+  const levelSrc: { fixtures: FixtureInfo[]; visibleSpaces?: (cam: V3) => Set<number> } = { fixtures: NO_FIXTURES };
+  const testSrc: { fixtures: FixtureInfo[]; visibleSpaces?: (cam: V3) => Set<number> } = { fixtures: NO_FIXTURES };
   function fixtureSource() {
     if (fixtureOverride) return fixtureOverride;
     const level = useLoose<LevelView>(ctx, 'level');
     if (level && !backdropActive) {
-      return { fixtures: level.fixtures ?? [], visibleSpaces: level.visibleSpaces ? (c: V3) => level.visibleSpaces(c) : undefined };
+      srcLevel = level;
+      // a missing list is ONE constant empty array (a fresh [] per frame rebuilt the fixture pool every frame)
+      levelSrc.fixtures = level.fixtures ?? NO_FIXTURES;
+      // (a level mid-edit may lack it)
+      levelSrc.visibleSpaces = typeof level.visibleSpaces === 'function' ? levelVis : undefined;
+      return levelSrc;
     }
-    if (backdropActive && test) return { fixtures: test.fixtures };
+    if (backdropActive && test) { testSrc.fixtures = test.fixtures; return testSrc; }
     return null;
   }
+
+  function currentLayout(): LevelLayout | null {
+    if (backdropActive && test) return test.layout;
+    return (ctx.world.layout as LevelLayout | null) ?? (levelSvc()?.layout as LevelLayout | null | undefined) ?? null;
+  }
+
+  // ---- the medium per layout: grid + per-room params + theme mood
+  let gridLayout: LevelLayout | null = null;
+  let mood = moodFor(null);
+  const fixtureTint = new THREE.Color(1, 1, 1);
+  const refreshHaloMist = () => {
+    const f12 = cfg.fog12;
+    const ref = Math.max(1e-3, f12.haze * Math.exp(-2.4 / f12.hazeHeight));
+    const L = gridLayout;
+    const vols = grid.volumes();
+    fixtures.setMistFn(v12.fog ? (x, y, z) => {
+      let room = { mist: 1, haze: 1 };
+      if (L) { const c = grid.cell(Math.floor(x), Math.floor(z)); if (c && c.tag >= 0) room = grid.spaceParams(c.tag); }
+      return 0.6 + 0.4 * cpuDensity({ haze: f12.haze * mood.haze, hazeHeight: f12.hazeHeight, mist: f12.mist * mood.mist, mistTop: f12.mistTop, mistSoft: f12.mistSoft }, x, y, z, vols, room) / ref;
+    } : null);
+  };
+  /** the mood's dark-floor colour of the medium (set with the layout; frame() must not build a Color) */
+  const moodFloor = new THREE.Color().setRGB(...mood.floor);
+  const setGridLayout = (L: LevelLayout | null) => {
+    gridLayout = L;
+    grid.setLayout(L);
+    mood = moodFor(L?.theme);
+    moodDesat = mood.desat;
+    applyFx();
+    fixtureTint.setRGB(...mood.fixtureTint);
+    moodFloor.setRGB(...mood.floor);
+    if (L) for (let s = 0; s < L.spaces.length; s++) grid.setSpaceParams(s, roomParams(L, s));
+    giU.wallH.value = L?.wallH || 3;
+    refreshHaloMist();
+  };
 
   // warm-up material variants other tracks will use (compiled behind the loading screen)
   const warmGroup = new THREE.Group();
@@ -546,11 +872,70 @@ export async function install(ctx: ClientContext): Promise<void> {
     camera.add(warmGroup);
   }
 
+  // ---- boot compile check (lit material + the volume material, this page's preset + backend) -> diag
+  const bootCheck = async () => {
+    const t0 = performance.now();
+    const errors: string[] = [];
+    const origErr = console.error;
+    console.error = (...a: unknown[]) => { const s = a.map(String).join(' '); if (/shader|wgsl|glsl|program|pipeline/i.test(s)) errors.push(s.slice(0, 300)); origErr.apply(console, a as []); };
+    const g = new THREE.Group();
+    g.name = 'render-boot-check';
+    const lit = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), makeSurfaceMaterial({ color: 0x808080, roughness: 0.7, metalness: 0, pattern: 'paint', macro: 0.5 }));
+    lit.castShadow = lit.receiveShadow = true;
+    lit.position.set(0, -60, 0);
+    g.add(lit);
+    let scoped = false; // a pushed error scope must be popped on every path, or later validation errors stay captured
+    try {
+      if (device?.pushErrorScope) { device.pushErrorScope('validation'); scoped = true; }
+      const r = renderer as unknown as { compileAsync?: (o: THREE.Object3D, c: THREE.Camera, s?: THREE.Scene) => Promise<unknown> };
+      if (r.compileAsync) {
+        scene.add(g);
+        g.updateMatrixWorld(true);
+        await r.compileAsync(g, camera, scene);
+        // the march material through a volume-layer camera
+        const vc = new THREE.PerspectiveCamera(camera.fov, camera.aspect, camera.near, camera.far);
+        vc.position.copy(camera.position);
+        vc.quaternion.copy(camera.quaternion);
+        vc.updateMatrixWorld();
+        vc.layers.set(VOL_LAYER);
+        await r.compileAsync(pipe.volMesh, vc, scene);
+      }
+      if (scoped) {
+        scoped = false;
+        const e = await device?.popErrorScope?.();
+        if (e) errors.push(`validation: ${e.message ?? e}`);
+      }
+    } catch (e) {
+      errors.push(`compile: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      if (scoped) void device?.popErrorScope?.()?.catch(() => null);
+      console.error = origErr;
+      g.removeFromParent();
+    }
+    ctx.diag.renderCompile = { preset: presetName, backend, ok: errors.length === 0, ms: Math.round(performance.now() - t0), errors: errors.slice(0, 4) };
+    if (errors.length) ctx.reportError(`render boot compile (${presetName} ${backend}): ${errors[0]}`);
+  };
+
   let auditT = 0;
   let volLayout: unknown = null;
   let maxFrameMs = 0;
   let lastNow = 0;
   let lastDrawNow = 0;
+  // ---- per-frame scratch: frame() builds no objects, arrays or closures in steady play (gate P)
+  const coverIn: CoverInputs = { testScene: false, hidden: false, hold: false, loadingVisible: false, loadingCovering: false, backdrop: false, screen: 'none' };
+  const warmDir = new THREE.Vector3();
+  const warmBeams: FlashlightInfo[] = Array.from({ length: MAX_FLASHLIGHTS }, (_, i) => ({ id: `warm${i}`, pos: [0, 0, 0] as V3, dir: [0, 0, -1] as V3, on: true, local: i === 0, tier: 1 as const }));
+  /** dark fill beams of the automatic mirror warm (off: they never light anything, they only take idle slots) */
+  const mirrorWarmBeams: FlashlightInfo[] = Array.from({ length: MAX_FLASHLIGHTS }, (_, i) => ({ id: `mwarm${i}`, pos: [0, 0, 0] as V3, dir: [0, 0, -1] as V3, on: false, local: false, tier: 1 as const }));
+  const warmFill: FlashlightInfo[] = [];
+  const flashOpts = { activeShadowed: 0, volumetric: false, reduceFlicker: false, parkShadows: !dbg.has('shadowall'), frame: 0, now: 0 };
+  let fixLayout: LevelLayout | null = null;
+  const outdoorSpaceOf = (sp: number) => fixLayout?.spaces[sp]?.open === true;
+  const fixOpts: FixtureUpdateOpts = { max: 0, reduceFlicker: false, outdoor: 0, now: 0, outdoorSpace: undefined };
+  const gridInfo = { r: 0, g: 0, b: 0, cd: 0, range: 0 };
+  let gridLevel: (LevelView & { doorAnim?(id: number): number }) | null = null;
+  const doorOpenness = (id: number) => (gridLevel?.doorAnim ? gridLevel.doorAnim(id) : 0);
+  const camSample: V3 = [0, 0, 0];
   const frame = (dt: number) => {
     t += dt;
     const nowMs = performance.now();
@@ -562,21 +947,19 @@ export async function install(ctx: ClientContext): Promise<void> {
     // a real level / players arrived: drop the backdrop (test mode keeps it)
     if (backdropActive && sceneMode !== 'test' && levelPresent() && test) {
       scene.remove(test.group);
+      test.dispose?.();
       backdropActive = false;
       fixtures.setPower('all', true);
     }
-    // what covers the canvas: the title menu draws its backdrop capped and at a reduced internal resolution, the
-    // opaque loading screen capped at full resolution (or once a second while it holds); warm-up frames always draw
     const ld = useLoose<{ active?: boolean; covering?: boolean }>(ctx, 'loading');
-    mode = coverMode({
-      testScene: sceneMode === 'test',
-      hidden: document.hidden || winHidden,
-      hold: holdDraw,
-      loadingVisible: !!ld?.active,
-      loadingCovering: !!ld?.covering,
-      backdrop: backdropActive,
-      screen: ctx.ui.screen.value.name,
-    });
+    coverIn.testScene = sceneMode === 'test';
+    coverIn.hidden = document.hidden || winHidden;
+    coverIn.hold = holdDraw;
+    coverIn.loadingVisible = !!ld?.active;
+    coverIn.loadingCovering = !!ld?.covering;
+    coverIn.backdrop = backdropActive;
+    coverIn.screen = ctx.ui.screen.value.name;
+    mode = coverMode(coverIn);
     if (mode !== 'hidden') {
       const wantMenuRes = mode === 'menu' && menuResOn;
       if (wantMenuRes !== menuRes) {
@@ -596,19 +979,19 @@ export async function install(ctx: ClientContext): Promise<void> {
         renderer.domElement.dataset.view = mode;
       }
     }
-    // volumetric box follows the active level (hub / facility)
-    const L = backdropActive ? null : ctx.world.layout;
-    if (L && L !== volLayout) {
-      volLayout = L;
-      // rays stop at the scene depth (ceilings indoors), so the box can rise high enough for beams swung up outdoors
-      const outdoor = Array.isArray(L.spaces) && L.spaces.some((s) => s.open);
-      const top = Math.max((L.wallH || 3) + 0.3, outdoor ? 7.5 : 0);
-      pipe.setVolumeBounds(new THREE.Box3(new THREE.Vector3(-2, 0, -2), new THREE.Vector3(L.W + 2, top, L.H + 2)));
+    // volumetric box follows the active level (hub / facility); the grid + medium follow the layout
+    const L = currentLayout();
+    const Lw = backdropActive ? null : ctx.world.layout;
+    if (Lw && Lw !== volLayout) {
+      volLayout = Lw;
+      const outdoor = Array.isArray(Lw.spaces) && Lw.spaces.some((s) => s.open);
+      const top = Math.max((Lw.wallH || 3) + 0.3, outdoor ? 7.5 : 0);
+      pipe.setVolumeBounds(new THREE.Box3(new THREE.Vector3(-2, 0, -2), new THREE.Vector3(Lw.W + 2, top, Lw.H + 2)));
     }
+    if (L !== gridLayout) setGridLayout(L);
     if (backdropActive && testView) {
       if (sceneMode === 'test') setCam(testView.cam, testView.look);
       else {
-        // idle drift
         const c = testView.cam;
         setCam([c[0] + Math.sin(t * 0.11) * 0.25, c[1] + Math.sin(t * 0.7) * 0.015, c[2] + Math.cos(t * 0.09) * 0.2], testView.look);
       }
@@ -617,11 +1000,12 @@ export async function install(ctx: ClientContext): Promise<void> {
     const spun = spin > 0;
     if (spun) {
       savedQ.copy(camera.quaternion);
-      camera.quaternion.premultiply(spinQ.setFromAxisAngle(new THREE.Vector3(0, 1, 0), spin * Math.PI / 2));
+      camera.quaternion.premultiply(spinQ.setFromAxisAngle(Y_AXIS, spin * Math.PI / 2));
       spin--;
     }
     camera.updateMatrixWorld();
-    // outdoors (lot / van) vs inside the building: moon on/off, thinner bluish fog outside (smooth ~0.6 s blend)
+    // outdoors (lot) vs inside: moon, thinner fog; the furnished van cargo counts as 0.25 outdoor (checker #23)
+    let camRoom = -1;
     {
       let out = 0;
       const lay = backdropActive ? null : ctx.world.layout;
@@ -629,27 +1013,76 @@ export async function install(ctx: ClientContext): Promise<void> {
         const cx = Math.floor(camera.position.x), cz = Math.floor(camera.position.z);
         const own = cx >= 0 && cz >= 0 && cx < lay.W && cz < lay.H ? lay.owner[cz * lay.W + cx] : -1;
         const sp = own >= 0 ? lay.spaces[own] : null;
-        out = own < 0 ? (lay.kind === 'hub' ? 1 : 0) : sp && (sp.open || sp.type === 'van') ? 1 : 0;
+        camRoom = own;
+        out = own < 0 ? (lay.kind === 'hub' ? 1 : 0) : sp?.open ? 1 : sp?.type === 'van' ? 0.25 : 0;
+      } else if (L) {
+        const cx = Math.floor(camera.position.x), cz = Math.floor(camera.position.z);
+        camRoom = cx >= 0 && cz >= 0 && cx < L.W && cz < L.H ? L.owner[cz * L.W + cx] : -1;
       }
       outdoorK += (out - outdoorK) * Math.min(1, dt * 3.5);
       hemi.color.copy(skyIn).lerp(skyMoon, outdoorK);
-      hemi.intensity = cfg.ambient.intensity + moonCfg.intensity * outdoorK;
+      hemi.intensity = hemiBase + moonCfg.intensity * outdoorK;
+      // v1.1 fog uniforms (kept for ?r12=fog:0)
       fogDensity.value = cfg.fog.density + ((cfg.fog.outdoorDensity ?? cfg.fog.density) - cfg.fog.density) * outdoorK;
       fogCol.copy(fogIn).lerp(fogOut, outdoorK);
-      // open air: thinner dust than a sealed corridor (the own beam would otherwise glow like a fog bank)
+      // v1.2 medium: indoor <-> outdoor, the theme mood, the main camera's room + grid sample
+      const f12 = cfg.fog12;
+      fogU.a.value.set((f12.haze + (f12.outdoorHaze - f12.haze) * outdoorK) * mood.haze, f12.hazeHeight, f12.mist * mood.mist * (1 + (f12.outdoorMist - 1) * outdoorK), f12.mistTop);
+      fogU.c.value.w = f12.litK * mood.litK;
+      fogU.wind.value.w = outdoorK;
+      fogU.color.value.copy(fogBase).lerp(fogBaseOut, outdoorK).multiply(moodFloor);
+      fogU.moon.value.copy(moonFog).multiplyScalar(outdoorK);
+      const g = grid.sample(camera.position.x, camera.position.z, camSample);
+      fogU.camGrid.value.setRGB(g[0], g[1], g[2]);
+      // unknown room (-1): the grid's shared default params
+      const rp = grid.spaceParams(camRoom);
+      fogU.camRoom.value.set(rp.mist, rp.haze, rp.frost, rp.steam);
+      giU.k.value = cfg.v12.giK * mood.gi;
+      // open air: thinner dust than a sealed corridor
       pipe.volDensity.value = cfg.volume.density * (1 - 0.6 * outdoorK);
+      pipe.mistScatter.value = cfg.mist12.scatter * (1 - 0.35 * outdoorK);
     }
     let list = flashlightList();
     if (warmFrames > 0) {
       // warm-up: every slot sees real geometry so shadow/volume pipelines get created now, not mid-game
-      const f = new THREE.Vector3();
-      camera.getWorldDirection(f);
+      camera.getWorldDirection(warmDir);
       const p = camera.position;
-      list = Array.from({ length: MAX_FLASHLIGHTS }, (_, i) => ({ id: `warm${i}`, pos: [p.x, p.y - 0.1, p.z] as V3, dir: [f.x, f.y, f.z] as V3, on: true, local: i === 0, tier: 1 as const }));
+      for (const w of warmBeams) {
+        w.pos[0] = p.x; w.pos[1] = p.y - 0.1; w.pos[2] = p.z;
+        w.dir[0] = warmDir.x; w.dir[1] = warmDir.y; w.dir[2] = warmDir.z;
+      }
+      list = warmBeams;
+    } else if (mirrorWarmFrames > 0) {
+      // the automatic mirror warm keeps the real beams; idle slots get a dark warm beam at the camera (ranked after
+      // every lit beam) so the proxies' shadow-pass programs compile as well (gate P: first-sight ShadowMaterial
+      // programs of the mirror room's casters)
+      camera.getWorldDirection(warmDir);
+      const p = camera.position;
+      warmFill.length = 0;
+      for (let i = 0; i < list.length; i++) warmFill.push(list[i]);
+      for (let i = 0; i < poolShadowed; i++) {
+        const w = mirrorWarmBeams[i];
+        w.pos[0] = p.x; w.pos[1] = p.y - 0.1; w.pos[2] = p.z;
+        w.dir[0] = warmDir.x; w.dir[1] = warmDir.y; w.dir[2] = warmDir.z;
+        warmFill.push(w);
+      }
+      list = warmFill;
     }
-    flash.update(list, camera, t, dt, { activeShadowed: Math.min(preset.shadowed, poolShadowed), volumetric: preset.volumetric, reduceFlicker, parkShadows: !dbg.has('shadowall') });
+    flashOpts.activeShadowed = Math.min(preset.shadowed, poolShadowed);
+    flashOpts.volumetric = preset.volumetric;
+    flashOpts.reduceFlicker = reduceFlicker;
+    flashOpts.frame = drawnFrames;
+    flashOpts.now = nowMs;
+    flash.update(list, camera, t, dt, flashOpts);
     if (warmFrames > 0) for (const s of flash.slots) s.light.intensity = Math.max(s.light.intensity * 1e-4, 1e-4);
-    fixtures.update(fixtureSource(), camera, t, { max: Math.min(preset.fixtures, poolFixtures), reduceFlicker, outdoor: outdoorK });
+    const fsrc = fixtureSource();
+    fixLayout = L;
+    fixOpts.max = Math.min(preset.fixtures, poolFixtures);
+    fixOpts.reduceFlicker = reduceFlicker;
+    fixOpts.outdoor = outdoorK;
+    fixOpts.now = nowMs;
+    fixOpts.outdoorSpace = L ? outdoorSpaceOf : undefined;
+    fixtures.update(fsrc, camera, t, fixOpts);
     {
       // Core glow light: find the canister (re-scan twice a second while missing or detached)
       if ((!coreObj || !coreObj.parent) && (coreSeek -= dt) <= 0) { coreSeek = 0.5; coreObj = backdropActive ? null : scene.getObjectByName('canister') ?? null; }
@@ -670,30 +1103,69 @@ export async function install(ctx: ClientContext): Promise<void> {
       if (k === 0) coreLight.position.set(0, -420, 0);
     }
     warmGroup.visible = warmFrames > 0;
+    // mirrors: candidates, live set, mirror self, bounce light; then the automatic mirror warm (after the update:
+    // detached glass is disposed first, so one rebuild arms ONE warm)
+    mirrorSys.update(nowMs, dt);
+    mirrorAutoWarm(nowMs);
+    // night vision: eased grade uniforms (G3's nvg)
+    nvState.k += ((nvState.on ? 1 : 0) - nvState.k) * Math.min(1, dt * 9);
+    if (Math.abs(nvState.k - (nvState.on ? 1 : 0)) < 0.002) nvState.k = nvState.on ? 1 : 0;
+    pipe.nv.k.value = nvState.k;
+    pipe.nv.gain.value = nvState.gain;
+    puffs.update(nowMs);
 
     // one world-matrix update per frame (scene.matrixWorldAutoUpdate is off: every pass used to redo it)
     scene.updateMatrixWorld();
-    if (warmFrames > 0 || warmAll > 0) gate.last = nowMs;
+    if (warmFrames > 0 || warmAll > 0 || mirrorWarmFrames > 0) gate.last = nowMs;
     else if (!gateDraw(gate, nowMs, drawInterval(mode, gateCfg, mode !== 'menu' || document.hasFocus()))) {
       // skipped frame: no GPU work at all (the rAF loop and every other system keep running)
       if (spun) { camera.quaternion.copy(savedQ); camera.updateMatrixWorld(); }
       return;
     }
+    // light grid: re-splat only the spaces whose fixture levels changed (+ door spill), every drawn frame. The lights
+    // go into the grid's persistent table in place (gate P: no per-frame objects; ~0 B of garbage per frame)
+    if (gridLayout && fsrc) {
+      const lv = fixtures.levels();
+      const fl = fixtures.list();
+      const T = grid.lightTable(fl.length);
+      for (let i = 0; i < fl.length; i++) {
+        const lvl = lv[i];
+        if (!(lvl > 0.001) || !fixtures.infoInto(i, gridInfo)) { T.space[i] = -1; T.level[i] = 0; continue; }
+        const p = fl[i].pos;
+        T.space[i] = fl[i].space; T.x[i] = p[0]; T.y[i] = p[1]; T.z[i] = p[2];
+        T.r[i] = gridInfo.r * fixtureTint.r; T.g[i] = gridInfo.g * fixtureTint.g; T.b[i] = gridInfo.b * fixtureTint.b;
+        T.cd[i] = gridInfo.cd; T.range[i] = gridInfo.range; T.level[i] = lvl;
+      }
+      gridLevel = levelSvc() ?? null;
+      grid.updateTable(doorOpenness);
+    }
     drawsInWindow++;
+    drawnFrames++;
+    mistFrame.value = drawnFrames;
     if (lastDrawNow > 0) drawTimes.push(nowMs - lastDrawNow, nowMs);
     lastDrawNow = nowMs;
     renderer.info.reset();
+    // v1.2: shadow maps render once per drawn frame (needsUpdate), never once per camera
+    shadowsArmed = flash.armShadows();
+    // the live mirror's reflection: one top-level render before the pipeline (it renders the armed shadow maps
+    // first; the pipeline's passes then reuse them)
+    mirrorSys.renderLive();
     pipe.render();
     if (spun) { camera.quaternion.copy(savedQ); camera.updateMatrixWorld(); }
     lastDraws = renderer.info.render.drawCalls;
-    if (warmFrames > 0) warmFrames--;
+    if (warmFrames > 0 && --warmFrames === 0) {
+      // the warm set's last frame is in flight: release it on the next frame (unless a mirror warm still uses it)
+      const w = warmWaiters;
+      warmWaiters = [];
+      requestAnimationFrame(() => { if (mirrorWarmFrames === 0 && warmFrames === 0) endWarmSet(); for (const fn of w) fn(); });
+    }
+    if (mirrorWarmFrames > 0 && --mirrorWarmFrames === 0) requestAnimationFrame(() => { if (mirrorWarmFrames === 0 && warmFrames === 0) endWarmSet(); });
     if (warmAll > 0 && --warmAll === 0) {
       proxies?.removeFromParent();
       proxies = null;
       const w = warmAllWaiters;
       warmAllWaiters = [];
-      // resolve on the next frame: the forced frames' pipelines are in flight now
-      requestAnimationFrame(() => { for (const fn of w) fn(); });
+      requestAnimationFrame(() => { if (!warmSet) mirrorSys.warm(null); for (const fn of w) fn(); });
     }
     autoCtl.tick(nowMs);
     panel.tick(nowMs);
@@ -716,6 +1188,8 @@ export async function install(ctx: ClientContext): Promise<void> {
   warmFrames = 3;
   for (let i = 0; i < 3; i++) frame(1 / 60);
   await new Promise((r) => setTimeout(r, 0));
+  // the boot compile check is a diagnostic (gate R reads diag.renderCompile): test pages and ?compilecheck=1 only
+  if (ctx.testMode || sceneMode === 'test' || ctx.params.get('compilecheck') === '1') void bootCheck();
   done();
 
   ctx.registerSystem({ name: 'render', order: SYS.render, update: (dt) => frame(dt) });
@@ -728,15 +1202,21 @@ export async function install(ctx: ClientContext): Promise<void> {
         if (!v) return { ok: false };
         testView = v;
         applyPower(v);
+        test?.onView?.(name, service);
         return { ok: true, view: v };
       },
       info: () => ({
-        backend, preset: presetName, gpu, poolShadowed, poolUnshadowed, poolFixtures,
+        backend, preset: presetName, gpu, poolShadowed, poolUnshadowed, poolFixtures, poolOmni, capSpots, capPoints,
         usedShadowed: flash.usedShadowed(), fixturesLit: fixtures.litCount(), exposure: renderer.toneMappingExposure,
         size: [renderer.domElement.width, renderer.domElement.height], backdrop: backdropActive, frames: ctx.loop.perf.frames,
         scale: autoQ.scale, pixelRatio: internal.pr, auto: autoQ.last, autoEnabled: autoQ.enabled, presetFree: autoQ.presetFree,
         mode, drawFps: +drawFps.toFixed(1), menuRes, maxFps: gateCfg.maxFps,
-        parkedShadows: flash.slots.filter((s) => s.shadowed && !s.light.shadow.autoUpdate).length,
+        parkedShadows: flash.slots.filter((s) => s.shadowed && !s.id).length, shadowRenders: shadowsArmed,
+        mirrorsLive: mirrorSys.liveCount(), mirrors: mirrorSys.info(), v12, features: featureLevel, mist: pipe.mistActive(),
+        nv: nvState.k, grid: grid.stats(), compile: ctx.diag.renderCompile ?? null, warmSet: ctx.diag.warmSet ?? null,
+        mirrorWarm: { state: mirrorWarm.state, runs: mirrorWarm.runs, frames: mirrorWarmFrames, last: ctx.diag.mirrorWarm ?? null },
+        beamRanges: flash.ranges(),
+        pipelines: (() => { const pp = (renderer as unknown as { _pipelines?: { caches?: Map<unknown, unknown> } })._pipelines; return pp?.caches?.size ?? null; })(),
       }),
       hitch() { const m = maxFrameMs; maxFrameMs = 0; return m; },
       stats: () => service.stats(),
@@ -749,6 +1229,19 @@ export async function install(ctx: ClientContext): Promise<void> {
         if (testView) testView = { ...testView, cam: pos, look: l };
       },
       three: () => ({ scene, renderer, camera, THREE }),
+      pipelines() {
+        const pp = (renderer as unknown as { _pipelines?: { caches?: Map<unknown, unknown>; programs?: { vertex: Map<unknown, unknown>; fragment: Map<unknown, unknown> } } })._pipelines;
+        return { pipelines: pp?.caches?.size ?? -1, vs: pp?.programs?.vertex.size ?? -1, fs: pp?.programs?.fragment.size ?? -1 };
+      },
+      nightVision: (on) => service.setNightVision(on),
+      v12: () => service,
+      mirrorDebug: (p) => mirrorSys.debug(p),
+      hideParked: (on) => { fixtures.setHideParked(on); },
+      flashRanges: (local, remote) => { flash.setRanges(local, remote); return flash.ranges(); },
+      volBounds(min, max) {
+        if (min && max) pipe.setVolumeBounds(new THREE.Box3(new THREE.Vector3(min[0], min[1], min[2]), new THREE.Vector3(max[0], max[1], max[2])));
+        else if (test) pipe.setVolumeBounds(test.bounds);
+      },
     };
   }
 }
