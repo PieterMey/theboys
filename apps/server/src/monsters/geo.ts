@@ -174,6 +174,7 @@ export function follow(cm: CrewMonsters, a: Agent, dt: number, speed: number, ca
   }
   let budget = speed * dt;
   a.speed = speed;
+  let replanned = false;
   while (budget > 1e-6 && a.pathI < a.path.length) {
     const [tx, tz] = a.path[a.pathI];
     if (!walkClear(cm.grid, a.x, a.z, tx, tz, cm.doorOpen)) {
@@ -189,8 +190,10 @@ export function follow(cm: CrewMonsters, a: Agent, dt: number, speed: number, ca
         return 'blocked';
       }
       if (door === -2) {
-        // long segment blocked by a door that closed since planning: replan
-        if (!planTo(cm, a, a.goalX, a.goalZ, canOpen)) return 'blocked';
+        // long segment blocked by a door that closed since planning: replan, at most once per call. A goal ON a closed
+        // door's edge (a perceived doorway) replans to the same blocked segment forever, which froze the server tick.
+        if (replanned || !planTo(cm, a, a.goalX, a.goalZ, canOpen)) { a.path = null; return 'blocked'; }
+        replanned = true;
         continue;
       }
     }
