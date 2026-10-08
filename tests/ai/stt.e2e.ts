@@ -20,17 +20,17 @@ const external = process.argv.includes('--external');
 const PORT = Number(process.env.PORT ?? 3015);
 const BASE = process.env.BASE_URL ?? `http://127.0.0.1:${PORT}`;
 const STT = process.env.STT_URL ?? 'http://127.0.0.1:3100';
-const SPK: [number, number] = [7.5, 3.5]; // SHOWERS in facility_s1_p2
+let server: ChildProcess | null = null;
 
 function fail(msg: string): never {
   console.error(`stt.e2e FAILED: ${msg}`);
+  server?.kill(); // process.exit skips the finally below: never leave the spawned dev server running
   process.exit(1);
 }
 
 async function main(): Promise<void> {
   const ok = await waitHttp(`${STT}/health`, 60_000, async (r) => r.ok && ((await r.json()) as { warm?: boolean }).warm === true);
   if (!ok) fail(`STT sidecar not warm at ${STT} (start it: npm run stt)`);
-  let server: ChildProcess | null = null;
   if (!external) {
     server = startDevServer(PORT, STT);
   }
@@ -48,12 +48,18 @@ async function main(): Promise<void> {
       await bot.req('dbg.ai.layout', { fixture: 'facility_s1_p2', phase: 'contract' });
     }
     await new Promise((r) => setTimeout(r, 400));
+    // the fixture the server runs: the speaker stands in the middle of SHOWERS, looked up by callsign (no fixed
+    // coordinates: tests/fixtures/layouts gets regenerated)
+    const L = loadLayout('facility_s1_p2');
+    const showers = L.spaces.find((sp) => sp.callsign === 'SHOWERS');
+    if (!showers) fail('facility_s1_p2 has no SHOWERS room');
+    const SPK: [number, number] = [showers.rect.x + showers.rect.w / 2, showers.rect.y + showers.rect.h / 2];
     await bot.req('dbg.ai.place', { x: SPK[0], z: SPK[1] });
-    const st = await bot.req<{ phase: string; layout: { seed: string } | null }>('dbg.state');
-    console.log(`crew ${crew}: phase ${st.phase}, layout ${st.layout?.seed}`);
+    const st = await bot.req<{ phase: string; layout: { seed: string; hash: string } | null }>('dbg.state');
+    console.log(`crew ${crew}: phase ${st.phase}, layout ${st.layout?.seed} (${st.layout?.hash}), speaker in SHOWERS at ${SPK.join(',')}`);
+    if (st.layout?.hash !== L.hash) fail(`the server runs layout ${st.layout?.hash}, the fixture file is ${L.hash}`);
 
     // fake Listener positions at ~8 m and ~15 m path distance (same metric as the server)
-    const L = loadLayout('facility_s1_p2');
     const H = new Hearing(L);
     const open = initialDoorOpen(L);
     const pick = (lo: number, hi: number): [number, number] => {

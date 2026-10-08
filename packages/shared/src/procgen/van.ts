@@ -8,7 +8,8 @@ import { normalOfYaw, r3 } from './common.ts';
 import { HALF_T } from './place.ts';
 
 export const VAN_CARGO_W = 2;
-export const VAN_CARGO_L = 3;
+/** v1.2: 4 m cargo bay (stations along the side walls); v1.1 was 3 */
+export const VAN_CARGO_L = 4;
 export const VAN_CAB_L = 2;
 export const VAN_LEN = VAN_CARGO_L + VAN_CAB_L;
 
@@ -94,6 +95,38 @@ export function plannedVanStations(c: Rect): StationSpot[] {
 /** hub records board (personnel file): on the facade 2 m right of the entrance door prop (centre), facing the lot */
 export function plannedRecordsBoard(entrance: { x: number; z: number }): StationSpot {
   return { kind: 'records', x: r3(entrance.x + 2), y: 1.55, z: r3(entrance.z), rot: 0 };
+}
+
+/** layout data of each v1.2 van station prop (kind 'prop', data.station); wall solids <= 0.30 m deep */
+export const VAN_STATION_PROPS: Readonly<Record<'workbench' | 'stash' | 'booklet' | 'charger' | 'mirror', Record<string, number | string | boolean>>> = {
+  workbench: { prop: 'van_workbench', station: 'workbench', solid: true, w: 1.3, d: 0.3, h: 0.92 },
+  stash: { prop: 'van_stash', station: 'stash', solid: true, w: 0.6, d: 0.3, h: 1.9 },
+  booklet: { prop: 'van_shelf', station: 'booklet', solid: false, w: 1.0, d: 0.22, h: 0.35 },
+  charger: { prop: 'van_charger', station: 'charger', solid: false, w: 0.4, d: 0.15, h: 0.3 },
+  mirror: { prop: 'van_mirror', station: 'mirror', mirror: 'van', solid: false, w: 0.45, d: 0.03, h: 0.9 },
+};
+/** data of the hub's kind 'mirror' item (moved into the van at gate L1; still the 'Change your look' interactable) */
+export const HUB_MIRROR_DATA: Readonly<Record<string, number | string | boolean>> = { solid: false, station: 'mirror', mirror: 'van', w: 0.45, d: 0.03, h: 0.9 };
+
+/**
+ * v1.2 van fit-out, appended at the END of generation (after the fixtures) so every v1.1 item id stays the same:
+ * 2 'van' ceiling lights (the first takes the id of v1.1's single van light), an LED strip over the workbench wall, a
+ * rear work flood and 2 headlights (lot space), then the station props at plannedVanStations. The hub keeps its
+ * kind 'mirror' item as the van mirror (`hubMirror`), so it gets no van_mirror prop.
+ */
+export function addVanStations(van: VanInfo, vanSpace: number, lotSpace: number, add: AddItem, o: { hubMirror: boolean }): void {
+  const c = van.cab;
+  const right = c.x + c.w - HALF_T;
+  add('light', vanSpace, c.x + c.w / 2, c.y + 1.2, { y: 2.05, data: { state: 'on', kind: 'van' } });
+  add('light', vanSpace, c.x + c.w / 2, c.y + 3.0, { y: 2.05, data: { state: 'on', kind: 'van' } });
+  add('light', vanSpace, right - 0.04, c.y + 2.0, { y: 2.08, rot: -Math.PI / 2, data: { state: 'on', kind: 'led_strip', len: 3.0 } });
+  add('light', lotSpace, c.x + c.w / 2, c.y - 0.06, { y: 2.3, rot: Math.PI, data: { state: 'on', kind: 'flood' } });
+  for (const hx of [c.x + 0.3, c.x + c.w - 0.3]) add('light', lotSpace, hx, c.y + VAN_LEN + 0.05, { y: 0.8, rot: 0, data: { state: 'on', kind: 'headlight' } });
+  for (const s of plannedVanStations(c)) {
+    if (s.kind === 'mirror' && o.hubMirror) continue;
+    const data = VAN_STATION_PROPS[s.kind as keyof typeof VAN_STATION_PROPS];
+    if (data) add('prop', vanSpace, s.x, s.z, { y: s.y, rot: s.rot, data: { ...data } });
+  }
 }
 function stationAt(kind: StationKind, itemId: string, space: number, x: number, y: number, z: number, rot: number, data?: Record<string, unknown>): Station {
   const dim = STATION_DIMS[kind];

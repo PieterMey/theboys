@@ -156,6 +156,81 @@
         "ph": "rubber_tiles",
         "albedo": "1k",
         "group": "lobby"
+      },
+      "tiles_subway": {
+        "acg": "Tiles009",
+        "acgRes": "1K",
+        "group": "site",
+        "note": "v1.2 hospital/baths walls: white subway tiles"
+      },
+      "terrazzo": {
+        "acg": "Terrazzo005",
+        "acgRes": "1K",
+        "group": "site",
+        "note": "v1.2 lobbies/corridors: grey municipal terrazzo"
+      },
+      "wood_panel": {
+        "ph": "wooden_panels",
+        "albedo": "1k",
+        "normal": "1k",
+        "orm": "1k",
+        "group": "site",
+        "note": "v1.2 records/hospitality wainscot"
+      },
+      "carpet": {
+        "acg": "Carpet012",
+        "acgRes": "1K",
+        "group": "site",
+        "note": "v1.2 offices/hotel corridors: dark institutional carpet"
+      },
+      "grating": {
+        "acg": "MetalWalkway010",
+        "acgRes": "1K",
+        "group": "site",
+        "note": "v1.2 waterworks/industry floors: perforated walkway plate (metalness = the solid plate, from its opacity map)",
+        "acgMetalFrom": "Opacity"
+      },
+      "insulated_panel": {
+        "acg": "PaintedMetal012",
+        "acgRes": "1K",
+        "group": "site",
+        "note": "v1.2 cold storage walls: chipped white painted steel"
+      },
+      "wallpaper": {
+        "ph": "decrepit_wallpaper",
+        "albedo": "1k",
+        "normal": "1k",
+        "orm": "1k",
+        "group": "site",
+        "note": "v1.2 hospitality/records rooms: stained, peeling wallpaper"
+      },
+      "brick": {
+        "ph": "whitewashed_brick",
+        "albedo": "1k",
+        "normal": "1k",
+        "orm": "1k",
+        "group": "site",
+        "note": "v1.2 industry/transport walls: painted interior brick"
+      },
+      "parquet": {
+        "ph": "herringbone_parquet",
+        "albedo": "1k",
+        "normal": "1k",
+        "orm": "1k",
+        "group": "site",
+        "note": "v1.2 records/hospitality/parish floors"
+      },
+      "tiles_pool": {
+        "acg": "Tiles132B",
+        "acgRes": "1K",
+        "group": "site",
+        "note": "v1.2 baths: blue pool tiles, dirty"
+      },
+      "asphalt_wet": {
+        "acg": "Asphalt025C",
+        "acgRes": "1K",
+        "group": "site",
+        "note": "v1.2 rain-wet lot asphalt"
       }
     }
   },
@@ -261,6 +336,51 @@
       "prop.cardboard_box": {
         "ph": "cardboard_box_01",
         "group": "site"
+      },
+      "prop.wooden_chair": {
+        "ph": "painted_wooden_chair_01",
+        "group": "site",
+        "note": "v1.2 hospitality/records/parish seating"
+      },
+      "prop.wall_clock": {
+        "ph": "wall_clock",
+        "group": "site",
+        "note": "v1.2 wall clock (lobby/office/canteen)"
+      },
+      "prop.picture_frame": {
+        "ph": "fancy_picture_frame_01",
+        "group": "site",
+        "note": "v1.2 lore frame / gallery wall"
+      },
+      "prop.television": {
+        "ph": "television_02",
+        "group": "site",
+        "note": "v1.2 hospitality/comms set dressing"
+      },
+      "prop.ornate_mirror": {
+        "ph": "ornate_mirror_01",
+        "group": "site",
+        "note": "v1.2 hall / dressing mirror frame"
+      },
+      "prop.wet_floor_sign": {
+        "ph": "WetFloorSign_01",
+        "group": "site",
+        "note": "v1.2 damp sites, washrooms"
+      },
+      "prop.drawer_chest": {
+        "ph": "vintage_wooden_drawer_01",
+        "group": "site",
+        "note": "v1.2 drawer_chest container host (named drawer nodes kept, -kn)"
+      },
+      "prop.nightstand": {
+        "ph": "painted_wooden_nightstand",
+        "group": "site",
+        "note": "v1.2 nightstand container host (named nodes kept, -kn)"
+      },
+      "prop.chalkboard": {
+        "ph": "standing_chalkboard_01",
+        "group": "site",
+        "note": "v1.2 lore blackboard / nursery"
       }
     }
   },
@@ -804,6 +924,296 @@
         "source": "lrsf_horror",
         "file": "Horror Sound Library/Mp3/Evil_Machine_Loop_00.mp3",
         "durationSec": 9.691
+      },
+      {
+        "key": "sfx.drip.1",
+        "source": "lrsf_horror",
+        "file": "Horror Sound Library/Mp3/Bloop Drip/Blood_Drip_00.mp3",
+        "durationSec": 0.496,
+        "group": "site"
+      },
+      {
+        "key": "sfx.drip.2",
+        "source": "lrsf_horror",
+        "file": "Horror Sound Library/Mp3/Bloop Drip/Blood_Drip_01.mp3",
+        "durationSec": 0.679,
+        "group": "site"
+      },
+      {
+        "key": "sfx.drip.3",
+        "source": "lrsf_horror",
+        "file": "Horror Sound Library/Mp3/Bloop Drip/Blood_Drip_03.mp3",
+        "durationSec": 0.287,
+        "group": "site"
+      },
+      {
+        "key": "sfx.drip.4",
+        "source": "lrsf_horror",
+        "file": "Horror Sound Library/Mp3/Bloop Drip/Blood_Drip_08.mp3",
+        "durationSec": 0.366,
+        "group": "site"
+      }
+    ]
+  },
+  "fonts": {
+    "note": "v1.2 lore pages: SIL OFL handwriting font (Google Fonts repo); the licence text ships with it",
+    "items": {
+      "font.reenie_beanie": {
+        "id": "reenie_beanie",
+        "title": "Reenie Beanie",
+        "author": "James Grieshaber (Typeco)",
+        "page": "https://fonts.google.com/specimen/Reenie+Beanie",
+        "ttf": "https://github.com/google/fonts/raw/main/ofl/reeniebeanie/ReenieBeanie.ttf",
+        "license": "https://github.com/google/fonts/raw/main/ofl/reeniebeanie/OFL.txt",
+        "group": "site"
+      }
+    }
+  },
+  "decals": {
+    "note": "v1.2 decal atlas (ambientCG CC0): 4 x 4 cells of 512 px with 16 px gutters in a 2048 RGBA atlas, opacity in albedo alpha. mask cells: alpha = (255 - grey map) * gain (auto: levels so the 99.5th percentile is 220), rgb = tint.",
+    "size": 2048,
+    "cell": 512,
+    "gutter": 16,
+    "res": "1K-PNG",
+    "group": "site",
+    "cells": [
+      {
+        "acg": "Leaking004",
+        "name": "seep",
+        "kind": "leak",
+        "surface": "wall",
+        "mode": "rgba",
+        "size": [
+          1.6,
+          0.8
+        ]
+      },
+      {
+        "acg": "Leaking006",
+        "name": "drip_trail",
+        "kind": "leak",
+        "surface": "wall",
+        "mode": "rgba",
+        "size": [
+          0.3,
+          1.2
+        ]
+      },
+      {
+        "acg": "Leaking016A",
+        "name": "streaks_a",
+        "kind": "leak",
+        "surface": "wall",
+        "mode": "mask",
+        "size": [
+          1,
+          1
+        ],
+        "map": "Color",
+        "gain": 1,
+        "tint": [
+          44,
+          40,
+          32
+        ],
+        "auto": true
+      },
+      {
+        "acg": "Leaking013A",
+        "name": "streaks_b",
+        "kind": "leak",
+        "surface": "wall",
+        "mode": "mask",
+        "size": [
+          1,
+          1
+        ],
+        "map": "Color",
+        "gain": 1,
+        "tint": [
+          50,
+          42,
+          30
+        ],
+        "auto": true
+      },
+      {
+        "acg": "Fingerprints004",
+        "name": "handprint",
+        "kind": "hand",
+        "surface": "wall",
+        "mode": "rgba",
+        "size": [
+          0.28,
+          0.28
+        ]
+      },
+      {
+        "acg": "Fingerprints001",
+        "name": "smudges",
+        "kind": "hand",
+        "surface": "wall",
+        "mode": "rgba",
+        "size": [
+          0.4,
+          0.4
+        ]
+      },
+      {
+        "acg": "Footsteps004",
+        "name": "footprints_a",
+        "kind": "footprints",
+        "surface": "floor",
+        "mode": "mask",
+        "size": [
+          0.4,
+          1.6
+        ],
+        "map": "AmbientOcclusion",
+        "gain": 1.5,
+        "tint": [
+          56,
+          44,
+          32
+        ]
+      },
+      {
+        "acg": "Footsteps005",
+        "name": "footprints_b",
+        "kind": "footprints",
+        "surface": "floor",
+        "mode": "mask",
+        "size": [
+          0.4,
+          1.6
+        ],
+        "map": "AmbientOcclusion",
+        "gain": 1.3,
+        "tint": [
+          52,
+          40,
+          30
+        ]
+      },
+      {
+        "acg": "Leaking012A",
+        "name": "rust_streaks",
+        "kind": "stain",
+        "surface": "wall",
+        "mode": "mask",
+        "size": [
+          1,
+          1
+        ],
+        "map": "Color",
+        "gain": 1,
+        "tint": [
+          86,
+          50,
+          26
+        ],
+        "auto": true
+      },
+      {
+        "acg": "Leaking014A",
+        "name": "mould_streaks",
+        "kind": "stain",
+        "surface": "wall",
+        "mode": "mask",
+        "size": [
+          1,
+          1
+        ],
+        "map": "Color",
+        "gain": 1,
+        "tint": [
+          30,
+          36,
+          24
+        ],
+        "auto": true
+      },
+      {
+        "acg": "Leaking015A",
+        "name": "algae_streaks",
+        "kind": "stain",
+        "surface": "wall",
+        "mode": "mask",
+        "size": [
+          1,
+          1
+        ],
+        "map": "Color",
+        "gain": 1,
+        "tint": [
+          40,
+          50,
+          30
+        ],
+        "auto": true
+      },
+      {
+        "acg": "Leaking019A",
+        "name": "faint_streaks",
+        "kind": "stain",
+        "surface": "wall",
+        "mode": "mask",
+        "size": [
+          1,
+          1
+        ],
+        "map": "Color",
+        "gain": 1,
+        "tint": [
+          36,
+          32,
+          28
+        ],
+        "auto": true
+      },
+      {
+        "acg": "Sign005",
+        "name": "sign_slippery",
+        "kind": "sign",
+        "surface": "wall",
+        "mode": "rgba",
+        "size": [
+          0.42,
+          0.36
+        ]
+      },
+      {
+        "acg": "Sign014",
+        "name": "sign_temperature",
+        "kind": "sign",
+        "surface": "wall",
+        "mode": "rgba",
+        "size": [
+          0.42,
+          0.36
+        ]
+      },
+      {
+        "acg": "Sign009",
+        "name": "sign_voltage",
+        "kind": "sign",
+        "surface": "wall",
+        "mode": "rgba",
+        "size": [
+          0.42,
+          0.36
+        ]
+      },
+      {
+        "acg": "Tape001",
+        "name": "hazard_tape",
+        "kind": "tape",
+        "surface": "any",
+        "mode": "rgba",
+        "size": [
+          0.1,
+          0.8
+        ]
       }
     ]
   }

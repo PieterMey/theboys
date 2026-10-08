@@ -49,7 +49,7 @@ export function levelTuning(): LevelTuning {
 }
 
 export function summarize(L: LevelLayout): LevelSummary {
-  return { kind: L.kind, seed: L.seed, hash: L.hash, W: L.W, H: L.H, metrics: L.metrics };
+  return { kind: L.kind, seed: L.seed, hash: L.hash, W: L.W, H: L.H, metrics: L.metrics, theme: L.theme };
 }
 
 /**
@@ -59,7 +59,15 @@ export function summarize(L: LevelLayout): LevelSummary {
 export function generateFacilityForCrew(crew: Crew, req: FacilityRequest): LevelLayout {
   const connected = [...crew.players.values()].filter((p) => p.connected).length;
   const players = Math.max(1, Math.min(6, Math.round(req.players ?? (connected || 1))));
-  const L = generateFacility({ seed: String(req.seed), players, risk: req.risk ?? 1, theme: req.theme, modifiers: req.modifiers }, levelTuning());
+  const p = { seed: String(req.seed), players, risk: req.risk ?? 1 };
+  let L: LevelLayout;
+  try {
+    L = generateFacility({ ...p, theme: req.theme, modifiers: req.modifiers }, levelTuning());
+  } catch (e) {
+    // never fail a drive over a theme / modifier combination: the plain site of the same seed always generates
+    ctxRef?.log('level').warn(`themed generation failed (${req.theme ?? '-'} ${(req.modifiers ?? []).join('+')}): ${e instanceof Error ? e.message : e}; plain site instead`);
+    L = generateFacility(p, levelTuning());
+  }
   crew.layout = L;
   levelOf(crew);
   return L;
@@ -107,9 +115,10 @@ export function install(ctx: ServerContext): void {
 
   // dev: switch the crew into a contract with a fresh facility (lets other tracks test before the meta track exists)
   ctx.registerDbg('level.generate', (crew, _player, args) => {
-    const a = (args ?? {}) as { seed?: string | number; players?: number; risk?: number };
+    const a = (args ?? {}) as { seed?: string | number; players?: number; risk?: number; theme?: string; modifiers?: unknown };
+    const modifiers = Array.isArray(a.modifiers) ? a.modifiers.map(String) : typeof a.modifiers === 'string' ? a.modifiers.split(',').map((m) => m.trim()).filter(Boolean) : undefined;
     const t0 = performance.now();
-    const L = generateFacilityForCrew(crew, { seed: String(a.seed ?? `dbg-${Date.now() % 100000}`), players: a.players, risk: a.risk });
+    const L = generateFacilityForCrew(crew, { seed: String(a.seed ?? `dbg-${Date.now() % 100000}`), players: a.players, risk: a.risk, theme: typeof a.theme === 'string' ? a.theme : undefined, modifiers });
     const ms = performance.now() - t0;
     const v = validateLayout(L);
     if (v.errors.length) log.warn(`generated layout ${L.seed} has invariant errors: ${v.errors.join('; ')}`);

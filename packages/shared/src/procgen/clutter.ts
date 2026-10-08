@@ -4,9 +4,11 @@
 // wire format stays small), never on door-front cells, solids or cells players must reach. Deterministic per layout.
 import type { LevelLayout } from '../layout.ts';
 import { makeRng } from '../rng.ts';
+import type { SiteTheme } from './themes.ts';
+import { themeChain } from './themes.ts';
 
 export type ClutterKind =
-  | 'paper' | 'box' | 'bottle' | 'debris' | 'tile' | 'cable' | 'puddle' | 'poster' | 'pipe' | 'glb' | 'stain';
+  | 'paper' | 'box' | 'bottle' | 'debris' | 'tile' | 'cable' | 'puddle' | 'poster' | 'pipe' | 'glb' | 'stain' | 'decal';
 
 export interface ClutterItem {
   kind: ClutterKind;
@@ -23,8 +25,57 @@ export interface ClutterItem {
   x2?: number;
   z2?: number;
   key?: string;
-  /** glb: tip the model onto its side */
+  /** glb: tip the model onto its side; decal: 1 = on the floor (else on the wall, facing rot) */
   tip?: number;
+}
+
+/** v1.2 decal atlas cells, index = cell (the staged 'decal.atlas' + 'decal.index' of tools/assets.manifest.json
+ *  decals.cells, 4 x 4, opacity in albedo alpha; keep in this order). w = suggested world width (m; height = w / aspect in
+ *  decal.index). ClutterItem kind 'decal': a = cell, b = world width (m), tip 1 = flat on the floor (else on the wall,
+ *  facing rot). */
+export const DECAL_CELLS: readonly { name: string; kind: 'leak' | 'hand' | 'footprints' | 'stain' | 'sign' | 'tape'; surface: 'wall' | 'floor' | 'any'; w: number }[] = [
+  { name: 'seep', kind: 'leak', surface: 'wall', w: 1.6 }, { name: 'drip_trail', kind: 'leak', surface: 'wall', w: 0.3 },
+  { name: 'streaks_a', kind: 'leak', surface: 'wall', w: 1 }, { name: 'streaks_b', kind: 'leak', surface: 'wall', w: 1 },
+  { name: 'handprint', kind: 'hand', surface: 'wall', w: 0.28 }, { name: 'smudges', kind: 'hand', surface: 'wall', w: 0.4 },
+  { name: 'footprints_a', kind: 'footprints', surface: 'floor', w: 0.4 }, { name: 'footprints_b', kind: 'footprints', surface: 'floor', w: 0.4 },
+  { name: 'rust_streaks', kind: 'stain', surface: 'wall', w: 1 }, { name: 'mould_streaks', kind: 'stain', surface: 'wall', w: 1 },
+  { name: 'algae_streaks', kind: 'stain', surface: 'wall', w: 1 }, { name: 'faint_streaks', kind: 'stain', surface: 'wall', w: 1 },
+  { name: 'sign_slippery', kind: 'sign', surface: 'wall', w: 0.42 }, { name: 'sign_temperature', kind: 'sign', surface: 'wall', w: 0.42 },
+  { name: 'sign_voltage', kind: 'sign', surface: 'wall', w: 0.42 }, { name: 'hazard_tape', kind: 'tape', surface: 'any', w: 0.1 },
+];
+const DC = { leak: [0, 1, 2, 3], hand: [4, 5], footprints: [6, 7], rust: 8, mould: 9, algae: 10, faint: 11, slippery: 12, temperature: 13, voltage: 14, tape: 15 } as const;
+const COLDISH = new Set(['cold', 'cryo']);
+const ELECTRIC = new Set(['server', 'radio', 'boiler', 'furnace', 'foundry', 'pumps', 'garage']);
+
+/** v1.2 per-theme clutter: mess offset, extra wet room types ('corridor' too), paper and puddle multipliers */
+interface ClutterTheme { mess?: number; wet?: readonly string[]; paper?: number; puddle?: number }
+const THEME_CLUTTER: Readonly<Partial<Record<SiteTheme, ClutterTheme>>> = {
+  hospital: { mess: -0.05, wet: ['infirmary'] },
+  waterworks: { mess: 0.15, wet: ['corridor', 'storage', 'garage', 'dock'], puddle: 1.3 },
+  industry: { mess: 0.2, wet: ['pit'] },
+  records: { mess: 0.1, paper: 1.8 },
+  hospitality: { mess: -0.1, paper: 0.8 },
+  cold_storage: { wet: ['dock', 'storage', 'cryo', 'corridor'], puddle: 1.2 },
+  comms: { paper: 1.3 },
+  transport: { mess: 0.15 },
+  retail: { mess: 0.05, paper: 1.2 },
+  parish: { mess: -0.05 },
+  baths: { wet: ['corridor', 'office', 'storage', 'lobby', 'gallery', 'canteen'], puddle: 1.5 },
+  greenhouse: { wet: ['greenhouse', 'nursery', 'corridor', 'storage'], puddle: 1.4 },
+  laundry: { wet: ['corridor', 'storage'], puddle: 1.3 },
+};
+function clutterTheme(theme: string): { mess: number; wet: Set<string>; paper: number; puddle: number } {
+  const out = { mess: 0, wet: new Set<string>(), paper: 1, puddle: 1 };
+  // base of the chain first, the theme itself last (its values win)
+  for (const t of themeChain(theme).reverse()) {
+    const c = THEME_CLUTTER[t];
+    if (!c) continue;
+    if (c.mess !== undefined) out.mess = c.mess;
+    if (c.paper !== undefined) out.paper = c.paper;
+    if (c.puddle !== undefined) out.puddle = c.puddle;
+    for (const w of c.wet ?? []) out.wet.add(w);
+  }
+  return out;
 }
 
 const CEILING_TILE_TYPES = new Set(['office', 'archive', 'library', 'mailroom', 'server', 'radio', 'infirmary', 'nursery', 'chapel', 'gallery', 'lobby', 'canteen', 'morgue', 'kitchen', 'laundry', 'showers', 'cold', 'cryo']);
@@ -99,6 +150,10 @@ export function clutterFor(L: LevelLayout): ClutterItem[] {
     return res;
   };
   const yawOf = (nx: number, nz: number) => (nx > 0.5 ? Math.PI / 2 : nx < -0.5 ? -Math.PI / 2 : nz > 0 ? 0 : Math.PI);
+  // v1.2 site theme + modifiers (theme 'facility' with no modifiers keeps every draw and probability of v1.1)
+  const th = clutterTheme(L.theme);
+  const damp = L.metrics?.['mod:damp'] === 1 ? 2 : 1;
+  const cluttered = L.metrics?.['mod:cluttered'] === 1 ? 0.35 : 0;
   for (const s of spaces) {
     if (s.open || s.type === 'van' || s.kind === 'vault') continue;
     const r = s.rect;
@@ -107,8 +162,8 @@ export function clutterFor(L: LevelLayout): ClutterItem[] {
     const isCor = s.kind === 'corridor';
     const glbs = GLB_BY_TYPE[s.type] ?? ['cardboard_box'];
     const tiles = isCor || CEILING_TILE_TYPES.has(s.type);
-    const wet = WET.has(s.type);
-    const mess = 0.55 + depth * 0.5 + (dark ? 0.3 : 0);
+    const wet = WET.has(s.type) || th.wet.has(isCor ? 'corridor' : s.type);
+    const mess = 0.55 + depth * 0.5 + (dark ? 0.3 : 0) + th.mess + cluttered;
     let posters = isCor ? (r.w * r.h >= 12 && rng.chance(0.5) ? 1 : 0) : rng.int(0, 2);
     for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
       const c = y * W + x;
@@ -122,8 +177,8 @@ export function clutterFor(L: LevelLayout): ClutterItem[] {
       }
       if (busy[c]) continue;
       // floor litter
-      if (rng.chance((isCor ? 0.1 : 0.14) * mess)) out.push({ kind: 'paper', space: s.id, x: x + 0.15 + rng.next() * 0.7, y: 0.004 + rng.next() * 0.003, z: y + 0.15 + rng.next() * 0.7, rot: rng.next() * Math.PI * 2, a: rng.int(1, 3), b: rng.next() });
-      if (wet && rng.chance(0.07 * mess)) out.push({ kind: 'puddle', space: s.id, x: x + 0.5, y: 0.006, z: y + 0.5, rot: rng.next() * Math.PI, a: 0.5 + rng.next() * 0.9, b: 0.4 + rng.next() * 0.6 });
+      if (rng.chance((isCor ? 0.1 : 0.14) * mess * th.paper)) out.push({ kind: 'paper', space: s.id, x: x + 0.15 + rng.next() * 0.7, y: 0.004 + rng.next() * 0.003, z: y + 0.15 + rng.next() * 0.7, rot: rng.next() * Math.PI * 2, a: rng.int(1, 3), b: rng.next() });
+      if (wet && rng.chance(0.07 * mess * th.puddle * damp)) out.push({ kind: 'puddle', space: s.id, x: x + 0.5, y: 0.006, z: y + 0.5, rot: rng.next() * Math.PI, a: 0.5 + rng.next() * 0.9, b: 0.4 + rng.next() * 0.6 });
       else if (rng.chance(0.03 * mess)) out.push({ kind: 'stain', space: s.id, x: x + 0.5, y: 0.005, z: y + 0.5, rot: rng.next() * Math.PI, a: 0.4 + rng.next() * 0.7, b: rng.next() });
       if (!edge) continue;
       // against the walls: boxes, bottles, debris, small asset props, posters
@@ -161,5 +216,76 @@ export function clutterFor(L: LevelLayout): ClutterItem[] {
       }
     }
   }
+  decalsFor(L, busy, th.wet, out);
   return out;
+}
+
+/** v1.2 decals (stream 'decor:decal', appended after every other clutter item): leak streaks high on the walls of wet
+ *  rooms, hand prints by doors, footprints on floors (along corridors), rust / mould / algae streaks by room, warning
+ *  signs (wet floor, temperature, high voltage) where they belong, hazard tape on industrial floors. Never on door-front
+ *  or busy floor cells; <= 140 per site. */
+function decalsFor(L: LevelLayout, busy: Uint8Array, wetExtra: ReadonlySet<string>, out: ClutterItem[]): void {
+  const { W, H, owner, spaces } = L;
+  const rng = makeRng(`${L.seed}:${L.hash}`, 'decor:decal');
+  const own = (x: number, y: number) => (x < 0 || y < 0 || x >= W || y >= H ? -1 : owner[y * W + x]);
+  const doorCell = new Uint8Array(W * H);
+  for (const d of L.doors) for (let i = 0; i < d.len; i++) {
+    const cs = d.dir === 'v' ? [[d.x - 1, d.y + i], [d.x, d.y + i]] : [[d.x + i, d.y - 1], [d.x + i, d.y]];
+    for (const [x, y] of cs) if (x >= 0 && y >= 0 && x < W && y < H) doorCell[y * W + x] = 1;
+  }
+  const wallH = L.wallH;
+  const cold = themeChain(L.theme).includes('cold_storage');
+  let n = 0;
+  const MAX = 140;
+  const yawOfN = (nx: number, nz: number) => (nx > 0.5 ? Math.PI / 2 : nx < -0.5 ? -Math.PI / 2 : nz > 0 ? 0 : Math.PI);
+  for (const s of spaces) {
+    if (n >= MAX) break;
+    if (s.open || s.type === 'van' || s.kind === 'vault') continue;
+    const isCor = s.kind === 'corridor';
+    const wet = WET.has(s.type) || wetExtra.has(isCor ? 'corridor' : s.type);
+    const ind = INDUSTRIAL.has(s.type);
+    const r = s.rect;
+    // wall cells of this space (cell, inward normal); floor cells free of clutter-busy marks
+    const walls: [number, number, number, number][] = [], floors: [number, number][] = [];
+    for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
+      if (owner[y * W + x] !== s.id) continue;
+      if (!busy[y * W + x] && !doorCell[y * W + x]) floors.push([x, y]);
+      if (own(x - 1, y) !== s.id) walls.push([x, y, 1, 0]);
+      if (own(x + 1, y) !== s.id) walls.push([x, y, -1, 0]);
+      if (own(x, y - 1) !== s.id) walls.push([x, y, 0, 1]);
+      if (own(x, y + 1) !== s.id) walls.push([x, y, 0, -1]);
+    }
+    if (!walls.length) continue;
+    const area = r.w * r.h;
+    const wallDecal = (cell: number, y0: number, y1: number, nearDoor: boolean) => {
+      const pool = nearDoor ? walls.filter(([x, y]) => doorCell[y * W + x]) : walls;
+      if (!pool.length || n >= MAX) return;
+      const [x, y, nx, nz] = pool[rng.int(0, pool.length - 1)];
+      const along = (rng.next() - 0.5) * 0.5;
+      out.push({ kind: 'decal', space: s.id, x: x + 0.5 - nx * 0.416 + (nz !== 0 ? along : 0), y: y0 + rng.next() * (y1 - y0), z: y + 0.5 - nz * 0.416 + (nx !== 0 ? along : 0), rot: yawOfN(nx, nz), a: cell, b: DECAL_CELLS[cell].w * (0.85 + rng.next() * 0.3), tip: 0 });
+      n++;
+    };
+    const floorDecal = (cell: number, rot: number) => {
+      if (!floors.length || n >= MAX) return;
+      const [x, y] = floors[rng.int(0, floors.length - 1)];
+      out.push({ kind: 'decal', space: s.id, x: x + 0.3 + rng.next() * 0.4, y: 0.003, z: y + 0.3 + rng.next() * 0.4, rot, a: cell, b: DECAL_CELLS[cell].w * (0.85 + rng.next() * 0.3), tip: 1 });
+      n++;
+    };
+    // along a corridor (or a room's long axis), either way, a little skew
+    const axisYaw = () => (r.w >= r.h ? Math.PI / 2 : 0) + (rng.chance(0.5) ? Math.PI : 0) + (rng.next() - 0.5) * 0.4;
+    if (wet) for (let i = rng.int(1, 2); i > 0; i--) wallDecal(DC.leak[rng.int(0, DC.leak.length - 1)], wallH - 0.95, wallH - 0.6, false);
+    const k = isCor ? Math.min(2, Math.floor(area / 16)) : Math.min(4, 1 + Math.floor(area / 30));
+    for (let i = 0; i < k; i++) {
+      const roll = rng.next();
+      if (roll < 0.25) wallDecal(DC.hand[rng.int(0, 1)], 0.95, 1.45, true);
+      else if (roll < 0.5) floorDecal(DC.footprints[rng.int(0, 1)], axisYaw());
+      else if (roll < 0.75) wallDecal(ind ? DC.rust : wet ? (rng.chance(0.5) ? DC.mould : DC.algae) : DC.faint, 1.0, 1.9, false);
+      else if (ind && rng.chance(0.6)) floorDecal(DC.tape, axisYaw());
+      else {
+        const sign = wet ? DC.slippery : COLDISH.has(s.type) || (cold && !isCor) ? DC.temperature : ELECTRIC.has(s.type) ? DC.voltage : -1;
+        if (sign >= 0) wallDecal(sign, 1.45, 1.65, false);
+        else wallDecal(DC.faint, 1.0, 1.9, false);
+      }
+    }
+  }
 }

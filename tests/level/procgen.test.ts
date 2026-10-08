@@ -11,23 +11,28 @@ import { FIXTURES, loadTuning, renderMap } from '../../tools/gen-cli.ts';
 const dir = resolve(import.meta.dirname, '../fixtures/layouts');
 const load = (f: string) => JSON.parse(readFileSync(resolve(dir, f), 'utf8')) as LevelLayout;
 
-// The facility fixtures are shared snapshots other tracks' tests read (objectives, ai, interaction): they stay valid
-// layouts, and the freshness check runs with FIXTURES_FRESH=1 (after node tools/gen-cli.ts --fixtures; the v1.1
-// generator change makes them stale until the integrator regenerates them together with the dependent tests).
-test('fixtures are valid (fresh with FIXTURES_FRESH=1; regenerate with: node tools/gen-cli.ts --fixtures)', () => {
+// The facility fixtures are shared snapshots other tracks' tests read (objectives, ai, interaction, audio, level). They
+// were regenerated at gate L1 (v1.2: s1_p2 59d2dc58, s2_p4 b4f0fa2d, s3_p6 2db6c849, s4_p4_risk2 9960e82b, hub 54b2c770)
+// and must stay fresh: exactly what the generator makes now at config/balance/level.json tuning. The freshness check is
+// on by default. FIXTURES_FRESH=0 skips it, only while a deliberate generator change waits for the integrator to run
+// node tools/gen-cli.ts --fixtures together with the dependent tests (which look things up by kind/data, not by id).
+const FRESH = process.env.FIXTURES_FRESH !== '0';
+test('fixtures are fresh and valid (FIXTURES_FRESH=0 skips freshness; regenerate with: node tools/gen-cli.ts --fixtures)', () => {
   const t = loadTuning();
   for (const f of FIXTURES) {
     const L = load(f.file);
     const fresh = generateFacility({ seed: f.seed, players: f.players, risk: f.risk }, t);
     assert.deepEqual(validateLayout(fresh).errors, [], `${f.file} seed regenerates invalid`);
-    if (process.env.FIXTURES_FRESH === '1') assert.equal(L.hash, fresh.hash, `${f.file} is stale`);
+    if (FRESH) assert.equal(L.hash, fresh.hash, `${f.file} is stale (regenerate with: node tools/gen-cli.ts --fixtures)`);
     assert.ok(verifyLayoutHash(L), `${f.file} hash`);
     assert.deepEqual(validateLayout(L).errors, [], f.file);
     assert.equal(L.genVersion, GEN_VERSION);
   }
   const hub = load('hub.json');
-  assert.equal(hub.hash, generateHub().hash, 'hub.json is stale');
+  if (FRESH) assert.equal(hub.hash, generateHub().hash, 'hub.json is stale (regenerate with: node tools/gen-cli.ts --fixtures)');
+  assert.ok(verifyLayoutHash(hub), 'hub.json hash');
   assert.deepEqual(validateLayout(hub).errors, []);
+  assert.deepEqual(validateLayout(generateHub()).errors, []);
 });
 
 test('deterministic and seed-sensitive; params change footprint', () => {

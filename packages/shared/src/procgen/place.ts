@@ -2,7 +2,7 @@
 // with door-front / jamb bookkeeping so props never block doors and solids never stack.
 import type { LayoutDoor } from '../layout.ts';
 import type { Rng } from '../rng.ts';
-import { EDGE } from '../nav/grid.ts';
+import { ALL_OPEN, EDGE, canWalk } from '../nav/grid.ts';
 import type { EdgeGrid } from '../nav/grid.ts';
 import { yawOf } from './common.ts';
 
@@ -181,4 +181,29 @@ export class Placer {
     this.usedCell[cell] = 1;
     return cell;
   }
+}
+
+/** cells reachable from startCell walking with all doors open, through cells whose centre is clear of every solid
+ *  box grown by 0.1 m (the player-collision proxy the invariants use) */
+export function reachAroundSolids(g: EdgeGrid, startCell: number, solids: ArrayLike<number> = g.solids): Uint8Array {
+  const { W, H } = g;
+  const blockedCell = new Uint8Array(W * H);
+  for (let b = 0; b < solids.length / 4; b++) {
+    const x0 = solids[b * 4] - 0.1, z0 = solids[b * 4 + 1] - 0.1, x1 = solids[b * 4 + 2] + 0.1, z1 = solids[b * 4 + 3] + 0.1;
+    for (let z = Math.max(0, Math.floor(z0)); z <= Math.min(H - 1, Math.floor(z1)); z++) for (let x = Math.max(0, Math.floor(x0)); x <= Math.min(W - 1, Math.floor(x1)); x++) {
+      if (x + 0.5 > x0 && x + 0.5 < x1 && z + 0.5 > z0 && z + 0.5 < z1) blockedCell[z * W + x] = 1;
+    }
+  }
+  const seen = new Uint8Array(W * H);
+  const q: number[] = [];
+  if (startCell >= 0 && !blockedCell[startCell]) { seen[startCell] = 1; q.push(startCell); }
+  for (let i = 0; i < q.length; i++) {
+    const u = q[i], x = u % W, y = (u - x) / W;
+    for (let dir = 0; dir < 4; dir++) {
+      if (!canWalk(g, x, y, dir, ALL_OPEN)) continue;
+      const v = u + (dir === 0 ? 1 : dir === 1 ? -1 : dir === 2 ? W : -W);
+      if (!seen[v] && !blockedCell[v]) { seen[v] = 1; q.push(v); }
+    }
+  }
+  return seen;
 }

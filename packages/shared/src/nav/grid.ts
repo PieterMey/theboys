@@ -61,6 +61,21 @@ export const SOLID_ITEMS: Readonly<Record<string, readonly [number, number]>> = 
   shop: [1.4, 0.8],
 };
 
+/** player-collision boxes of a layout's items: x0, z0, x1, z1 per solid (SOLID_ITEMS kinds, props with data.solid) */
+export function solidBoxesOf(items: readonly LayoutItem[]): number[] {
+  const boxes: number[] = [];
+  for (const it of items) {
+    const dim = it.kind === 'prop' ? (it.data?.solid === true ? [Number(it.data.w ?? 0), Number(it.data.d ?? 0)] as const : undefined) : SOLID_ITEMS[it.kind];
+    if (!dim || it.data?.solid === false) continue;
+    const rot = it.rot ?? 0;
+    // rot is always a multiple of PI/2 for generated items: wall-aligned boxes
+    const alongX = Math.abs(Math.round(rot / (Math.PI / 2))) % 2 === 0;
+    const hw = (alongX ? dim[0] : dim[1]) / 2, hd = (alongX ? dim[1] : dim[0]) / 2;
+    boxes.push(it.x - hw, it.z - hd, it.x + hw, it.z + hd);
+  }
+  return boxes;
+}
+
 export function buildEdgeGrid(L: EdgeGridSource): EdgeGrid {
   const { W, H } = L;
   const owner = Int32Array.from(L.owner as ArrayLike<number>);
@@ -93,17 +108,7 @@ export function buildEdgeGrid(L: EdgeGridSource): EdgeGrid {
     }
   }
   // solid boxes
-  const boxes: number[] = [];
-  for (const it of L.items ?? []) {
-    const dim = it.kind === 'prop' ? (it.data?.solid === true ? [Number(it.data.w ?? 0), Number(it.data.d ?? 0)] as const : undefined) : SOLID_ITEMS[it.kind];
-    if (!dim || it.data?.solid === false) continue;
-    const rot = it.rot ?? 0;
-    // rot is always a multiple of PI/2 for generated items: wall-aligned boxes
-    const alongX = Math.abs(Math.round(rot / (Math.PI / 2))) % 2 === 0;
-    const hw = (alongX ? dim[0] : dim[1]) / 2, hd = (alongX ? dim[1] : dim[0]) / 2;
-    boxes.push(it.x - hw, it.z - hd, it.x + hw, it.z + hd);
-  }
-  const solids = Float32Array.from(boxes);
+  const solids = Float32Array.from(solidBoxesOf(L.items ?? []));
   const counts = new Int32Array(W * H + 1);
   const forCells = (bi: number, f: (c: number) => void) => {
     const x0 = Math.max(0, Math.floor(solids[bi * 4])), z0 = Math.max(0, Math.floor(solids[bi * 4 + 1]));

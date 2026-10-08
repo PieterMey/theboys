@@ -142,7 +142,12 @@ export type LevelTuningOverrides = DeepPartial<LevelTuning>;
 
 /** Overlay a (partial) balance config onto the defaults. Unknown keys are ignored. */
 export function resolveTuning(over?: LevelTuningOverrides | Record<string, unknown> | null): LevelTuning {
-  const out: LevelTuning = structuredClone(DEFAULT_LEVEL_TUNING);
+  return overlayTuning(DEFAULT_LEVEL_TUNING, over);
+}
+
+/** Overlay a (partial) config onto any resolved tuning (v1.2 theme / modifier overlays). Unknown keys are ignored. */
+export function overlayTuning(base: LevelTuning, over?: LevelTuningOverrides | Record<string, unknown> | null): LevelTuning {
+  const out: LevelTuning = structuredClone(base);
   if (!over) return out;
   const o = over as Record<string, unknown>;
   const dst = out as unknown as Record<string, unknown>;

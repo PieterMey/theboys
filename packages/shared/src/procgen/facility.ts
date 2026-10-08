@@ -6,21 +6,24 @@ import type { DoorKind, LayoutDoor, LayoutSpace, LevelLayout, Rect, SpaceKind } 
 import { makeRng } from '../rng.ts';
 import type { Rng } from '../rng.ts';
 import { WORLD } from '../constants.ts';
-import { ALL_OPEN, buildEdgeGrid } from '../nav/grid.ts';
+import { ALL_OPEN, buildEdgeGrid, solidBoxesOf } from '../nav/grid.ts';
 import { floodCells } from '../nav/path.ts';
 import { los } from '../nav/los.ts';
 import { DEFAULT_LEVEL_TUNING, footprintFor, roomRangeFor } from './tuning.ts';
 import type { LevelTuning } from './tuning.ts';
 import { layoutHash } from './hash.ts';
-import { VAN_CARGO_W, VAN_LEN, addVanItems, addVanSpawns, stampVan } from './van.ts';
-import { Placer } from './place.ts';
+import { VAN_CARGO_W, VAN_LEN, addVanItems, addVanSpawns, addVanStations, stampVan } from './van.ts';
+import { Placer, reachAroundSolids } from './place.ts';
 import type { Mount } from './place.ts';
 import { assignCallsigns } from './names.ts';
 import { GenFail, ItemList, area, bsp, centreCell, clamp, graphDijkstra, normalOfYaw, partition, r1, rcx, rcy, reach } from './common.ts';
 import type { GEdge } from './common.ts';
-import { addFixtures, rollLight } from './lights.ts';
+import { addEmergencyLights, addFixtures, addThemeLights, rollLight } from './lights.ts';
 import { placeDecor } from './decor.ts';
-import { themeFor } from './themes.ts';
+import { GEN_MODIFIERS, THEMES, modifierSlugs, themeFor, themedTuning } from './themes.ts';
+import type { SiteTheme } from './themes.ts';
+import { placeMirrors } from './mirrors.ts';
+import { placeLoreSpots } from './lore.ts';
 
 export interface FacilityParams {
   seed: string;
@@ -42,10 +45,18 @@ export function generateFacility(params: FacilityParams, tuning: LevelTuning = D
   const seed = String(params.seed);
   const players = clamp(Math.round(params.players), 1, 6);
   const risk = clamp(Math.round(params.risk), 1, 3);
+  // v1.2: theme overlay + generation modifiers; the last 3 attempts drop the modifier tuning (plan check #3) so a site
+  // never fails to generate. 'facility' with no generation modifier uses the tuning as given (the v1.1 generator).
+  const theme = themeFor(params.theme);
+  const slugs = modifierSlugs(params.modifiers);
+  const gen = slugs.filter((sl) => GEN_MODIFIERS.has(sl));
+  const tFull = theme === 'facility' && !gen.length ? tuning : themedTuning(tuning, theme, gen, true);
+  const tSafe = gen.length ? themedTuning(tuning, theme, gen, false) : tFull;
   const reasons: string[] = [];
   for (let attempt = 0; attempt < tuning.maxAttempts; attempt++) {
+    const withMods = attempt < tuning.maxAttempts - 3;
     try {
-      return generateOnce(seed, attempt, players, risk, tuning, params);
+      return generateOnce(seed, attempt, players, risk, withMods ? tFull : tSafe, params, theme, withMods ? slugs : slugs.filter((sl) => !GEN_MODIFIERS.has(sl)));
     } catch (e) {
       if (!(e instanceof GenFail)) throw e;
       reasons.push(e.message);
@@ -56,7 +67,7 @@ export function generateFacility(params: FacilityParams, tuning: LevelTuning = D
 
 const pairKey = (a: number, b: number) => (a < b ? a * 4096 + b : b * 4096 + a);
 
-function generateOnce(seed: string, attempt: number, players: number, risk: number, t: LevelTuning, params: FacilityParams): LevelLayout {
+function generateOnce(seed: string, attempt: number, players: number, risk: number, t: LevelTuning, _params: FacilityParams, theme: SiteTheme, applied: readonly string[]): LevelLayout {
   const key = `${attempt ? `${seed}#${attempt}` : seed}|${GEN_VERSION}`;
   const rL = makeRng(key, 'layout');
   const [W, FH] = footprintFor(players, t);
@@ -423,7 +434,7 @@ function generateOnce(seed: string, attempt: number, players: number, risk: numb
 
   // ---------------- callsigns ----------------
   const rNames = makeRng(key, 'names');
-  assignCallsigns(S, rNames, t.avoidCallsigns, rNames.int(t.landmarks[0], Math.max(t.landmarks[0], t.landmarks[1])));
+  assignCallsigns(S, rNames, t.avoidCallsigns, rNames.int(t.landmarks[0], Math.max(t.landmarks[0], t.landmarks[1])), THEMES[theme].prefer);
 
   // ---------------- power zones: vault wing ----------------
   const fromVault = graphDijkstra(S.length, gAdj(), [vault]);
@@ -692,10 +703,23 @@ function generateOnce(seed: string, attempt: number, players: number, risk: numb
     const fx = Math.floor(it.x + nx * 0.9), fz = Math.floor(it.z + nz * 0.9);
     if (fx >= 0 && fz >= 0 && fx < W && fz < H) keep[fz * W + fx] = 1;
   }
-  const nProps = placeDecor(W, H, owner, S, P, items, makeRng(key, 'decor'), keep, { areaPerProp: t.decorAreaPerProp, maxPerRoom: t.decorMaxPerRoom });
+  const nProps = placeDecor(W, H, owner, S, P, items, makeRng(key, 'decor'), keep, { areaPerProp: t.decorAreaPerProp, maxPerRoom: t.decorMaxPerRoom, theme });
 
   // light fixtures
   addFixtures(S, items, rLt, t, WORLD.wallH, { lot, van: vanId, exitDoor, lotLamps: 3 });
+
+  // ---------------- v1.2 additions: appended after every v1.1 item (their ids, positions and data stay) ----------------
+  // each on its own new named stream, so nothing above draws differently
+  addVanStations(van, vanId, lot, add, { hubMirror: false });
+  const rTL = makeRng(key, 'theme:lights');
+  const nEmergency = addEmergencyLights(S, doors, owner, W, items, rTL);
+  // wall pieces players walk up to: only on cells reachable around solids (the validator's proxy, from the spawn)
+  const spawn0 = items.items.find((it) => it.kind === 'spawn_player')!;
+  const reachable = reachAroundSolids(g, Math.floor(spawn0.z) * W + Math.floor(spawn0.x), solidBoxesOf(items.items));
+  const nMirrors = placeMirrors(S, P, items, makeRng(key, 'mirrors'), { exclude: new Set([vault, vanId]), reach: reachable });
+  const nLore = placeLoreSpots(S, P, items, makeRng(key, 'lore'), { theme, exclude: new Set([lobby, vault, vanId]), reach: reachable });
+  // site-theme fixtures (kinds per space, sconces, altar candles): themed layouts only, rest of 'theme:lights'
+  const nThemeLights = theme === 'facility' ? 0 : addThemeLights(S, items, P, rTL, theme, reachable);
 
   // ---------------- metrics + invariants ----------------
   relink();
@@ -717,7 +741,7 @@ function generateOnce(seed: string, attempt: number, players: number, risk: numb
     kind: 'facility',
     seed,
     hash: '',
-    theme: themeFor(params.theme),
+    theme,
     W, H,
     owner: Array.from(owner),
     spaces,
@@ -735,6 +759,9 @@ function generateOnce(seed: string, attempt: number, players: number, risk: numb
       keyDistM: Math.round(keyDist), security: sec.length, fire: doors.filter((d) => d.kind === 'fire').length, rubble,
       leverPathM: Math.round(bestPath), loot: items.count('loot'), hiding: items.count('hiding'), notes: items.count('note'),
       vents: items.count('vent'), intercoms: items.count('intercom'), lights: items.count('light'), props: nProps,
+      emergency: nEmergency, mirrors: nMirrors, lore: nLore,
+      ...(theme === 'facility' ? {} : { themeLights: nThemeLights }),
+      ...Object.fromEntries(applied.map((sl) => [`mod:${sl}`, 1])),
     },
   };
   L.hash = layoutHash(L);

@@ -1,11 +1,17 @@
 // Owned by track ② Level. Independent invariant checks over a finished LevelLayout (used by tests, gen-cli, server).
 import type { LevelLayout } from '../layout.ts';
-import { ALL_OPEN, buildEdgeGrid, canWalk } from '../nav/grid.ts';
+import { ALL_OPEN, buildEdgeGrid } from '../nav/grid.ts';
 import type { DoorOpenFn } from '../nav/grid.ts';
 import { floodCells } from '../nav/path.ts';
 import { los } from '../nav/los.ts';
 import { CALLSIGN_INFO, confusable, findCallsigns } from '../callsign.ts';
 import { layoutHash } from './hash.ts';
+import { normalOfYaw } from './common.ts';
+import { reachAroundSolids } from './place.ts';
+import { stationsOf } from './van.ts';
+import { mirrorsOf } from './mirrors.ts';
+import { loreSpotsOf } from './lore.ts';
+import { containersOf } from './containers.ts';
 
 export interface ValidateOptions {
   leverMinPathM?: number;
@@ -132,25 +138,7 @@ export function validateLayout(L: LevelLayout, o: ValidateOptions = {}): Validat
     // solids (lockers, furniture, console) must not cut off rooms, doors or anything a player has to reach:
     // BFS over cells whose centre is clear of every solid box, all doors open
     {
-      const blockedCell = new Uint8Array(W * H);
-      for (let b = 0; b < g.solids.length / 4; b++) {
-        const x0 = g.solids[b * 4] - 0.1, z0 = g.solids[b * 4 + 1] - 0.1, x1 = g.solids[b * 4 + 2] + 0.1, z1 = g.solids[b * 4 + 3] + 0.1;
-        for (let z = Math.max(0, Math.floor(z0)); z <= Math.min(H - 1, Math.floor(z1)); z++) for (let x = Math.max(0, Math.floor(x0)); x <= Math.min(W - 1, Math.floor(x1)); x++) {
-          if (x + 0.5 > x0 && x + 0.5 < x1 && z + 0.5 > z0 && z + 0.5 < z1) blockedCell[z * W + x] = 1;
-        }
-      }
-      const startCell = start ? cellOfItem(start) : -1;
-      const seen = new Uint8Array(W * H);
-      const q: number[] = [];
-      if (startCell >= 0 && !blockedCell[startCell]) { seen[startCell] = 1; q.push(startCell); }
-      for (let i = 0; i < q.length; i++) {
-        const u = q[i], x = u % W, y = (u - x) / W;
-        for (let dir = 0; dir < 4; dir++) {
-          if (!canWalk(g, x, y, dir, ALL_OPEN)) continue;
-          const v = u + (dir === 0 ? 1 : dir === 1 ? -1 : dir === 2 ? W : -W);
-          if (!seen[v] && !blockedCell[v]) { seen[v] = 1; q.push(v); }
-        }
-      }
+      const seen = reachAroundSolids(g, start ? cellOfItem(start) : -1);
       const reachKinds = ['lever', 'keypad', 'switch', 'note', 'intercom', 'keycard', 'core', 'loot', 'console', 'leave_lever', 'deposit', 'vent', 'hiding'];
       for (const it of items) {
         if (!reachKinds.includes(it.kind)) continue;
@@ -218,6 +206,37 @@ export function validateLayout(L: LevelLayout, o: ValidateOptions = {}): Validat
     for (const k of ['kennel', 'mirror', 'board', 'shop']) if (byKind(k).length !== 1) err(`hub ${k} x${byKind(k).length}`);
     const hound = byKind('spawn_hound')[0];
     if (!hound || hound.data?.chained !== true) err('hub hound not chained');
+  }
+  // v1.2 (both kinds): stations, lore holders, mirrors and container fronts must be reachable around solids
+  {
+    const seen = reachAroundSolids(g, start ? cellOfItem(start) : -1);
+    const near = (x: number, z: number, space: number) => {
+      const cx = Math.floor(x), cz = Math.floor(z);
+      if (cx < 0 || cz < 0 || cx >= W || cz >= H) return false;
+      if (seen[cz * W + cx]) return true;
+      return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => {
+        const nx = cx + dx, ny = cz + dy;
+        return nx >= 0 && ny >= 0 && nx < W && ny < H && seen[ny * W + nx] && owner[ny * W + nx] === space;
+      });
+    };
+    for (const st of stationsOf(L)) {
+      if (st.virtual) continue;
+      if (!near(st.p[0], st.p[2], st.space)) err(`station ${st.kind} (${st.itemId}) unreachable around solids`);
+    }
+    for (const m of mirrorsOf(L)) {
+      const [nx, nz] = normalOfYaw(m.rot);
+      const fx = m.x + nx * 0.45, fz = m.z + nz * 0.45;
+      const c = Math.floor(fz) * W + Math.floor(fx);
+      if (m.kind !== 'van' && (owner[c] !== m.space || !seen[c])) err(`mirror ${m.id} front cell blocked`);
+      else if (!near(fx, fz, m.space)) err(`mirror ${m.id} unreachable`);
+    }
+    if (L.kind === 'facility') {
+      for (const sp of loreSpotsOf(L)) if (!near(sp.p[0], sp.p[2], sp.space)) err(`lore spot ${sp.id} unreachable around solids`);
+      for (const ct of containersOf(L)) {
+        const [fx, fz] = ct.front;
+        if (fx < 0 || fz < 0 || fx >= W || fz >= H || !seen[fz * W + fx] || owner[fz * W + fx] !== ct.space) err(`container ${ct.id} front cell ${fx},${fz} not walkable`);
+      }
+    }
   }
   return { errors, leverPathM, loops };
 }

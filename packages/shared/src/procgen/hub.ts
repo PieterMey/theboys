@@ -7,7 +7,7 @@ import { ALL_OPEN, buildEdgeGrid } from '../nav/grid.ts';
 import { floodCells } from '../nav/path.ts';
 import { layoutHash } from './hash.ts';
 import { ItemList, centreCell, r1 } from './common.ts';
-import { VAN_CARGO_W, addVanItems, addVanSpawns, stampVan } from './van.ts';
+import { HUB_MIRROR_DATA, VAN_CARGO_W, addVanItems, addVanSpawns, addVanStations, plannedRecordsBoard, plannedVanStations, stampVan } from './van.ts';
 import { HALF_T } from './place.ts';
 import { PROP_DEFS } from './decor.ts';
 
@@ -52,9 +52,11 @@ export function generateHub(): LevelLayout {
   // training kennel: interaction point at the front fence, chained hound inside
   a('kennel', lot, k.x + k.w / 2, k.y - 0.6, { y: 0, rot: Math.PI, data: { pen: kennel, w: k.w, h: k.h, fenceZ: k.y } });
   a('spawn_hound', kennel, k.x + k.w / 2, k.y + k.h / 2 + 0.5, { rot: Math.PI, data: { order: 0, chained: true } });
-  // locker mirror left of the van, board on the van's right flank, shop crate beside it
-  a('mirror', lot, HUB.van.x0 - 1.0, HUB.van.y0 + 1.2, { y: 0, rot: -Math.PI / 2 });
-  a('board', lot, HUB.van.x0 + VAN_CARGO_W + 0.12 + 0.15, HUB.van.y0 + 1.6, { y: 0, rot: Math.PI / 2 });
+  // v1.2: the mirror hangs inside the van (left wall, the planned mirror spot; still 'Change your look'); the board
+  // stands on the van's right flank clear of the 2.2 m body, the shop crate beside it
+  const ms = plannedVanStations(van.cab).find((s) => s.kind === 'mirror')!;
+  a('mirror', vanId, ms.x, ms.z, { y: ms.y, rot: ms.rot, data: { ...HUB_MIRROR_DATA } });
+  a('board', lot, HUB.van.x0 + 2.55, HUB.van.y0 + 1.6, { y: 0, rot: Math.PI / 2 });
   a('shop', lot, HUB.van.x0 + VAN_CARGO_W + 1.4, HUB.van.y0 + 3.9, { y: 0, rot: Math.PI / 2 });
   // set dressing: dumpster against the facade, barrels + a jerrycan by the shop
   const prop = (key: string, x: number, z: number, rot: number) => {
@@ -71,7 +73,12 @@ export function generateHub(): LevelLayout {
   a('light', lot, 24, 9, { y: 6, data: { state: 'on', kind: 'lamp' } });
   a('light', lot, 17, H - 1.5, { y: 6, data: { state: 'on', kind: 'lamp' } });
   a('light', lot, HUB.entranceX + 1, BD + 0.2, { y: 2.75, rot: 0, data: { state: 'on', kind: 'wall' } });
-  a('light', vanId, van.cab.x + van.cab.w / 2, van.cab.y + van.cab.h / 2, { y: 2.05, data: { state: 'on', kind: 'van' } });
+  // v1.2 (appended so every v1.1 id stays): van lights + station props, the records board on the facade
+  addVanStations(van, vanId, lot, a, { hubMirror: true });
+  const door = items.items.find((it) => it.kind === 'prop' && it.data?.prop === 'entrance_door')!;
+  const rb = plannedRecordsBoard(door);
+  const nb = PROP_DEFS.noticeboard;
+  a('prop', lot, rb.x, rb.z, { y: rb.y, rot: rb.rot, data: { prop: 'noticeboard', station: 'records', solid: false, w: nb.w, d: nb.d, h: nb.h } });
 
   const g = buildEdgeGrid({ W, H, owner, spaces, doors });
   const df = floodCells(g, [centreCell(owner, W, lot, spaces[lot].rect)], { mode: 'sound', doorOpen: ALL_OPEN });

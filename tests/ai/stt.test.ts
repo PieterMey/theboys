@@ -42,7 +42,8 @@ const got: Utterance[] = [];
 let near: [number, number];
 let far: [number, number];
 let mid: [number, number];
-const SPK: [number, number] = [7.5, 3.5]; // inside SHOWERS (rect x5 y0 w5 h7) in facility_s1_p2
+// the speaker stands in the middle of SHOWERS, looked up by callsign (no fixed coordinates: fixtures get regenerated)
+let SPK: [number, number] = [0, 0];
 
 before(async () => {
   await new Promise<void>((r) => srv.listen(0, '127.0.0.1', () => r()));
@@ -52,6 +53,9 @@ before(async () => {
   crew = ctx.crews.create('STTA');
   crew.layout = loadLayout('facility_s1_p2');
   crew.phase = 'contract';
+  const showers = crew.layout.spaces.find((sp) => sp.callsign === 'SHOWERS');
+  if (!showers) throw new Error('facility_s1_p2 has no SHOWERS room');
+  SPK = [showers.rect.x + showers.rect.w / 2, showers.rect.y + showers.rect.h / 2];
   onUtterance((c, u) => { if (c === crew) got.push(u); });
   // pick cells at ~8 m and ~15 m path distance from the speaker (doors as generated)
   const H = new Hearing(crew.layout);

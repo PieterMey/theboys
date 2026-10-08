@@ -1,7 +1,11 @@
 // Owned by track ② Level. Level generator CLI + dependency-free top-down PNG map renderer.
 //   node tools/gen-cli.ts --seed X --players 4 --risk 1 --png out.png [--json out.json] [--scale 14]
 //   node tools/gen-cli.ts --hub --png hub.png
-//   node tools/gen-cli.ts --fixtures            (rewrites tests/fixtures/layouts/*.json)
+//   node tools/gen-cli.ts --seed X --players 4 --theme hospital --modifiers "DARK WARDS,MAZE" --png out.png   (v1.2)
+//   node tools/gen-cli.ts --themes <dir> [--seed X --players 4]   (one PNG per site theme into <dir>)
+//   node tools/gen-cli.ts --fixtures            (rewrites tests/fixtures/layouts/*.json; integrator only)
+// v1.2 map overlay: stations (white squares), containers (orange, with a tick to the front cell), lore holders (yellow
+// diamonds), mirrors (cyan bars), emergency lights (red); the second legend line names the theme, modifiers and counts.
 // Without --png/--json it prints a one-line summary + metrics (G0 boot check).
 import { deflateSync } from 'node:zlib';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -9,6 +13,12 @@ import { dirname, resolve } from 'node:path';
 import { generateFacility, generateHub, resolveTuning, validateLayout } from '../packages/shared/src/procgen/index.ts';
 import type { LevelTuning } from '../packages/shared/src/procgen/index.ts';
 import type { LevelLayout } from '../packages/shared/src/layout.ts';
+import { SITE_THEMES, THEMES, modifierSlugs, themeOf } from '../packages/shared/src/procgen/themes.ts';
+import { stationsOf } from '../packages/shared/src/procgen/van.ts';
+import { containersOf } from '../packages/shared/src/procgen/containers.ts';
+import { loreSpotsOf } from '../packages/shared/src/procgen/lore.ts';
+import { mirrorsOf } from '../packages/shared/src/procgen/mirrors.ts';
+import { normalOfYaw } from '../packages/shared/src/procgen/common.ts';
 
 // ---------------- PNG encoding ----------------
 const CRC_TABLE = (() => {
@@ -119,7 +129,7 @@ const ITEM_GLYPH: Record<string, { c: RGB; r: number; ring?: boolean }> = {
 };
 
 export function renderMap(L: LevelLayout, S = 14): Canvas {
-  const legendH = 18;
+  const legendH = 30;
   const cv = new Canvas(L.W * S + 1, L.H * S + 1 + legendH, [12, 12, 15]);
   const own = (x: number, y: number) => (x < 0 || y < 0 || x >= L.W || y >= L.H ? -1 : L.owner[y * L.W + x]);
   // floors
@@ -178,6 +188,24 @@ export function renderMap(L: LevelLayout, S = 14): Canvas {
     if (!gl) continue;
     if (gl.ring) cv.ring(it.x * S, it.z * S, gl.r, gl.c); else cv.disc(it.x * S, it.z * S, gl.r, gl.c);
   }
+  // v1.2 overlay: containers (+ front cell tick), lore holders, mirrors, stations, emergency lights
+  const conts = containersOf(L), lore = loreSpotsOf(L), mirrors = mirrorsOf(L), stations = stationsOf(L).filter((st) => !st.virtual);
+  for (const c of conts) {
+    cv.rect(c.x * S - 2, c.z * S - 2, c.x * S + 3, c.z * S + 3, [255, 150, 30]);
+    const fx = (c.front[0] + 0.5) * S, fz = (c.front[1] + 0.5) * S;
+    for (let k = 0; k <= 8; k++) cv.set(c.x * S + ((fx - c.x * S) * k) / 8, c.z * S + ((fz - c.z * S) * k) / 8, [255, 150, 30], 0.7);
+  }
+  for (const sp of lore) {
+    if (sp.style === 'drawer') { cv.ring(sp.x * S, sp.z * S, 4, [255, 230, 60]); continue; }
+    for (let d = -3; d <= 3; d++) for (let e = -(3 - Math.abs(d)); e <= 3 - Math.abs(d); e++) cv.set(sp.x * S + d, sp.z * S + e, [255, 230, 60]);
+  }
+  for (const m of mirrors) {
+    const [nx, nz] = normalOfYaw(m.rot);
+    const tx = -nz, tz = nx, half = (m.w / 2) * S;
+    for (let k = -half; k <= half; k++) for (const o of [0, 1]) cv.set(m.x * S + tx * k + nx * o, m.z * S + tz * k + nz * o, [80, 240, 255]);
+  }
+  for (const st of stations) cv.ring(st.x * S, st.z * S, 2, [255, 255, 255]);
+  for (const it of L.items) if (it.kind === 'light' && it.data?.kind === 'emergency') cv.rect(it.x * S - 2, it.z * S - 2, it.x * S + 2, it.z * S + 2, [255, 30, 30]);
   // van outline
   const v = L.van;
   for (let k = 0; k <= v.cab.w * S; k++) { cv.set(v.cab.x * S + k, v.cab.y * S + 2, [255, 255, 255], 0.5); }
@@ -195,6 +223,9 @@ export function renderMap(L: LevelLayout, S = 14): Canvas {
   const m = L.metrics;
   const leg = L.kind === 'hub' ? `HUB ${L.W}X${L.H}` : `SEED ${L.seed} P${m.players} R${m.risk} ${L.W}X${L.H} ROOMS ${m.rooms} LOOPS ${m.loops} DE ${m.deadEnds} LOCK ${m.locks} SEC ${m.security} LEV ${m.leverPathM}M #${L.hash}`;
   cv.text(leg, 4, ly, [220, 220, 220], 1);
+  const mods = Object.keys(m).filter((k) => k.startsWith('mod:')).map((k) => k.slice(4).toUpperCase());
+  const leg2 = `${L.kind === 'hub' ? 'HUB' : THEMES[themeOf(L)].label}${mods.length ? ` MODS ${mods.join(' ')}` : ''} STATIONS ${stations.length} CONTAINERS ${conts.length} LORE ${lore.length} MIRRORS ${mirrors.length}`;
+  cv.text(leg2, 4, ly + 12, [255, 220, 150], 1);
   return cv;
 }
 
@@ -239,14 +270,29 @@ function main(): void {
     console.log('hub.json', hub.hash, validateLayout(hub).errors);
     return;
   }
+  const theme = arg('theme');
+  const modifiers = arg('modifiers')?.split(',').map((m) => m.trim()).filter(Boolean);
+  const themesDir = arg('themes');
+  if (themesDir) {
+    // one map per site theme (same seed / crew size), for review
+    for (const th of SITE_THEMES) {
+      const t1 = performance.now();
+      const L = generateFacility({ seed: arg('seed') ?? '1', players: Number(arg('players') ?? 4), risk: Number(arg('risk') ?? 1), theme: th, modifiers }, tuning);
+      const v = validateLayout(L);
+      writeOut(resolve(themesDir, `theme_${th}.png`), renderMap(L, Number(arg('scale') ?? 14)).png());
+      console.log(`${th.padEnd(12)} hash=${L.hash} gen=${(performance.now() - t1).toFixed(1)}ms valid=${v.errors.length === 0 ? 'yes' : v.errors.join('; ')}`);
+      if (v.errors.length) process.exitCode = 1;
+    }
+    return;
+  }
   const t0 = performance.now();
-  const L = has('hub') ? generateHub() : generateFacility({ seed: arg('seed') ?? '1', players: Number(arg('players') ?? 4), risk: Number(arg('risk') ?? 1) }, tuning);
+  const L = has('hub') ? generateHub() : generateFacility({ seed: arg('seed') ?? '1', players: Number(arg('players') ?? 4), risk: Number(arg('risk') ?? 1), theme, modifiers }, tuning);
   const ms = performance.now() - t0;
   const v = validateLayout(L);
   const png = arg('png'), json = arg('json');
   if (png) writeOut(png, renderMap(L, Number(arg('scale') ?? 14)).png());
   if (json) writeOut(json, JSON.stringify(L));
-  console.log(`${L.kind} seed=${L.seed} ${L.W}x${L.H} hash=${L.hash} gen=${ms.toFixed(1)}ms valid=${v.errors.length === 0 ? 'yes' : v.errors.join('; ')}`);
+  console.log(`${L.kind} seed=${L.seed} theme=${L.theme}${modifiers?.length ? ` mods=${modifierSlugs(modifiers).join('+')}` : ''} ${L.W}x${L.H} hash=${L.hash} gen=${ms.toFixed(1)}ms valid=${v.errors.length === 0 ? 'yes' : v.errors.join('; ')}`);
   console.log(JSON.stringify(L.metrics));
   if (v.errors.length) process.exitCode = 1;
 }

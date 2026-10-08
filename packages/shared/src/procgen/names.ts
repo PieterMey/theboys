@@ -21,8 +21,19 @@ export const LANDMARKS: Readonly<Record<string, readonly [number, number, number
   LIBRARY: [48, 300, 6],
 };
 
-/** Assign callsigns to every room/hall that has none yet (lobby/vault/van are set by the generator). */
-export function assignCallsigns(spaces: Nameable[], rng: Rng, avoid: readonly string[], landmarks = 0): void {
+/** v1.2 site-theme preference: EXISTING callsigns moved to the front of the shuffled lists (ThemeDef.prefer) */
+export interface CallsignPrefer { landmarks: readonly string[]; rooms: readonly string[]; avoid?: readonly string[] }
+/** stable partition: preferred entries first, avoided ones last, each group keeping its (shuffled) order; no rng draws */
+function preferFirst<T extends string>(list: T[], pref: readonly string[], avoid: readonly string[] = []): T[] {
+  if (!pref.length && !avoid.length) return list;
+  const mid = list.filter((c) => !pref.includes(c) && !avoid.includes(c));
+  return [...list.filter((c) => pref.includes(c)), ...mid, ...list.filter((c) => !pref.includes(c) && avoid.includes(c))];
+}
+
+/** Assign callsigns to every room/hall that has none yet (lobby/vault/van are set by the generator). prefer (v1.2) is
+ *  applied after the existing shuffles as a stable partition, so an empty preference is exactly the v1.1 draw. */
+export function assignCallsigns(spaces: Nameable[], rng: Rng, avoid: readonly string[], landmarks = 0, prefer?: CallsignPrefer): void {
+  const prefL = prefer?.landmarks ?? [], prefR = prefer ? [...prefer.rooms, ...prefer.landmarks] : [], avoid2 = prefer?.avoid ?? [];
   const skip = new Set([...SPECIAL, ...avoid]);
   const pool = CALLSIGNS.filter((c) => !skip.has(c));
   const used = new Set<string>(spaces.map((s) => s.callsign).filter((c): c is string => c !== null));
@@ -30,7 +41,7 @@ export function assignCallsigns(spaces: Nameable[], rng: Rng, avoid: readonly st
   // landmarks first: each goes to a fitting unnamed room (largest fit for the halls, random fit otherwise)
   if (landmarks > 0) {
     let placed = 0;
-    for (const cs of rng.shuffle(Object.keys(LANDMARKS).filter((c) => pool.includes(c as (typeof CALLSIGNS)[number])))) {
+    for (const cs of preferFirst(rng.shuffle(Object.keys(LANDMARKS).filter((c) => pool.includes(c as (typeof CALLSIGNS)[number]))), prefL, avoid2)) {
       if (placed >= landmarks) break;
       if (!ok(cs)) continue;
       const [lo, hi, side] = LANDMARKS[cs];
@@ -43,8 +54,8 @@ export function assignCallsigns(spaces: Nameable[], rng: Rng, avoid: readonly st
       placed++;
     }
   }
-  const big = rng.shuffle(pool.filter((c) => CALLSIGN_INFO[c].size !== 'S'));
-  const small = rng.shuffle(pool.filter((c) => CALLSIGN_INFO[c].size !== 'L'));
+  const big = preferFirst(rng.shuffle(pool.filter((c) => CALLSIGN_INFO[c].size !== 'S')), prefR, avoid2);
+  const small = preferFirst(rng.shuffle(pool.filter((c) => CALLSIGN_INFO[c].size !== 'L')), prefR, avoid2);
   const rooms = spaces.filter((s) => (s.kind === 'room' || s.kind === 'hall') && s.callsign === null)
     .sort((a, b) => area(b.rect) - area(a.rect) || a.id - b.id);
   for (const s of rooms) {

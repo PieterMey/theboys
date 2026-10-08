@@ -6,6 +6,11 @@
 //   node tools/fetch-assets.mjs --only chars,anims,hound,tex,props,audio,el,emit
 //   node tools/fetch-assets.mjs --force                 # rebuild optimized outputs (never re-downloads)
 //   node --env-file=.env tools/fetch-assets.mjs --only el,emit --generate   # ElevenLabs build-time generation (costs credits)
+//   node tools/fetch-assets.mjs --dist <dir> --only tex,fonts               # v1.2 staging: hashed files + manifest + credits
+//                                                                           # go to <dir> (a copy of .assets/dist); src/build stay shared
+//   --no-prune   keep stale hashed files in a --dist stage (writing .assets/dist never prunes: the live server serves it;
+//                --prune forces it there, only with the game server stopped)
+//   --no-keys-ts do not rewrite packages/shared/src/assets.ts (its key lists are a union: keys are only ever added)
 //
 // Layout: .assets/src   raw downloads (untrusted data; never executed)
 //         .assets/build optimized outputs with stable names
@@ -21,7 +26,7 @@ const ROOT = resolve(import.meta.dirname, '..');
 const A = join(ROOT, '.assets');
 const SRC = join(A, 'src');
 const BUILD = join(A, 'build');
-const DIST = join(A, 'dist');
+const LIVE_DIST = join(A, 'dist');
 const M = JSON.parse(readFileSync(join(ROOT, 'tools/assets.manifest.json'), 'utf8'));
 const UA = M.userAgent || 'DeadAir-build/1.0';
 const argv = process.argv.slice(2);
@@ -33,12 +38,23 @@ const opt = (n) => {
   return a ? a.slice(n.length + 3) : undefined;
 };
 const ONLY = opt('only')?.split(',');
+// v1.2: --dist <dir> stages the hashed outputs + manifest + credits elsewhere (never the live .assets/dist)
+const DIST = opt('dist') ? resolve(opt('dist')) : LIVE_DIST;
+const STAGED = DIST !== LIVE_DIST;
+const PRUNE = STAGED ? !argv.includes('--no-prune') : argv.includes('--prune');
 const FORCE = flag('force');
 const want = (s) => !ONLY || ONLY.includes(s);
 const log = (...a) => console.log('[assets]', ...a);
 const warn = (...a) => console.warn('[assets] WARN', ...a);
 const rel = (p) => relative(ROOT, p).replaceAll('\\', '/');
 const mkdirp = (d) => mkdirSync(d, { recursive: true });
+/** write via a temp file + rename, so a reader (the live server, a browser) never sees a half-written file */
+function writeAtomic(file, data) {
+  mkdirp(dirname(file));
+  const tmp = `${file}.tmp-${process.pid}`;
+  writeFileSync(tmp, data);
+  renameSync(tmp, file);
+}
 
 // ---------------------------------------------------------------------------------------------------------------
 // registry -> manifest
@@ -592,7 +608,9 @@ function wrapperGltf(imageUri, slot) {
       ? { pbrMetallicRoughness: { baseColorTexture: { index: 0 } } }
       : slot === 'normal'
         ? { normalTexture: { index: 0 } }
-        : { pbrMetallicRoughness: { metallicRoughnessTexture: { index: 0 } }, occlusionTexture: { index: 0 } };
+        : slot === 'decal'
+          ? { alphaMode: 'MASK', pbrMetallicRoughness: { baseColorTexture: { index: 0 } } }
+          : { pbrMetallicRoughness: { metallicRoughnessTexture: { index: 0 } }, occlusionTexture: { index: 0 } };
   return {
     asset: { version: '2.0' },
     scene: 0,
@@ -674,12 +692,20 @@ async function stepTextures() {
       const res = (spec.acgRes || '1K').toUpperCase();
       const zipName = `${spec.acg}_${res}-JPG.zip`;
       const zip = join(SRC, '_dl', zipName);
+      if (!existsSync(zip)) {
+        // verify through the ambientCG v2 API first (asset exists, CC0, the zip is offered at this resolution)
+        const info = await getJson(`https://ambientcg.com/api/v2/full_json?id=${spec.acg}&include=downloadData`);
+        const asset = info.foundAssets?.find((x) => x.assetId === spec.acg);
+        const dl = asset?.downloadFolders?.default?.downloadFiletypeCategories?.zip?.downloads?.find((d) => d.fileName === zipName);
+        if (!dl) throw new Error(`ambientCG ${spec.acg}: ${zipName} not offered by the API`);
+      }
       await download(`https://ambientcg.com/get?file=${zipName}`, zip, { expectZip: true });
       const dir = join(SRC, 'ambientcg', spec.acg);
       extractZip(zip, dir);
       const f = (suffix) => join(dir, `${spec.acg}_${res}-JPG_${suffix}.jpg`);
       const orm = join(BUILD, '_tmp/acg', `${spec.acg}_orm.png`);
-      if (!existsSync(orm)) await packOrm(f('AmbientOcclusion'), f('Roughness'), f('Metalness'), orm);
+      // acgMetalFrom: take metalness from another map (MetalWalkway's own Metalness map is nearly black: metal = its Opacity)
+      if (!existsSync(orm)) await packOrm(f('AmbientOcclusion'), f('Roughness'), f(spec.acgMetalFrom || 'Metalness'), orm);
       const group = spec.group || 'site';
       jobs.push({ id, map: 'albedo', res: res.toLowerCase(), src: f('Color'), group, ph: spec.acg, origin: 'ambientcg' });
       jobs.push({ id, map: 'normal', res: res.toLowerCase(), src: f('NormalGL'), group, ph: spec.acg, origin: 'ambientcg' });
@@ -716,6 +742,102 @@ async function stepTextures() {
       alt: { webp: { file: join(base, `${j.map}.webp`), out: `tex/${j.id}/${j.map}.webp` } },
     });
   }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// decals (v1.2): one RGBA atlas (opacity packed into albedo alpha) of ambientCG CC0 decals + an index JSON.
+// Cells: a 4 x 4 grid, each source fitted (aspect kept) inside its cell minus a gutter; the RGB under transparent texels
+// is the cell's mean colour so mips never fringe. mode 'rgba' = Color + Opacity maps; 'mask' = alpha from the darkness
+// of one grey map (1 - map) * gain, RGB = a fixed tint (leak streaks, footprint trails authored as materials).
+// ---------------------------------------------------------------------------------------------------------------
+async function stepDecals() {
+  const D = M.decals;
+  if (!D?.cells?.length) return;
+  const out = join(BUILD, 'decals', 'atlas.png');
+  const idxFile = join(BUILD, 'decals', 'index.json');
+  const ktx = join(BUILD, 'decals', 'atlas.ktx2'), webp = join(BUILD, 'decals', 'atlas.webp');
+  credit('ambientcg', { title: 'ambientCG materials', author: 'Lennart Demes (ambientCG)', license: 'CC0-1.0', url: 'https://ambientcg.com' });
+  // the build is keyed by the spec: editing tools/assets.manifest.json decals rebuilds the atlas (no --force needed)
+  const spec = sha(Buffer.from(JSON.stringify(D))).slice(0, 12);
+  const built = (() => { try { return JSON.parse(readFileSync(idxFile, 'utf8')).spec; } catch { return null; } })();
+  if (built !== spec) for (const f of [out, idxFile, ktx, webp]) rmSync(f, { force: true });
+  if (!(fresh(out) && fresh(idxFile) && fresh(ktx) && fresh(webp))) {
+    const sharp = (await import('sharp')).default;
+    const size = D.size || 2048, cell = D.cell || 512, gut = D.gutter || 16, cols = Math.floor(size / cell);
+    const inner = cell - 2 * gut;
+    const res = D.res || '1K-PNG';
+    const rgba = Buffer.alloc(size * size * 4);
+    const cells = [];
+    for (let i = 0; i < D.cells.length; i++) {
+      const c = D.cells[i];
+      const zipName = `${c.acg}_${res}.zip`;
+      const zip = join(SRC, '_dl', zipName);
+      if (!existsSync(zip)) {
+        const info = await getJson(`https://ambientcg.com/api/v2/full_json?id=${c.acg}&include=downloadData`);
+        const asset = info.foundAssets?.find((x) => x.assetId === c.acg);
+        if (!asset?.downloadFolders?.default?.downloadFiletypeCategories?.zip?.downloads?.some((d) => d.fileName === zipName)) throw new Error(`ambientCG ${c.acg}: ${zipName} not offered by the API`);
+      }
+      await download(`https://ambientcg.com/get?file=${zipName}`, zip, { expectZip: true });
+      const dir = join(SRC, 'ambientcg', `${c.acg}_png`);
+      extractZip(zip, dir);
+      const map = (suffix) => join(dir, `${c.acg}_${res}_${suffix}.png`);
+      const grey = async (file) => sharp(file).removeAlpha().greyscale().raw().toBuffer({ resolveWithObject: true });
+      let w, h, px; // RGBA source
+      if (c.mode === 'mask') {
+        const g = await grey(map(c.map || 'Color'));
+        w = g.info.width; h = g.info.height; px = Buffer.alloc(w * h * 4);
+        const [tr, tg, tb] = c.tint || [50, 44, 34];
+        // auto levels: the 99.5th percentile of the darkness maps to alpha 220 (then * gain), so faint streak maps show
+        let scale = c.gain || 1;
+        if (c.auto) {
+          const hist = new Uint32Array(256);
+          for (let k = 0; k < w * h; k++) hist[255 - g.data[k * g.info.channels]]++;
+          let acc = 0, p = 255;
+          for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= 0.995 * w * h) { p = v; break; } }
+          scale *= 220 / Math.max(1, p);
+        }
+        for (let k = 0; k < w * h; k++) {
+          px[k * 4] = tr; px[k * 4 + 1] = tg; px[k * 4 + 2] = tb;
+          px[k * 4 + 3] = Math.max(0, Math.min(255, Math.round((255 - g.data[k * g.info.channels]) * scale)));
+        }
+      } else {
+        const col = await sharp(map('Color')).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+        w = col.info.width; h = col.info.height;
+        const op = await sharp(map('Opacity')).resize(w, h).removeAlpha().greyscale().raw().toBuffer({ resolveWithObject: true });
+        px = Buffer.alloc(w * h * 4);
+        for (let k = 0; k < w * h; k++) {
+          for (let ch = 0; ch < 3; ch++) px[k * 4 + ch] = col.data[k * col.info.channels + ch];
+          px[k * 4 + 3] = op.data[k * op.info.channels];
+        }
+      }
+      // fit inside the cell (aspect kept), centred
+      const sc = Math.min(inner / w, inner / h);
+      const fw = Math.max(1, Math.round(w * sc)), fh = Math.max(1, Math.round(h * sc));
+      const fit = await sharp(px, { raw: { width: w, height: h, channels: 4 } }).resize(fw, fh, { kernel: 'lanczos3' }).raw().toBuffer();
+      const cx = (i % cols) * cell, cy = Math.floor(i / cols) * cell;
+      const ox = cx + gut + Math.floor((inner - fw) / 2), oy = cy + gut + Math.floor((inner - fh) / 2);
+      // mean colour of the visible texels (alpha-weighted) -> fill the whole cell, then paste
+      let sr = 0, sg = 0, sb = 0, sa = 0;
+      for (let k = 0; k < fw * fh; k++) { const a = fit[k * 4 + 3]; sr += fit[k * 4] * a; sg += fit[k * 4 + 1] * a; sb += fit[k * 4 + 2] * a; sa += a; }
+      const mr = sa ? Math.round(sr / sa) : 128, mg = sa ? Math.round(sg / sa) : 128, mb = sa ? Math.round(sb / sa) : 128;
+      for (let y = cy; y < cy + cell; y++) for (let x = cx; x < cx + cell; x++) { const o = (y * size + x) * 4; rgba[o] = mr; rgba[o + 1] = mg; rgba[o + 2] = mb; rgba[o + 3] = 0; }
+      for (let y = 0; y < fh; y++) for (let x = 0; x < fw; x++) {
+        const si = (y * fw + x) * 4, o = ((oy + y) * size + ox + x) * 4, a = fit[si + 3];
+        if (!a) continue;
+        rgba[o] = fit[si]; rgba[o + 1] = fit[si + 1]; rgba[o + 2] = fit[si + 2]; rgba[o + 3] = a;
+      }
+      const r4 = (v) => Math.round(v * 1e4) / 1e4;
+      cells.push({ idx: i, name: c.name, kind: c.kind, surface: c.surface, uv: [r4(ox / size), r4(oy / size), r4((ox + fw) / size), r4((oy + fh) / size)], aspect: r4(fw / fh), size: c.size, source: `ambientcg:${c.acg}` });
+    }
+    mkdirp(dirname(out));
+    await sharp(rgba, { raw: { width: size, height: size, channels: 4 } }).png().toFile(out);
+    writeAtomic(idxFile, JSON.stringify({ v: 1, note: 'uv = [u0, v0, u1, v1] of the visible content, v from the top image row (no flip); size = suggested world size [w, h] in metres', spec, size, cell, gutter: gut, cells }, null, 1));
+    await encodeTexture(out, 'decal', ktx, 'ktx2');
+    await encodeTexture(out, 'decal', webp, 'webp');
+    log('built decal atlas', cells.length, 'cells');
+  }
+  reg('decal.atlas', ktx, 'decals/atlas.ktx2', { group: D.group || 'site', credit: 'ambientcg', extra: { colorSpace: 'srgb', res: '2k', source: 'ambientcg:decals' }, alt: { webp: { file: webp, out: 'decals/atlas.webp' } } });
+  reg('decal.index', idxFile, 'decals/index.json', { group: D.group || 'site', credit: 'ambientcg' });
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -782,6 +904,24 @@ async function stepAudio() {
     const file = join(SRC, 'audio', snd.source, snd.file);
     const ext = extname(file).toLowerCase();
     reg(snd.key, file, `sfx/${snd.key.replace(/^sfx\./, '')}${ext}`, { group: snd.group || (snd.key.startsWith('sfx.ui_') ? 'boot' : 'site'), credit: snd.source, extra: snd.durationSec ? { durationSec: snd.durationSec } : undefined });
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// fonts (v1.2): SIL OFL handwriting font for lore pages + its licence text (shipped next to the font, as the OFL asks)
+// ---------------------------------------------------------------------------------------------------------------
+async function stepFonts() {
+  for (const [key, f] of Object.entries(M.fonts?.items || {})) {
+    const dir = join(SRC, 'fonts', f.id);
+    const ttf = join(dir, basename(new URL(f.ttf).pathname));
+    const lic = join(dir, basename(new URL(f.license).pathname));
+    await download(f.ttf, ttf, { minBytes: 10000 });
+    await download(f.license, lic, { minBytes: 1000 });
+    if (readFileSync(ttf).readUInt32BE(0) !== 0x00010000) throw new Error(`${key}: not a TrueType font`);
+    if (!/SIL OPEN FONT LICENSE/i.test(readFileSync(lic, 'utf8'))) throw new Error(`${key}: licence is not the SIL OFL`);
+    credit(f.id, { title: f.title, author: f.author, license: 'OFL-1.1', url: f.page, note: `SIL Open Font License 1.1; the licence text ships as ${key}.license` });
+    reg(key, ttf, `fonts/${f.id}.ttf`, { group: f.group || 'site', credit: f.id });
+    reg(`${key}.license`, lic, `fonts/${f.id}.OFL.txt`, { group: f.group || 'site', credit: f.id });
   }
 }
 
@@ -1215,13 +1355,10 @@ function hashedCopy(file, out) {
   const ext = extname(out);
   const url = `${out.slice(0, -ext.length)}.${h}${ext}`;
   const dest = join(DIST, url);
-  if (!existsSync(dest) || statSync(dest).size !== buf.length) {
-    mkdirp(dirname(dest));
-    writeFileSync(dest, buf);
-  }
+  if (!existsSync(dest) || statSync(dest).size !== buf.length) writeAtomic(dest, buf);
   return { url, bytes: buf.length };
 }
-const TYPE = { '.glb': 'glb', '.ktx2': 'ktx2', '.webp': 'webp', '.ogg': 'ogg', '.mp3': 'mp3', '.wav': 'wav', '.json': 'json', '.png': 'png' };
+const TYPE = { '.glb': 'glb', '.ktx2': 'ktx2', '.webp': 'webp', '.ogg': 'ogg', '.mp3': 'mp3', '.wav': 'wav', '.json': 'json', '.png': 'png', '.ttf': 'ttf', '.txt': 'txt' };
 
 function readPrevManifest() {
   try {
@@ -1235,8 +1372,10 @@ async function emit() {
   mkdirp(DIST);
   const prev = readPrevManifest();
   const files = {};
-  // keep entries from steps that did not run this time (--only), so partial runs never shrink the manifest
-  if (prev && ONLY) for (const [k, v] of Object.entries(prev.files || {})) if (!REG.has(k) && existsSync(join(DIST, v.url))) files[k] = v;
+  // keep entries from steps that did not run this time (--only, and every staged --dist run), so partial runs never
+  // shrink the manifest: a staged manifest is always a superset of the stage it started from
+  if (prev && (ONLY || STAGED)) for (const [k, v] of Object.entries(prev.files || {})) if (!REG.has(k) && existsSync(join(DIST, v.url))) files[k] = v;
+  log(`emit -> ${STAGED ? DIST + ' (staged)' : rel(DIST) + ' (live: no prune)'}`);
   for (const [key, r] of [...REG.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
     const { url, bytes } = hashedCopy(r.file, r.out);
     const e = { url, bytes, group: r.group, type: TYPE[extname(r.out)] || extname(r.out).slice(1) };
@@ -1255,7 +1394,7 @@ async function emit() {
     for (const f of ['basis_transcoder.js', 'basis_transcoder.wasm']) copyFileSync(join(basisSrc, f), join(DIST, 'basis', f));
     basisPath = 'basis/';
   } else warn('node_modules/three not installed yet: basis transcoder not copied (re-run --only emit later)');
-  // prune stale hashed files
+  // prune stale hashed files (staged --dist only, unless --no-prune; the live .assets/dist only with --prune)
   const keep = new Set(Object.values(files).flatMap((e) => [e.url, ...Object.values(e.alt || {})]));
   const walk = (d) => {
     for (const n of readdirSync(d)) {
@@ -1266,7 +1405,7 @@ async function emit() {
       } else if (/\.[0-9a-f]{10}\.[a-z0-9]+$/.test(n) && !keep.has(r)) rmSync(p);
     }
   };
-  walk(DIST);
+  if (PRUNE) walk(DIST);
   const groups = {};
   let total = 0;
   for (const e of Object.values(files)) {
@@ -1274,7 +1413,7 @@ async function emit() {
     total += e.bytes;
   }
   const manifest = { v: 1, generated: new Date().toISOString(), base: '/assets/', ...(basisPath ? { basisPath } : {}), totalBytes: total, groupBytes: groups, files };
-  writeFileSync(join(DIST, 'manifest.json'), JSON.stringify(manifest, null, 1));
+  writeAtomic(join(DIST, 'manifest.json'), JSON.stringify(manifest, null, 1));
   // credits
   const prevCredits = (() => {
     try {
@@ -1284,15 +1423,19 @@ async function emit() {
     }
   })();
   const sources = [...CREDITS.entries()].map(([id, c]) => ({ id, ...c, keys: c.keys.filter((k) => files[k]).sort() })).filter((c) => c.keys.length);
-  if (prevCredits && ONLY) for (const s of prevCredits.sources || []) if (!sources.find((x) => x.id === s.id)) sources.push(s);
+  if (prevCredits && (ONLY || STAGED)) for (const s of prevCredits.sources || []) {
+    const cur = sources.find((x) => x.id === s.id);
+    if (!cur) sources.push(s);
+    else cur.keys = [...new Set([...cur.keys, ...(s.keys || []).filter((k) => files[k])])].sort();
+  }
   const credits = {
     note: 'Asset credits for DEAD AIR. CC-BY entries REQUIRE the attribution line in the in-game credits screen. CC0 entries are credited as a courtesy.',
     generated: manifest.generated,
     required: sources.filter((s) => /^CC-BY/.test(s.license)).map((s) => s.attribution || `${s.title} by ${s.author} (${s.license}) ${s.url}`),
     sources: sources.sort((a, b) => a.id.localeCompare(b.id)),
   };
-  writeFileSync(join(DIST, 'credits.json'), JSON.stringify(credits, null, 1));
-  writeKeysTs(Object.keys(files).sort());
+  writeAtomic(join(DIST, 'credits.json'), JSON.stringify(credits, null, 1));
+  if (!flag('no-keys-ts')) writeKeysTs(Object.keys(files).sort());
   log(`manifest: ${Object.keys(files).length} keys, ${(total / 1e6).toFixed(1)} MB`, JSON.stringify(Object.fromEntries(Object.entries(groups).map(([g, b]) => [g, +(b / 1e6).toFixed(1)]))));
 }
 
@@ -1305,7 +1448,17 @@ function writeKeysTs(keys) {
   const i = src.indexOf(start);
   const j = src.indexOf(end);
   if (i < 0 || j < 0) return warn('assets.ts: generated markers missing');
-  const mats = [...new Set(keys.filter((k) => k.startsWith('tex.')).map((k) => k.split('.')[1]))].sort();
+  // union with the lists already in the file: keys and material ids are only ever added (a staged or partial run, or a
+  // material listed ahead of its textures, never removes a name other code is typed against)
+  const block = src.slice(i, j);
+  const listed = (name) => {
+    const a = block.indexOf(`export const ${name} = [`);
+    if (a < 0) return [];
+    const b = block.indexOf('] as const;', a);
+    return [...block.slice(a, b).matchAll(/'([^']+)'/g)].map((x) => x[1]);
+  };
+  keys = [...new Set([...listed('ASSET_KEYS'), ...keys])].sort();
+  const mats = [...new Set([...listed('MATERIAL_IDS'), ...keys.filter((k) => k.startsWith('tex.')).map((k) => k.split('.')[1])])].sort();
   const body = [
     start,
     '// Written by tools/fetch-assets.mjs from the built manifest. Do not edit by hand.',
@@ -1318,7 +1471,7 @@ function writeKeysTs(keys) {
     '',
   ].join('\n');
   const next = src.slice(0, i) + body + src.slice(j);
-  if (next !== src) writeFileSync(file, next);
+  if (next !== src) writeAtomic(file, next);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1328,6 +1481,8 @@ const steps = [
   ['hound', stepHound],
   ['tex', stepTextures],
   ['props', stepProps],
+  ['fonts', stepFonts],
+  ['decals', stepDecals],
   ['audio', stepAudio],
   ['el', stepElevenLabs],
 ];

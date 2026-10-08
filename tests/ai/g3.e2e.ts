@@ -18,25 +18,38 @@ import { Bot, startDevServer, waitHttp, wav16k } from './bot.ts';
 const PORT = Number(process.env.PORT ?? 3015);
 const BASE = `http://127.0.0.1:${PORT}`;
 const STT = process.env.STT_URL ?? 'http://127.0.0.1:3100';
-const SPK: [number, number] = [7.5, 3.5]; // SHOWERS
+let server: ChildProcess | null = null;
 
 interface MState { mode: string; agents: { kind: string; x: number; z: number; dormant?: boolean; intent?: string; memory?: { text: string; callsigns: string[] }[] }[]; log: { line: string; action: string; target: string | null; source: string; valid: boolean }[] }
 
 function fail(msg: string): never {
   console.error(`g3.e2e FAILED: ${msg}`);
+  server?.kill(); // process.exit skips the finally below: never leave the spawned dev server running
   process.exit(1);
 }
 
 async function main(): Promise<void> {
   if (!(await waitHttp(`${STT}/health`, 60_000, async (r) => r.ok && ((await r.json()) as { warm?: boolean }).warm === true))) fail('STT sidecar not warm (npm run stt)');
-  const server: ChildProcess = startDevServer(PORT, STT);
+  server = startDevServer(PORT, STT);
   try {
     if (!(await waitHttp(`${BASE}/healthz`, 30_000))) fail('server not up');
     const crew = `G${randomBytes(3).toString('hex').toUpperCase().replace(/[^A-Z]/g, 'X')}`.slice(0, 4);
     const bot = new Bot(`ws://127.0.0.1:${PORT}/ws`, crew, 'Sam');
     await bot.ready();
     await bot.req('voice.consent', { transcribe: true });
-    await bot.req('dbg.objectives.start', { fixture: 'facility_s1_p2', realSec: 900 });
+    const started = await bot.req<{ seed: string; hash: string }>('dbg.objectives.start', { fixture: 'facility_s1_p2', realSec: 900 });
+    // the fixture the server now runs: the speaker stands in the middle of SHOWERS, looked up by callsign (no fixed
+    // coordinates: tests/fixtures/layouts gets regenerated); the Hound gets parked on its spawn slot farthest from there
+    const L = loadLayout('facility_s1_p2');
+    if (started.hash !== L.hash) fail(`the server runs layout ${started.hash}, the fixture file is ${L.hash}`);
+    const showers = L.spaces.find((sp) => sp.callsign === 'SHOWERS');
+    if (!showers) fail('facility_s1_p2 has no SHOWERS room');
+    const SPK: [number, number] = [showers.rect.x + showers.rect.w / 2, showers.rect.y + showers.rect.h / 2];
+    const houndSlots = L.items.filter((i) => i.kind === 'spawn_hound');
+    if (!houndSlots.length) fail('facility_s1_p2 has no spawn_hound slot');
+    const away = (i: { x: number; z: number }) => Math.hypot(i.x - SPK[0], i.z - SPK[1]);
+    const park = houndSlots.reduce((p, i) => (away(i) > away(p) ? i : p));
+    console.log(`layout ${started.seed} (${started.hash}): speaker in SHOWERS at ${SPK.join(',')}, Hound parked at ${park.x},${park.z}`);
     await new Promise((r) => setTimeout(r, 500));
     let ms = await bot.req<MState>('dbg.monsters.state');
     if (!ms.agents?.some((a) => a.kind === 'listener')) {
@@ -53,12 +66,11 @@ async function main(): Promise<void> {
       return s;
     });
     // park the Hound out of play (it would hear the talking at ~11 m and end the test with a kill)
-    await bot.req('dbg.monsters.place', { id: 'hound', x: 31.5, z: 23.5, active: false });
+    await bot.req('dbg.monsters.place', { id: 'hound', x: park.x, z: park.z, active: false });
     await bot.req('dbg.monsters.wake');
     await bot.req('dbg.ai.fakeListener', { off: true });
     await bot.req('dbg.ai.place', { x: SPK[0], z: SPK[1] });
 
-    const L = loadLayout('facility_s1_p2');
     const H = new Hearing(L);
     const open = initialDoorOpen(L);
     const pick = (lo: number, hi: number): [number, number] => {
@@ -125,7 +137,7 @@ async function main(): Promise<void> {
     if (bad) fail(`${bad} check(s) failed`);
     console.log('g3.e2e OK');
   } finally {
-    server.kill();
+    server?.kill();
   }
 }
 

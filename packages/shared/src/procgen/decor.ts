@@ -8,6 +8,8 @@
 // doors and interaction points mutually reachable (cell BFS check per solid placement).
 import type { LayoutSpace } from '../layout.ts';
 import type { Rng } from '../rng.ts';
+import type { SiteTheme } from './themes.ts';
+import { themeChain } from './themes.ts';
 import type { ItemList } from './common.ts';
 import { HALF_T } from './place.ts';
 import type { Placer, WallSlot } from './place.ts';
@@ -70,6 +72,53 @@ export const PROP_DEFS: Readonly<Record<string, PropDef>> = {
   noticeboard: { key: 'noticeboard', w: 1.2, d: 0.04, h: 0.8, cells: 1, solid: false, mount: 'wall', y: 1.55, proc: true },
   clock: { key: 'clock', w: 0.34, d: 0.06, h: 0.34, cells: 1, solid: false, mount: 'wall', y: 2.2, proc: true },
   crucifix: { key: 'crucifix', w: 0.5, d: 0.05, h: 0.8, cells: 1, solid: false, mount: 'wall', y: 1.9, proc: true },
+  // ---- v1.2 site-theme set pieces (procedural, env-world kits; honest h + solid: the Listener's low-cover test reads h) ----
+  // hospital
+  ward_bed: { key: 'ward_bed', w: 0.95, d: 2.0, h: 0.9, cells: 1, solid: true, mount: 'floor', proc: true },
+  curtain_rail: { key: 'curtain_rail', w: 1.0, d: 0.9, h: 2.2, cells: 1, solid: false, mount: 'floor', proc: true },
+  iv_stand: { key: 'iv_stand', w: 0.5, d: 0.5, h: 1.9, cells: 1, solid: false, mount: 'floor', proc: true },
+  sink_row: { key: 'sink_row', w: 1.8, d: 0.5, h: 0.9, cells: 2, solid: true, mount: 'floor', proc: true },
+  // waterworks
+  pump_flywheel: { key: 'pump_flywheel', w: 1.6, d: 0.95, h: 1.7, cells: 2, solid: true, mount: 'floor', proc: true },
+  pipe_bank: { key: 'pipe_bank', w: 1.9, d: 0.45, h: 2.5, cells: 2, solid: true, mount: 'floor', proc: true },
+  // records
+  card_catalogue: { key: 'card_catalogue', w: 0.95, d: 0.5, h: 1.35, cells: 1, solid: true, mount: 'floor', proc: true },
+  display_case: { key: 'display_case', w: 1.6, d: 0.7, h: 1.15, cells: 2, solid: true, mount: 'floor', proc: true },
+  // cold storage (strip_curtain: a strip-curtained freezer entry on the wall, walk-through)
+  meat_rail: { key: 'meat_rail', w: 1.9, d: 0.6, h: 2.4, cells: 2, solid: true, mount: 'floor', proc: true },
+  strip_curtain: { key: 'strip_curtain', w: 1.0, d: 0.1, h: 2.1, cells: 1, solid: false, mount: 'wall', y: 1.05, proc: true },
+  // industry
+  crucible: { key: 'crucible', w: 0.95, d: 0.95, h: 1.5, cells: 1, solid: true, mount: 'floor', proc: true },
+  mould_rack: { key: 'mould_rack', w: 1.8, d: 0.6, h: 1.8, cells: 2, solid: true, mount: 'floor', proc: true },
+  // hospitality
+  round_table: { key: 'round_table', w: 1.2, d: 1.2, h: 0.75, cells: 2, solid: true, mount: 'floor', proc: true },
+  linen_cart: { key: 'linen_cart', w: 0.9, d: 0.6, h: 1.0, cells: 1, solid: true, mount: 'floor', proc: true },
+  bunk: { key: 'bunk', w: 0.95, d: 2.0, h: 1.75, cells: 1, solid: true, mount: 'floor', proc: true },
+  // comms
+  switchboard: { key: 'switchboard', w: 1.8, d: 0.7, h: 1.5, cells: 2, solid: true, mount: 'floor', proc: true },
+  phone_booth: { key: 'phone_booth', w: 0.95, d: 0.95, h: 2.2, cells: 1, solid: true, mount: 'floor', proc: true },
+  // ---- v1.2 Poly Haven CC0 models (prop.<key>, staged by env-layout's asset step, live after gate F promotion; measured
+  // in the loader frame, front +Z). Used by themed sets only. drawer_chest + nightstand are containers.
+  drawer_chest: { key: 'drawer_chest', w: 0.86, d: 0.46, h: 0.55, cells: 1, solid: true, mount: 'floor' },
+  nightstand: { key: 'nightstand', w: 0.51, d: 0.51, h: 0.62, cells: 1, solid: true, mount: 'floor' },
+  wooden_chair: { key: 'wooden_chair', w: 0.43, d: 0.54, h: 0.96, cells: 1, solid: false, mount: 'floor' },
+  wall_clock: { key: 'wall_clock', w: 0.32, d: 0.05, h: 0.32, cells: 1, solid: false, mount: 'wall', y: 2.2 },
+  picture_frame: { key: 'picture_frame', w: 0.6, d: 0.02, h: 0.46, cells: 1, solid: false, mount: 'wall', y: 1.6 },
+  television: { key: 'television', w: 0.4, d: 0.35, h: 0.41, cells: 1, solid: false, mount: 'floor' },
+  wet_floor_sign: { key: 'wet_floor_sign', w: 0.3, d: 0.36, h: 0.63, cells: 1, solid: false, mount: 'floor' },
+  chalkboard: { key: 'chalkboard', w: 0.92, d: 0.76, h: 1.51, cells: 1, solid: true, mount: 'floor' },
+};
+/** v1.2 GLB furniture keys used by themed sets (assets: prop.<key> in the staged manifest) */
+export const THEME_GLB_KEYS: readonly string[] = ['drawer_chest', 'nightstand', 'wooden_chair', 'wall_clock', 'picture_frame', 'television', 'wet_floor_sign', 'chalkboard'];
+/** v1.2 theme prop keys by dressed theme (published to env-world: every key needs a kit or the PROP_DEFS box fallback) */
+export const THEME_PROP_KEYS: Readonly<Record<string, readonly string[]>> = {
+  hospital: ['ward_bed', 'curtain_rail', 'iv_stand', 'sink_row'],
+  waterworks: ['pump_flywheel', 'pipe_bank'],
+  records: ['card_catalogue', 'display_case'],
+  cold_storage: ['meat_rail', 'strip_curtain'],
+  industry: ['crucible', 'mould_rack'],
+  hospitality: ['round_table', 'linen_cart', 'bunk'],
+  comms: ['switchboard', 'phone_booth'],
 };
 
 /** wall-backed furniture sets by room type (cycled in order; first entries are placed first) */
@@ -105,7 +154,7 @@ const SETS: Record<string, string[]> = {
   vault: ['shelves', 'crate', 'filing'],
 };
 /** at most one per room */
-const ONCE = new Set(['altar', 'clock', 'desk_lobby']);
+const ONCE = new Set(['altar', 'clock', 'desk_lobby', 'wall_clock', 'television', 'chalkboard']);
 const CORRIDOR_SET = ['fuse_box', 'fire_ext', 'trash_can', 'security_camera', 'cardboard_box', 'pipes_wall', 'noticeboard', 'jerrycan'];
 
 /** free-standing set-piece plans by room type: grid of props in the room interior */
@@ -131,6 +180,25 @@ interface FreePlan {
   double?: boolean;
   chance?: number;
 }
+/** v1.2 per-theme free-standing plans (theme chain; else FREE) */
+const THEME_FREE: Readonly<Partial<Record<SiteTheme, Readonly<Record<string, FreePlan>>>>> = {
+  hospital: {
+    infirmary: { key: 'ward_bed', cw: 1, ch: 2, gx: 1, gz: 2, margin: 2, minSide: 7, axis: 'short', chance: 0.8 },
+    nursery: { key: 'ward_bed', cw: 1, ch: 2, gx: 1, gz: 2, margin: 2, minSide: 7, axis: 'short', chance: 0.7 },
+  },
+  waterworks: { pumps: { key: 'pump_flywheel', cw: 2, ch: 1, gx: 2, gz: 2, margin: 2, minSide: 6, axis: 'long', chance: 0.85 } },
+  industry: { foundry: { key: 'crucible', cw: 1, ch: 1, gx: 2, gz: 2, margin: 2, minSide: 7, axis: 'long', chance: 0.75 } },
+  records: { gallery: { key: 'display_case', cw: 2, ch: 1, gx: 2, gz: 2, margin: 2, minSide: 6, axis: 'long', chance: 0.85 } },
+  hospitality: { canteen: { key: 'round_table', cw: 2, ch: 2, gx: 1, gz: 1, margin: 2, minSide: 6, axis: 'long', chairs: true } },
+  cold_storage: {
+    cold: { key: 'meat_rail', cw: 2, ch: 1, gx: 1, gz: 2, margin: 2, minSide: 6, axis: 'long' },
+    storage: { key: 'meat_rail', cw: 2, ch: 1, gx: 1, gz: 2, margin: 2, minSide: 6, axis: 'long', chance: 0.5 },
+  },
+};
+function freeFor(theme: SiteTheme, type: string): FreePlan | undefined {
+  for (const t of themeChain(theme)) { const f = THEME_FREE[t]?.[type]; if (f) return f; }
+  return FREE[type];
+}
 const FREE: Record<string, FreePlan> = {
   canteen: { key: 'table', cw: 2, ch: 1, gx: 1, gz: 2, margin: 2, minSide: 6, axis: 'long', chairs: true },
   chapel: { key: 'pew', cw: 3, ch: 1, gx: 1, gz: 1, margin: 2, minSide: 6, axis: 'short' },
@@ -153,6 +221,92 @@ const FREE: Record<string, FreePlan> = {
   gallery: { key: 'pallet_stack', cw: 1, ch: 1, gx: 3, gz: 3, margin: 2, minSide: 7, axis: 'long', chance: 0.6 },
   infirmary: { key: 'bed_frame', cw: 1, ch: 2, gx: 1, gz: 2, margin: 2, minSide: 8, axis: 'short', chance: 0.6 },
 };
+
+/** v1.2 per-theme wall-backed sets by room type (looked up along the theme chain; else SETS) */
+const THEME_SETS: Readonly<Partial<Record<SiteTheme, Readonly<Record<string, readonly string[]>>>>> = {
+  hospital: {
+    infirmary: ['ward_bed', 'nightstand', 'iv_stand', 'curtain_rail', 'ward_bed', 'cabinet', 'medical_box', 'iv_stand', 'ward_bed', 'clock', 'nightstand', 'curtain_rail', 'wheelchair', 'filing'],
+    nursery: ['ward_bed', 'nightstand', 'curtain_rail', 'shelves', 'chair', 'ward_bed', 'iv_stand', 'clock', 'cardboard_box'],
+    showers: ['sink_row', 'bench', 'wet_floor_sign', 'bottles', 'sink_row', 'trash_can', 'pipes_wall', 'bench'],
+    laundry: ['washer', 'washer', 'sink_row', 'wet_floor_sign', 'shelves', 'washer', 'cabinet', 'cardboard_box', 'washer', 'trash_can'],
+    morgue: ['morgue_drawers', 'morgue_drawers', 'sink_row', 'cabinet', 'medical_box', 'iv_stand', 'morgue_drawers', 'wheelchair', 'clock'],
+    cryo: ['tank', 'cabinet', 'iv_stand', 'tank', 'generator', 'fuse_box', 'medical_box', 'pipes_wall', 'tank'],
+    office: ['desk', 'filing', 'cabinet', 'chair', 'medical_box', 'noticeboard', 'filing', 'clock', 'shelves', 'cardboard_box'],
+    lobby: ['desk', 'chair', 'bench', 'wheelchair', 'trash_can', 'cabinet', 'noticeboard', 'clock', 'fire_ext'],
+  },
+  waterworks: {
+    pumps: ['pump_flywheel', 'pipe_bank', 'tank', 'pipes_wall', 'fuse_box', 'pump_flywheel', 'tool_chest', 'barrel', 'pipe_bank'],
+    tanks: ['tank', 'pipe_bank', 'tank', 'barrel', 'pipes_wall', 'fuse_box', 'tank', 'pump_flywheel'],
+    boiler: ['pipe_bank', 'generator', 'pipes_wall', 'barrel', 'fuse_box', 'pipe_bank', 'tool_chest', 'jerrycan', 'fire_ext'],
+    pit: ['pump_flywheel', 'crate', 'barrel', 'pipe_bank', 'jerrycan', 'barrel'],
+    showers: ['bench', 'pipe_bank', 'trash_can', 'bench', 'shelves', 'pipes_wall'],
+    garage: ['workbench', 'tool_chest', 'pipe_bank', 'barrel', 'jerrycan', 'tool_chest', 'generator', 'crate', 'fire_ext'],
+  },
+  industry: {
+    foundry: ['crucible', 'mould_rack', 'workbench', 'crate', 'barrel', 'mould_rack', 'generator', 'pipes_wall', 'tool_chest'],
+    furnace: ['crucible', 'barrel', 'generator', 'pipes_wall', 'mould_rack', 'fuse_box', 'workbench', 'jerrycan'],
+    pit: ['crate', 'barrel', 'mould_rack', 'pallet_stack', 'crate', 'jerrycan'],
+    storage: ['pallet_rack', 'mould_rack', 'shelves', 'crate', 'barrel', 'cardboard_box', 'pallet_stack', 'fire_ext'],
+  },
+  records: {
+    archive: ['card_catalogue', 'shelves', 'filing', 'card_catalogue', 'shelves', 'cabinet', 'filing', 'shelves', 'cardboard_box'],
+    library: ['card_catalogue', 'shelves', 'display_case', 'shelves', 'desk', 'wooden_chair', 'wall_clock', 'shelves', 'picture_frame', 'card_catalogue'],
+    gallery: ['display_case', 'picture_frame', 'display_case', 'bench', 'picture_frame', 'noticeboard', 'display_case', 'wooden_chair', 'wall_clock'],
+    office: ['desk', 'filing', 'card_catalogue', 'wooden_chair', 'picture_frame', 'cabinet', 'shelves', 'noticeboard', 'filing', 'wall_clock', 'desk'],
+    mailroom: ['shelves', 'card_catalogue', 'desk', 'cardboard_box', 'filing', 'cabinet', 'cardboard_box'],
+    storage: ['shelves', 'filing', 'cardboard_box', 'shelves', 'card_catalogue', 'crate', 'cardboard_box', 'fire_ext'],
+    lobby: ['desk', 'wooden_chair', 'display_case', 'bench', 'picture_frame', 'card_catalogue', 'noticeboard', 'wall_clock', 'fire_ext'],
+  },
+  hospitality: {
+    lobby: ['desk', 'wooden_chair', 'bench', 'television', 'picture_frame', 'noticeboard', 'wall_clock', 'trash_can', 'fire_ext'],
+    canteen: ['counter', 'chalkboard', 'counter', 'wooden_chair', 'picture_frame', 'wall_clock', 'trash_can', 'wooden_chair'],
+    laundry: ['washer', 'linen_cart', 'washer', 'wet_floor_sign', 'shelves', 'linen_cart', 'washer', 'cabinet', 'trash_can'],
+    nursery: ['bunk', 'nightstand', 'bunk', 'drawer_chest', 'cabinet', 'wooden_chair', 'bunk', 'wall_clock', 'cardboard_box'],
+    showers: ['sink_row', 'bench', 'wet_floor_sign', 'bottles', 'sink_row', 'linen_cart', 'trash_can'],
+    kitchen: ['counter', 'stove', 'counter', 'sink_row', 'stove', 'shelves', 'linen_cart', 'trash_can', 'fire_ext'],
+    office: ['desk', 'cabinet', 'wooden_chair', 'picture_frame', 'noticeboard', 'filing', 'wall_clock', 'shelves', 'drawer_chest'],
+    storage: ['shelves', 'linen_cart', 'crate', 'cardboard_box', 'shelves', 'pallet_stack', 'fire_ext'],
+    gallery: ['television', 'display_case', 'wooden_chair', 'picture_frame', 'shelves', 'display_case', 'noticeboard'],
+  },
+  parish: {
+    chapel: ['altar', 'crucifix', 'wooden_chair', 'cabinet', 'wooden_chair', 'picture_frame', 'bench', 'wooden_chair'],
+    nursery: ['chalkboard', 'wooden_chair', 'shelves', 'drawer_chest', 'wooden_chair', 'cardboard_box', 'wall_clock'],
+    office: ['desk', 'drawer_chest', 'wooden_chair', 'picture_frame', 'cabinet', 'shelves', 'wall_clock'],
+    canteen: ['counter', 'chalkboard', 'wooden_chair', 'noticeboard', 'wooden_chair', 'trash_can', 'wall_clock'],
+    gallery: ['picture_frame', 'bench', 'picture_frame', 'display_case', 'wooden_chair', 'noticeboard'],
+  },
+  cold_storage: {
+    cold: ['meat_rail', 'strip_curtain', 'shelves', 'meat_rail', 'crate', 'pallet_stack', 'shelves', 'meat_rail'],
+    cryo: ['strip_curtain', 'tank', 'cabinet', 'tank', 'generator', 'fuse_box', 'pipes_wall', 'tank'],
+    dock: ['pallet_stack', 'strip_curtain', 'crate', 'pallet_rack', 'barrel', 'crate', 'pallet_stack', 'fire_ext'],
+    storage: ['pallet_rack', 'strip_curtain', 'shelves', 'meat_rail', 'crate', 'cardboard_box', 'pallet_stack', 'fire_ext'],
+    kitchen: ['counter', 'meat_rail', 'stove', 'counter', 'sink_row', 'shelves', 'trash_can'],
+    pumps: ['pipe_bank', 'generator', 'tank', 'pipes_wall', 'fuse_box', 'tool_chest'],
+  },
+  comms: {
+    office: ['switchboard', 'desk', 'chair', 'filing', 'cabinet', 'switchboard', 'noticeboard', 'clock'],
+    mailroom: ['switchboard', 'shelves', 'desk', 'cardboard_box', 'filing', 'cabinet'],
+    lobby: ['phone_booth', 'desk', 'chair', 'bench', 'phone_booth', 'noticeboard', 'clock', 'trash_can'],
+    archive: ['shelves', 'filing', 'switchboard', 'shelves', 'cabinet', 'filing', 'cardboard_box'],
+    canteen: ['counter', 'phone_booth', 'trash_can', 'chair', 'noticeboard', 'clock'],
+  },
+};
+const THEME_CORRIDOR: Readonly<Partial<Record<SiteTheme, readonly string[]>>> = {
+  hospital: ['fire_ext', 'iv_stand', 'noticeboard', 'wet_floor_sign', 'trash_can', 'clock', 'fuse_box', 'security_camera', 'iv_stand'],
+  waterworks: ['pipes_wall', 'fuse_box', 'fire_ext', 'pipes_wall', 'security_camera', 'jerrycan', 'noticeboard'],
+  records: ['fire_ext', 'noticeboard', 'clock', 'trash_can', 'security_camera', 'cardboard_box', 'noticeboard'],
+  hospitality: ['fire_ext', 'linen_cart', 'picture_frame', 'noticeboard', 'trash_can', 'wall_clock', 'security_camera'],
+  cold_storage: ['pipes_wall', 'fire_ext', 'fuse_box', 'security_camera', 'jerrycan', 'pipes_wall', 'noticeboard'],
+  comms: ['fuse_box', 'noticeboard', 'fire_ext', 'security_camera', 'clock', 'pipes_wall'],
+};
+function setFor(theme: SiteTheme, sp: LayoutSpace): readonly string[] {
+  if (sp.kind === 'corridor') {
+    for (const t of themeChain(theme)) { const c = THEME_CORRIDOR[t]; if (c) return c; }
+    return CORRIDOR_SET;
+  }
+  for (const t of themeChain(theme)) { const r = THEME_SETS[t]?.[sp.type]; if (r) return r; }
+  return SETS[sp.type] ?? SETS.storage;
+}
 
 interface Ctx {
   W: number;
@@ -225,6 +379,8 @@ export interface DecorOpts {
   /** furniture per room = area / areaPerProp, clamped to [1, maxPerRoom] */
   areaPerProp?: number;
   maxPerRoom?: number;
+  /** v1.2 site theme: per-theme sets / free plans (absent or 'facility' = the v1.1 dressing) */
+  theme?: SiteTheme;
 }
 
 /**
@@ -234,16 +390,16 @@ export interface DecorOpts {
 export function placeDecor(W: number, H: number, owner: Int32Array, spaces: readonly LayoutSpace[], P: Placer, items: ItemList, rng: Rng, keep: Uint8Array, o: DecorOpts = {}): number {
   const c: Ctx = { W, H, owner, spaces, P, items, keep, blocked: new Uint8Array(W * H), stamp: new Uint32Array(W * H), gen: 0, queue: new Int32Array(W * H) };
   for (const it of items.items) if (it.kind === 'hiding') c.blocked[Math.floor(it.z) * W + Math.floor(it.x)] = 1;
-  const perProp = o.areaPerProp ?? 9, maxPer = o.maxPerRoom ?? 8;
+  const perProp = o.areaPerProp ?? 9, maxPer = o.maxPerRoom ?? 8, theme: SiteTheme = o.theme ?? 'facility';
   let placed = 0;
   for (const s of spaces) {
     if (s.open || s.type === 'van') continue;
     const area = s.rect.w * s.rect.h;
     // 1. set pieces in the interior
-    const plan = s.kind === 'corridor' ? undefined : FREE[s.type];
+    const plan = s.kind === 'corridor' ? undefined : freeFor(theme, s.type);
     if (plan && Math.min(s.rect.w, s.rect.h) >= plan.minSide && rng.chance(plan.chance ?? 1)) placed += placeFree(c, s, plan, rng);
     // 2. wall-backed furniture
-    const set = s.kind === 'corridor' ? CORRIDOR_SET : SETS[s.type] ?? SETS.storage;
+    const set = setFor(theme, s);
     const want = s.kind === 'corridor' ? Math.min(4, Math.floor(area / 9) + (rng.chance(0.5) ? 1 : 0)) : Math.min(maxPer, Math.max(1, Math.round(area / perProp)));
     let n = 0;
     const once = new Set<string>();
