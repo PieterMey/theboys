@@ -246,20 +246,32 @@ export const DRIVE_CHATTER: readonly string[] = [
   'DISPATCH: Contract {{CONTRACT}} of the shift. Drive safe. Salvage safer. Survive optional but encouraged.',
 ];
 
-export function ruleCards(risk: number, mannequin: boolean): MetaRuleCard[] {
-  return [
+/**
+ * Drive-screen rule cards. v1.2: `fair` = flags.listenerFairV12 (a rollback shows the v1.1 Listener rules, plan check
+ * #24n); `snatcher` = it can appear on this contract (flags.snatcher and Risk 2 or a later contract of the shift).
+ */
+export function ruleCards(risk: number, mannequin: boolean, opts: { fair?: boolean; snatcher?: boolean } = {}): MetaRuleCard[] {
+  const fair = opts.fair !== false;
+  const cards: MetaRuleCard[] = [
     {
       monster: 'hound',
       title: 'THE HOUND IS BLIND',
-      rule: 'It ignores whispers and crouch-steps. When it growls, everyone FREEZE. A second noise nearby and it charges.',
+      rule: 'It ignores whispers and crouch-steps. When it growls: FREEZE, or creep away (C). A second noise nearby and it charges.',
       hint: 'Throw a bottle to send it elsewhere.',
     },
-    {
-      monster: 'listener',
-      title: 'THE LISTENER UNDERSTANDS',
-      rule: 'It hunts information, not noise: room names, player names, numbers and plans. It only grabs someone with no teammate within 8 m.',
-      hint: risk >= 2 ? 'Lie to it. Verify every radio call.' : 'It listens quietly at first. Then it acts on what it heard.',
-    },
+    fair
+      ? {
+          monster: 'listener',
+          title: 'THE LISTENER UNDERSTANDS',
+          rule: 'It hunts information: room names, player names, numbers and plans. It SEES you at 6 m when you are lit (3 m in the dark, less if you crouch). When it notices you it stops and its head snaps: run, close a door, light a flare.',
+          hint: risk >= 2 ? 'Lie to it. Crouch behind anything waist-high or taller and it cannot see you.' : 'Crouch behind anything waist-high or taller and it cannot see you.',
+        }
+      : {
+          monster: 'listener',
+          title: 'THE LISTENER UNDERSTANDS',
+          rule: 'It hunts information, not noise: room names, player names, numbers and plans. It only grabs someone with no teammate within 8 m.',
+          hint: risk >= 2 ? 'Lie to it. Verify every radio call.' : 'It listens quietly at first. Then it acts on what it heard.',
+        },
     {
       monster: 'mannequin',
       title: mannequin ? 'THE MANNEQUIN MOVES UNSEEN' : 'MANNEQUIN: NOT REPORTED',
@@ -269,6 +281,15 @@ export function ruleCards(risk: number, mannequin: boolean): MetaRuleCard[] {
       hint: mannequin ? 'Back away together. Glowsticks keep it lit.' : 'Risk 2 sites and every third contract: expect company.',
     },
   ];
+  if (opts.snatcher) {
+    cards.push({
+      monster: 'snatcher',
+      title: 'THE SNATCHER WAITS IN THE VENTS',
+      rule: 'A rattling grate or falling dust means it is right above you. It drops on someone alone and drags them into the ducts. Mash E to slow it down.',
+      hint: 'Follow the drag marks. Hold E at the grate to pull them back.',
+    });
+  }
+  return cards;
 }
 
 // ---------------- HR: Company Performance Review (per shift) ----------------

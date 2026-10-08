@@ -338,7 +338,7 @@ export function ConsoleScreen({ ctx }: ScreenProps) {
         const m = ctx.world.sampleMonster(id);
         if (!m || !m.active) continue;
         if (m.kind === 'listener') listenerSpace = spaceAt(L, m.p[0], m.p[2]);
-        const near = living.some(([x, z]) => Math.hypot(x - m.p[0], z - m.p[2]) <= 6);
+        const near = living.some(([x, z]) => Math.hypot(x - m.p[0], z - m.p[2]) <= contactM(ctx));
         if (!near) { trails.delete(id); continue; }
         const tr = trails.get(id) ?? [];
         tr.push({ x: m.p[0], z: m.p[2], t: now });
@@ -457,7 +457,7 @@ export function ConsoleScreen({ ctx }: ScreenProps) {
           <span><i style={{ background: '#4fd16a' }} />open</span>
           <span><i style={{ background: '#f0b43c' }} />security shut</span>
           <span><i style={{ background: '#d23b2e' }} />locked</span>
-          <span><i style={{ background: '#ff4d4d', borderRadius: '50%' }} />contact (6 m)</span>
+          <span><i style={{ background: '#ff4d4d', borderRadius: '50%' }} />contact ({contactM(ctx)} m{scanner(ctx) ? ', SCANNER' : ''})</span>
           {breakerLine && <span><i style={{ background: 'transparent', border: '2px solid #f0b43c' }} />{breakerLine}</span>}
           {keypadLine && <span><i style={{ background: 'transparent', border: '2px solid #9dff6b' }} />{keypadLine}</span>}
           {coreLine && <span><i style={{ background: '#7fd3ff', transform: 'rotate(45deg)' }} />{coreLine}</span>}
@@ -500,6 +500,16 @@ export function ConsoleScreen({ ctx }: ScreenProps) {
   );
 }
 
+// ---------------------------------------------------------------- v1.2 scanner van upgrade (workshop)
+/** the crew owns the scanner upgrade (MetaState.unlocks) */
+function scanner(ctx: ClientContext): boolean {
+  return !!ctx.world.full?.meta?.unlocks?.includes('scanner');
+}
+/** monster contacts show within this distance of a living crewmate: 6 m, 8 m with the scanner */
+function contactM(ctx: ClientContext): number {
+  return scanner(ctx) ? 8 : 6;
+}
+
 // ---------------------------------------------------------------- motion sensors (owner: (b) interaction, v1.1 gear)
 // Armed 'sensor' items lying in the world (interaction state). Anything that moved within sensorRangeM of one in the
 // last 0.6 s (a living player or an active monster, the Mannequin included) shows as a teal blip; the sensor's ring lights up.
@@ -509,7 +519,9 @@ function drawSensors(ctx: ClientContext, g: CanvasRenderingContext2D, P: (x: num
   const ix = ctx.world.full?.interaction;
   const sensors = Object.values(ix?.items ?? {}).filter((it) => it.type === 'sensor' && it.armed && it.where === 'world' && !!it.p);
   if (!sensors.length) return;
-  const range = Number((ctx.balance.interaction as Record<string, unknown> | undefined)?.sensorRangeM ?? 6) || 6;
+  const base = Number((ctx.balance.interaction as Record<string, unknown> | undefined)?.sensorRangeM ?? 6) || 6;
+  // v1.2 van upgrade: the scanner doubles motion-sensor range (12 m)
+  const range = scanner(ctx) ? Math.max(base, 12) : base;
   const dead = new Set(ix?.dead ?? []);
   const movers: { id: string; x: number; z: number }[] = [];
   for (const pl of ctx.world.crew?.players ?? []) {

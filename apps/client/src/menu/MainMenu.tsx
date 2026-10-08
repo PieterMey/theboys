@@ -8,10 +8,11 @@ import { JoinScreen, hashCode } from '../core/ui/JoinScreen.tsx';
 import { PROTOCOL_VERSION } from '@dead-air/shared/envelope.ts';
 import { CreditsTab, HowToTab } from '../meta/menus.tsx';
 import { onSettings, settings } from '../meta/state.ts';
+import { MenuFilePanel } from '../meta/stats.tsx';
 import { CharacterPanel, HostPanel, SettingsPanel } from './panels.tsx';
 import { menuGesture, uiSound } from './sound.ts';
 
-export type MenuView = 'title' | 'play' | 'character' | 'settings' | 'howto' | 'credits' | 'host';
+export type MenuView = 'title' | 'play' | 'character' | 'file' | 'settings' | 'howto' | 'credits' | 'host';
 
 /** current sub-view (kept across a pre-join detour, e.g. meta's brightness check) */
 export const menuView = signal<MenuView>('title');
@@ -21,6 +22,7 @@ interface Item { id: MenuView; label: string; hint: string; kicker: string; head
 const ITEMS: Item[] = [
   { id: 'play', label: 'Play', hint: 'Clock in with your crew', kicker: 'CREW ASSIGNMENT · CLOCK IN', heading: 'Clock in' },
   { id: 'character', label: 'Character', hint: 'Suit · helmet · visor', kicker: 'CONTRACTOR FILE · APPEARANCE', heading: 'Look the part' },
+  { id: 'file', label: 'Personnel file', hint: 'Your record · collection log', kicker: 'HUMAN RESOURCES · NIGHT DIVISION', heading: 'Personnel file' },
   { id: 'settings', label: 'Settings', hint: 'Video · audio · controls', kicker: 'EQUIPMENT CHECK', heading: 'Settings' },
   { id: 'howto', label: 'How to play', hint: 'Read before your first shift', kicker: 'COMPANY ORIENTATION · MANDATORY', heading: 'How to play' },
   { id: 'credits', label: 'Credits', hint: 'Sounds · assets · crew', kicker: 'CREDITS · ATTRIBUTION', heading: 'Credits' },
@@ -126,8 +128,9 @@ export function MainMenu({ ctx, view: viewProp }: ScreenProps) {
   if (view === 'play') {
     body = <JoinScreen ctx={ctx} embedded onBack={back} onHover={hover} onEntering={() => { setEntering(true); uiSound(ctx, 'select'); }} />;
   } else if (view === 'character') body = <CharacterPanel ctx={ctx} />;
+  else if (view === 'file') body = <MenuFilePanel ctx={ctx} />;
   else if (view === 'settings') body = <SettingsPanel ctx={ctx} />;
-  else if (view === 'howto') body = <HowToTab />;
+  else if (view === 'howto') body = <HowToTab ctx={ctx} />;
   else if (view === 'credits') body = <CreditsTab />;
   else if (view === 'host') body = <HostPanel ctx={ctx} />;
 

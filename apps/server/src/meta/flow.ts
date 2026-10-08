@@ -2,14 +2,20 @@
 //   hub (board, ready, shop, creator) -> drive (6 s, rule cards) -> contract (② layout, (a) objectives, (c) monsters)
 //   -> results (on (a) onContractEnd; per-contract results) -> hub; after 3 contracts: quota check + HR memo.
 import type { Crew, ServerContext, ServerPlayer } from '../core/types.ts';
+import { isObserver, playerIdFromKey } from '../core/crews.ts';
 import type { LevelLayout } from '@dead-air/shared/layout.ts';
 import type { WorkOrder } from '@dead-air/shared/workorder.ts';
 import type { ContractResult, CrewSave, PlayerSave } from '@dead-air/shared/saves.ts';
+import type { CrewRecords, ShiftStatLine } from '@dead-air/shared/progress.ts';
 import type { Profile } from '@dead-air/shared/profile.ts';
 import { HELMET_UNLOCK_LEVEL, PROFILE_LIMITS, VISOR_COLORS } from '@dead-air/shared/profile.ts';
 import type {
   MetaContractResults, MetaDeathCard, MetaHeardDid, MetaShiftReview, MetaShopItem, MetaState, MetaXpLine,
 } from '@dead-air/shared/messages/meta.ts';
+import { INV_SLOTS } from '@dead-air/shared/interactables.ts';
+import type { InteractableInfo } from '@dead-air/shared/interactables.ts';
+import { v12Id } from '@dead-air/shared/catalog.ts';
+import { stationOf } from '@dead-air/shared/procgen/van.ts';
 import {
   badgeFines, economyFrom, firstQuota, levelFor, nextLevelXp, nextQuota, overtime, playerMult, quotaMet,
 } from './economy.ts';
@@ -20,13 +26,26 @@ import { mergeAiReview, templateReview } from './review.ts';
 import type { ReviewInput } from './review.ts';
 import { SaveStore, hashPin, newPin } from './saves.ts';
 import * as A from './adapters.ts';
+import {
+  addUnits, allot, handoutOrder, isCarryType, isPoolType, migrateOwners, normalizeUnits, poolSlots, realType, stackOf, stacks,
+} from './pool.ts';
+import type { Units } from './pool.ts';
+import {
+  LEFT_BEHIND, beginContractStats, commitContract, commitShift, discardContractStats, emptyShiftLine, killerKey, recordStat, statsTick,
+} from './stats.ts';
+import {
+  craftContractEnd, craftContractStart, craftFired, craftSave, craftView, loadCraft, workbenchInteractables,
+} from './crafting.ts';
+import type { CraftSave } from './crafting.ts';
 
 // ---------------------------------------------------------------- types
 
 export interface MetaCrew {
   shift: CrewSave['shift'] & { quotaLocked: boolean };
-  /** owner player id ('crew' = company gear) -> item type -> count */
+  /** v1.2: SAVE id ('crew' = company gear) -> item type -> units (key order = recency, newest last) */
   gear: Record<string, Record<string, number>>;
+  /** v1.2: this contract's hand-out: save id -> units held back in the locker (merged back by collectGear) */
+  handout: { keep: Record<string, Units> } | null;
   orders: WorkOrder[];
   boardSeq: number;
   picked: string | null;
@@ -44,8 +63,12 @@ export interface MetaCrew {
   recentSites: string[];
   holdUntil: number;
   holdBy: string | null;
+  /** live speaker id -> lines the Listener overheard this shift (memory only, never saved) */
   quotes: Record<string, string[]>;
-  shiftStats: Record<string, { deaths: number; survived: number; contracts: number }>;
+  /** v1.2: running shift per SAVE id (persisted as CrewSave.shiftStats: the HR memo survives a restart) */
+  shiftStats: Record<string, ShiftStatLine>;
+  /** v1.2: crew records (persisted as CrewSave.records) */
+  records: CrewRecords | null;
   deaths: MetaDeathCard[];
   members: string[];
   /** players connected when the current contract started */
@@ -102,10 +125,21 @@ export function shopItems(): MetaShopItem[] {
   ];
 }
 
-// v1.1 gear: shop packs ('pro-flashlight', 'flares', 'motion-sensors') are handed out as these real item types, so
-// the pool tracks them after a contract (survivors keep them) and across server restarts (CrewSave.shift.gear)
-const GEAR_TYPES = new Set(['walkie', 'crowbar', 'bottle', 'glowstick', 'medkit', 'flashlight_pro', 'flare', 'sensor', 'syringe', 'charm']);
+// v1.2 gear pool: GEAR_TYPES = POOL_TYPES (carry-over, see pool.ts isCarryType), GEAR_STACK = POOL_STACK (pool.ts
+// stackOf). Shop packs ('pro-flashlight', 'flares', 'motion-sensors') enter the pool as their real item types.
 const VISOR_NAMES = ['CYAN', 'RED', 'ACID', 'AMBER', 'PINK', 'WHITE'];
+
+/** hand-out cap per player (inventory slots; plan check #21: 3 of the 4 so a pickup always fits) */
+export function handoutSlots(): number {
+  return Math.max(0, Math.min(INV_SLOTS, Math.round(num(mb().handoutSlots, 3))));
+}
+/** locker cap per player (slot-equivalents, POOL_STACK) */
+export function maxPoolSlots(): number {
+  return Math.max(1, Math.round(num(mb().maxPoolSlots, 8)));
+}
+export function loadoutMax(): number {
+  return Math.max(1, Math.round(num(mb().loadoutMax, 12)));
+}
 
 export function visorUnlockLevel(i: number): number {
   const t = mb().visorUnlockLevel;
@@ -125,6 +159,7 @@ export function S(crew: Crew): MetaCrew {
       ? { ...saved.shift, gear: saved.shift.gear ?? {}, quotaLocked: saved.shift.contract > 0 || saved.shift.index > 0 }
       : { index: 0, contract: 0, quota: firstQuota(e, 1), hauled: 0, balance: e.startScrip, gear: {}, quotasMet: 0, quotaLocked: false },
     gear: {},
+    handout: null,
     orders: [],
     boardSeq: 0,
     picked: null,
@@ -143,7 +178,8 @@ export function S(crew: Crew): MetaCrew {
     holdUntil: 0,
     holdBy: null,
     quotes: {},
-    shiftStats: {},
+    shiftStats: saved?.shiftStats && typeof saved.shiftStats === 'object' ? restoreShiftStats(saved.shiftStats) : {},
+    records: saved?.records && typeof saved.records === 'object' ? { ...saved.records } : null,
     deaths: [],
     members: saved?.members ?? [],
     participants: [],
@@ -151,14 +187,38 @@ export function S(crew: Crew): MetaCrew {
     hubStarted: false,
     transition: false,
   };
-  // gear persisted as CrewSave.shift.gear: 'owner|type' -> count
+  // gear persisted as CrewSave.shift.gear: 'owner|type' -> units. v1.1 owners were live ids: re-keyed to save ids
+  // (playerIdFromKey of each save key), shop packs to real units
+  const raw: Record<string, Units> = {};
   for (const [k, n] of Object.entries(s.shift.gear)) {
     const [owner, type] = k.includes('|') ? k.split('|') : ['crew', k];
-    (s.gear[owner] ??= {})[type] = n;
+    (raw[owner] ??= {})[type] = n;
+  }
+  const owners = RT ? migrateOwners(raw, RT.store.allPlayers(), playerIdFromKey) : raw;
+  for (const [owner, units] of Object.entries(owners)) {
+    const u = normalizeUnits(units);
+    if (Object.keys(u).length) s.gear[owner] = u;
   }
   if (!saved) (s.gear.crew ??= {}).walkie = num(mb().freeWalkiesPerShift, 2);
   crew.slices.meta = s;
+  // v1.2 workshop: stash + unlocks (null = a brand-new crew)
+  try {
+    loadCraft(crew, saved ? { stash: { ...(saved.stash ?? {}) }, unlocks: [...(saved.unlocks ?? [])] } : null);
+  } catch (err) {
+    RT?.ctx.log('meta').warn('loadCraft threw:', err instanceof Error ? err.message : err);
+  }
   return s;
+}
+
+function restoreShiftStats(saved: Record<string, ShiftStatLine>): Record<string, ShiftStatLine> {
+  const out: Record<string, ShiftStatLine> = {};
+  for (const [sid, l] of Object.entries(saved)) {
+    if (!l || typeof l !== 'object') continue;
+    const z = emptyShiftLine();
+    for (const k of Object.keys(z) as (keyof ShiftStatLine)[]) z[k] = num(l[k], 0);
+    out[sid] = z;
+  }
+  return out;
 }
 
 export function P(player: ServerPlayer): MetaPlayer {
@@ -195,6 +255,14 @@ export function view(crew: Crew, player: ServerPlayer | null): MetaState {
     const sv = saveOf(p);
     careers[p.id] = { xp: sv?.xp ?? 0, level: sv?.level ?? p.level ?? 1 };
   }
+  // the gear pool is keyed by save id: clients read it by live id (board.tsx, plan check #24h)
+  const gear: Record<string, Record<string, number>> = {};
+  if (s.gear.crew) gear.crew = s.gear.crew;
+  for (const p of crew.players.values()) {
+    const g = s.gear[P(p).saveId];
+    if (g) gear[p.id] = g;
+  }
+  const flags = ctxOf().flags;
   const st: MetaState = {
     shift: {
       index: s.shift.index, contract: s.shift.contract, quota: s.shift.quota, hauled: s.shift.hauled,
@@ -203,11 +271,14 @@ export function view(crew: Crew, player: ServerPlayer | null): MetaState {
     careers,
     shop: shopItems().map((i) => ({ id: i.id, name: i.name, price: i.price, desc: i.desc })),
     picked: s.picked,
-    gear: s.gear,
+    gear,
     drive: crew.phase === 'drive' && s.active
       ? {
           orderId: s.active.id, siteName: s.active.siteName, endsAt: s.driveEndsAt,
-          rules: ruleCards(s.active.risk, s.active.risk >= 2 || s.shift.contract >= 2),
+          rules: ruleCards(s.active.risk, s.active.risk >= 2 || s.shift.contract >= 2, {
+            fair: flags.listenerFairV12 !== false,
+            snatcher: flags.snatcher !== false && (s.active.risk >= 2 || s.shift.contract >= 1),
+          }),
           chatter: DRIVE_CHATTER.map((l) => l
             .replace('{{SITE}}', s.active!.siteName.toUpperCase())
             .replace('{{QUOTA}}', String(s.shift.quota))
@@ -225,6 +296,22 @@ export function view(crew: Crew, player: ServerPlayer | null): MetaState {
     continued: continuedIds(crew),
     holdUntil: s.holdUntil > ctxOf().now() ? s.holdUntil : 0,
   };
+  // v1.2 workshop: crew stash + van upgrades (null = omit)
+  let cv: CraftSave | null = null;
+  try { cv = craftView(crew); } catch { cv = null; }
+  if (cv) {
+    st.stash = { ...cv.stash };
+    st.unlocks = [...cv.unlocks];
+  }
+  // v1.2 personnel file: this shift so far (counters only)
+  const lines = Object.entries(s.shiftStats);
+  if (lines.length) {
+    const live = new Map<string, ServerPlayer>();
+    for (const p of crew.players.values()) live.set(P(p).saveId, p);
+    st.shiftLines = lines.map(([sid, l]) => ({
+      saveId: sid, player: live.get(sid)?.id ?? null, name: live.get(sid)?.name ?? RT?.store.playerById(sid)?.name ?? 'Contractor', ...l,
+    }));
+  }
   if (player) {
     const sv = saveOf(player);
     const p = P(player);
@@ -257,24 +344,38 @@ export function flushUpdates(crew: Crew): void {
 
 // ---------------------------------------------------------------- saves
 
+/**
+ * Persist the crew. v1.2: starts from the previous save ({...prev, ...rebuilt}), so fields this build does not know (a
+ * newer build, a flag that is off, a stub) survive; craftSave null keeps prev.stash/prev.unlocks. New data never goes
+ * into `shift` (an older build rebuilds that object): shiftStats and records are top-level.
+ */
 export function saveCrew(crew: Crew): void {
   if (!RT) return;
   const s = S(crew);
   const gear: Record<string, number> = {};
   for (const [owner, types] of Object.entries(s.gear)) for (const [t, n] of Object.entries(types)) if (n > 0) gear[`${owner}|${t}`] = n;
   const members = new Set(s.members);
-  for (const p of crew.players.values()) members.add(P(p).saveId);
+  for (const p of crew.players.values()) if (!isObserver(p)) members.add(P(p).saveId);
   s.members = [...members];
   const { quotaLocked: _q, ...shift } = s.shift;
   void _q;
-  const save: CrewSave = {
+  const prev = RT.store.crew(crew.code);
+  const rebuilt: CrewSave = {
     code: crew.code,
     members: s.members,
     shift: { ...shift, gear },
     history: s.history.slice(-50),
     updatedAt: new Date().toISOString(),
+    shiftStats: s.shiftStats,
   };
-  RT.store.putCrew(save);
+  if (s.records) rebuilt.records = s.records;
+  let craft: CraftSave | null = null;
+  try { craft = craftSave(crew); } catch (err) { RT.ctx.log('meta').warn('craftSave threw:', err instanceof Error ? err.message : err); }
+  if (craft) {
+    rebuilt.stash = { ...craft.stash };
+    rebuilt.unlocks = [...craft.unlocks];
+  }
+  RT.store.putCrew({ ...(prev ?? {}), ...rebuilt });
 }
 
 function sanitizeProfile(p: Profile, level: number, prev: Profile): Profile {
@@ -559,9 +660,21 @@ function hubInteractables(crew: Crew): void {
   const prompts: Record<string, string> = {
     board: 'Work orders', shop: 'Company store', mirror: 'Locker mirror: change your look', kennel: 'Training kennel: calibrate your mic', console: 'Van console',
   };
-  const list = L.items
+  const list: InteractableInfo[] = L.items
     .filter((it) => it.kind in prompts && (L.kind === 'hub' || it.kind === 'console'))
     .map((it) => ({ id: it.id, kind: it.kind, p: [it.x, it.y && it.y > 0 ? it.y : (HUB_ITEM_Y[it.kind] ?? 1.1), it.z] as [number, number, number], prompt: prompts[it.kind], enabled: true }));
+  // v1.2 workshop (G5): the van workbench (hub craft, contract scrap) and the stash locker (hub)
+  try {
+    const wb = workbenchInteractables(crew);
+    if (Array.isArray(wb)) list.push(...wb);
+  } catch (err) {
+    ctxOf().log('meta').warn('workbenchInteractables threw:', err instanceof Error ? err.message : err);
+  }
+  // v1.2: the records board on the hub facade opens the personnel file (virtual until env-layout's prop lands)
+  if (L.kind === 'hub') {
+    const st = stationOf(L, 'records');
+    if (st) list.push({ id: v12Id('records', st.itemId), kind: 'records', p: [st.p[0], st.p[1], st.p[2]], r: st.r, prompt: 'Personnel file: read your record', enabled: true, ref: st.itemId });
+  }
   if (list.length) A.call('interaction', 'registerInteractables', crew, list);
 }
 
@@ -618,7 +731,7 @@ export function startDrive(crew: Crew, order: WorkOrder): void {
   s.recentSites = [...s.recentSites, order.siteName].slice(-6);
   for (const p of crew.players.values()) p.ready = false;
   try {
-    s.pendingLayout = A.generateFacilityLayout(crew, { seed: order.seed, players: Math.max(1, connected(crew).length), risk: order.risk });
+    s.pendingLayout = A.generateFacilityLayout(crew, facilityParams(crew, order));
   } catch (err) {
     ctx.log('meta').error('facility generation failed:', err instanceof Error ? err.message : err);
     ctx.notice(crew, 'Dispatch could not find the site. Pick another work order.', 'error');
@@ -634,23 +747,35 @@ export function startDrive(crew: Crew, order: WorkOrder): void {
   markDirty(crew);
 }
 
+/** generator params of a work order: v1.2 theme + modifier chips unless flags.siteThemes is off */
+export function facilityParams(crew: Crew, order: WorkOrder): A.FacilityParams {
+  const p: A.FacilityParams = { seed: order.seed, players: Math.max(1, connected(crew).length), risk: order.risk };
+  if (ctxOf().flags.siteThemes !== false) {
+    p.theme = order.siteTheme ?? 'facility';
+    p.modifiers = [...(order.modifiers ?? [])];
+  }
+  return p;
+}
+
 export function startContract(crew: Crew): void {
   const s = S(crew);
   const ctx = ctxOf();
   const order = s.active;
   if (!order) return enterHub(crew);
-  const layout = s.pendingLayout ?? A.generateFacilityLayout(crew, { seed: order.seed, players: Math.max(1, connected(crew).length), risk: order.risk });
+  const layout = s.pendingLayout ?? A.generateFacilityLayout(crew, facilityParams(crew, order));
   s.pendingLayout = null;
   s.contractId++;
   s.contractStartedAt = ctx.now();
   s.ended = false;
   s.deaths = [];
   s.results = null;
-  s.participants = connected(crew).map((p) => p.id);
+  s.participants = connected(crew).filter((p) => !isObserver(p)).map((p) => p.id);
   for (const p of crew.players.values()) p.ready = false;
   setPhase(crew, 'contract', layout);
+  beginContractStats(crew);
   A.call('objectives', 'startContract', crew, order, { contractIndex: s.shift.contract });
   A.call('monsters', 'startMonsters', crew, { risk: order.risk, contractIndex: s.shift.contract });
+  try { craftContractStart(crew); } catch (err) { ctx.log('meta').warn('craftContractStart threw:', err instanceof Error ? err.message : err); }
   handOutGear(crew);
   hubInteractables(crew);
   markDirty(crew);
@@ -660,74 +785,157 @@ export function startContract(crew: Crew): void {
   }
 }
 
-/** stack sizes of stackable gear (s.gear counts UNITS: 'Bottles x3' = 3 bottles = one stack) */
-const GEAR_STACK: Record<string, number> = { bottle: 3, glowstick: 5, flare: 3, sensor: 2 };
+interface HeldItem { id: string; type: string; count: number }
 
-/** gear units a player already carries (stacks count their items), or null when (b) can't tell */
-function heldUnits(crew: Crew, pid: string): Record<string, number> | null {
+/** items a player carries (stacks count their units), or null when (b) can't tell */
+function heldItems(crew: Crew, pid: string): HeldItem[] | null {
   if (!A.has('interaction', 'itemsOf')) return null;
   const r = A.call<unknown>('interaction', 'itemsOf', crew, pid);
   if (!Array.isArray(r)) return null;
-  const out: Record<string, number> = {};
+  const out: HeldItem[] = [];
   for (const it of r) {
-    const o = it && typeof it === 'object' ? (it as { type?: unknown; count?: unknown }) : null;
+    const o = it && typeof it === 'object' ? (it as { id?: unknown; type?: unknown; count?: unknown }) : null;
     const t = typeof it === 'string' ? it : String(o?.type ?? '');
     if (!t) continue;
-    const n = o && Number(o.count) > 0 ? Math.round(Number(o.count)) : 1;
-    out[t] = (out[t] ?? 0) + n;
+    out.push({ id: String(o?.id ?? ''), type: t, count: o && Number(o.count) > 0 ? Math.round(Number(o.count)) : 1 });
   }
   return out;
 }
 
-/** top-up hand-out: everyone ends up with exactly their pool (what they kept + what they bought), never duplicates
- *  of what they still carry; the crew's free walkies go one per player who has none */
-function handOutGear(crew: Crew): void {
-  const s = S(crew);
-  const ps = connected(crew).sort((a, b) => a.joinedAt - b.joinedAt);
-  if (!ps.length || !A.has('interaction', 'giveItem')) return;
-  const held = new Map(ps.map((p) => [p.id, heldUnits(crew, p.id) ?? {}]));
-  const give = (pid: string, type: string, units: number): void => {
-    if (units <= 0) return;
-    const h = held.get(pid);
-    if (h) h[type] = (h[type] ?? 0) + units;
-    const stack = GEAR_STACK[type];
-    if (!stack) { for (let i = 0; i < units; i++) A.giveItem(crew, pid, type); return; }
-    for (let left = units; left > 0; left -= stack) A.call('interaction', 'giveItem', crew, pid, type, { count: Math.min(stack, left) });
-  };
-  let rr = 0;
-  for (const [owner, types] of Object.entries(s.gear)) {
-    const target = crew.players.get(owner);
-    for (const [type, n0] of Object.entries(types)) {
-      const n = Math.max(0, Math.round(Number(n0) || 0));
-      if (target?.connected) { give(target.id, type, n - (held.get(target.id)?.[type] ?? 0)); continue; }
-      if (type === 'walkie') {
-        // company walkies: at most one per player, only to those without one
-        let left = n;
-        for (const p of ps) { if (left <= 0) break; if ((held.get(p.id)?.walkie ?? 0) > 0) continue; give(p.id, 'walkie', 1); left--; }
-        continue;
-      }
-      // an absent owner's gear goes round-robin
-      for (let i = 0; i < n; i++) give(ps[rr++ % ps.length].id, type, 1);
-    }
-  }
+function giveUnits(crew: Crew, pid: string, type: string, units: number): void {
+  if (!(units > 0)) return;
+  const stack = stackOf(type) > 1;
+  for (const c of stacks(type, units)) A.call('interaction', 'giveItem', crew, pid, type, stack ? { count: c, via: 'handout' } : { via: 'handout' });
 }
 
-/** survivors keep the gear they carry; the dead lose theirs (only when (b) can tell us what people hold) */
-function collectGear(crew: Crew, survivors: Set<string>): void {
-  if (!A.has('interaction', 'itemsOf')) return;
+/**
+ * v1.2 hand-out at contract start (plan check #21 + critic #4/#5/#14/#23). Each connected player gets at most
+ * handoutSlots inventory slots from their OWN locker (save id), in PlayerSave.loadout order (newest first when unset);
+ * the rest is held back and merged back by collectGear. Delivery is a delta against what they already carry: a type
+ * whose held units equal the allotment is left alone, anything else held of a pool type is taken back and re-issued
+ * in full stacks (so gear picked up in the hub can never duplicate a locker). An absent owner's gear stays in their
+ * locker; only company walkies are dealt, one each to players without one who still have a free hand-out slot.
+ */
+function handOutGear(crew: Crew): void {
   const s = S(crew);
-  const next: Record<string, Record<string, number>> = {};
-  for (const p of crew.players.values()) {
-    if (!survivors.has(p.id)) continue;
-    const units = heldUnits(crew, p.id);
-    if (!units) return; // unknown -> keep the pool as it was
-    for (const [t, n] of Object.entries(units)) {
-      if (!GEAR_TYPES.has(t)) continue;
-      const mine = (next[p.id] ??= {});
-      mine[t] = (mine[t] ?? 0) + n;
+  s.handout = null;
+  const ps = connected(crew).filter((p) => !isObserver(p)).sort((a, b) => a.joinedAt - b.joinedAt);
+  if (!ps.length || !A.has('interaction', 'giveItem')) return;
+  const cap = handoutSlots();
+  const canTake = A.has('interaction', 'itemsOf') && A.has('interaction', 'removeItem');
+  const keepAll: Record<string, Units> = {};
+  const freeSlots = new Map<string, number>();
+  const hasWalkie = new Set<string>();
+  for (const p of ps) {
+    const sid = P(p).saveId;
+    if (keepAll[sid]) continue;
+    const pool = s.gear[sid] ?? {};
+    const { give: want, keep, slots } = allot(pool, handoutOrder(pool, saveOf(p)?.loadout), cap);
+    keepAll[sid] = keep;
+    freeSlots.set(p.id, cap - slots);
+    if ((want.walkie ?? 0) > 0) hasWalkie.add(p.id);
+    if (canTake) {
+      const byType = new Map<string, HeldItem[]>();
+      for (const it of heldItems(crew, p.id) ?? []) if (isPoolType(it.type)) byType.set(it.type, [...(byType.get(it.type) ?? []), it]);
+      for (const [t, items] of byType) {
+        const h = items.reduce((a, it) => a + it.count, 0);
+        if (h === (want[t] ?? 0) && items.length === stacks(t, h).length) {
+          delete want[t];
+          continue;
+        }
+        for (const it of items) if (it.id) A.call('interaction', 'removeItem', crew, it.id);
+      }
     }
+    for (const [t, n] of Object.entries(want)) giveUnits(crew, p.id, t, n);
+  }
+  const crewGear = s.gear.crew;
+  let w = Math.max(0, Math.round(crewGear?.walkie ?? 0));
+  for (const p of ps) {
+    if (w <= 0) break;
+    if (hasWalkie.has(p.id) || (freeSlots.get(p.id) ?? 0) <= 0) continue;
+    giveUnits(crew, p.id, 'walkie', 1);
+    hasWalkie.add(p.id);
+    w--;
+  }
+  if (crewGear) {
+    if (w > 0) crewGear.walkie = w;
+    else delete crewGear.walkie;
+    if (!Object.keys(crewGear).length) delete s.gear.crew;
+  }
+  s.handout = { keep: keepAll };
+}
+
+/**
+ * Contract end: a player who made it back keeps what they carry (carry-over types only: overshoes wear out), plus what
+ * was held back in their locker; the dead and the left-behind keep only the held-back part. Lockers of players who were
+ * not handed out (absent, or joined mid-contract) stay as they are. Only when (b) can tell us what people hold.
+ */
+function collectGear(crew: Crew, keepers: Set<string>): void {
+  const s = S(crew);
+  const ho = s.handout;
+  s.handout = null;
+  if (!A.has('interaction', 'itemsOf')) return;
+  const next: Record<string, Units> = {};
+  for (const [owner, units] of Object.entries(s.gear)) if (!ho?.keep[owner]) next[owner] = { ...units };
+  for (const [sid, keep] of Object.entries(ho?.keep ?? {})) next[sid] = { ...keep };
+  for (const p of crew.players.values()) {
+    if (!keepers.has(p.id) || isObserver(p)) continue;
+    const items = heldItems(crew, p.id);
+    if (!items) return; // unknown -> keep the pool as it was
+    const mine = (next[P(p).saveId] ??= {});
+    for (const it of items) if (isCarryType(it.type)) mine[it.type] = (mine[it.type] ?? 0) + it.count;
+  }
+  for (const [owner, units] of Object.entries(next)) {
+    for (const [t, n] of Object.entries(units)) if (!(n > 0)) delete units[t];
+    if (!Object.keys(units).length) delete next[owner];
   }
   s.gear = next;
+}
+
+// ---------------------------------------------------------------- v1.2 gear pool API (meta/api.ts poolAdd/poolView)
+
+function playerSaveId(crew: Crew, pid: string): string | null {
+  const p = crew.players.get(pid);
+  return p ? P(p).saveId : null;
+}
+
+/** add crafted units to pid's locker (shop pack ids become their real items); refuses past maxPoolSlots */
+export function poolAddUnits(crew: Crew, pid: string, type: string, units: number): { ok: boolean; reason?: string } {
+  const sid = playerSaveId(crew, pid);
+  if (!sid) return { ok: false, reason: 'no such player' };
+  const r = realType(String(type ?? ''));
+  if (!r) return { ok: false, reason: `${String(type).slice(0, 24)} does not go in the gear locker` };
+  const n = Math.round(Number(units) || 0) * r[1];
+  if (!(n > 0)) return { ok: false, reason: 'nothing to add' };
+  const s = S(crew);
+  const mine = s.gear[sid] ?? {};
+  const max = maxPoolSlots();
+  if (poolSlots({ ...mine, [r[0]]: (mine[r[0]] ?? 0) + n }) > max) return { ok: false, reason: `Gear locker full (${max} slots): use or scrap something first` };
+  addUnits((s.gear[sid] = mine), r[0], n);
+  saveCrew(crew);
+  markDirty(crew);
+  return { ok: true };
+}
+
+/**
+ * Gear used up outside a contract (a bottle thrown in the van lot): the locker loses it too, or the next hand-out would
+ * re-issue it. During a contract collectGear settles everything from what people carry at the end.
+ */
+export function poolConsumed(crew: Crew, pid: string, type: string, count: number): void {
+  if (crew.phase === 'contract' || !isPoolType(type)) return;
+  const sid = playerSaveId(crew, pid);
+  const mine = sid ? S(crew).gear[sid] : undefined;
+  if (!mine || !(mine[type] > 0)) return;
+  mine[type] = Math.max(0, mine[type] - Math.max(1, Math.round(count) || 1));
+  if (!(mine[type] > 0)) delete mine[type];
+  saveCrew(crew);
+  markDirty(crew);
+}
+
+export function poolViewOf(crew: Crew, pid: string): { units: Record<string, number>; slots: number; maxSlots: number } {
+  const sid = playerSaveId(crew, pid);
+  const units = sid ? { ...(S(crew).gear[sid] ?? {}) } : {};
+  return { units, slots: poolSlots(units), maxSlots: maxPoolSlots() };
 }
 
 // ---------------------------------------------------------------- contract end -> results
@@ -833,7 +1041,7 @@ export function finishContract(crew: Crew, raw: RawResult, outcome0?: string): b
   const order = s.active;
   const obj = (A.call<Record<string, unknown>>('objectives', 'state', crew) ?? {}) as Record<string, unknown>;
   const part = new Set(s.participants);
-  const participants = [...crew.players.values()].filter((p) => part.has(p.id) || p.connected);
+  const participants = [...crew.players.values()].filter((p) => (part.has(p.id) || p.connected) && !isObserver(p));
 
   const hauled = Math.max(0, Math.round(num(raw.hauled, num(obj.hauled, 0))));
   const lootTotal = Math.max(0, Math.round(num(raw.lootTotal, num(obj.lootTotal, 0))));
@@ -916,14 +1124,30 @@ export function finishContract(crew: Crew, raw: RawResult, outcome0?: string): b
     const line = awardXp(crew, p.id, total, 'contract');
     if (line) xpLines.push({ ...line, reasons: parts });
     if (coreExtracted && addAchievement(p, String(mb().risk2Achievement ?? 'Core Business')) && line) line.unlocks.push('achievement: Core Business');
-    const st = (s.shiftStats[p.id] ??= { deaths: 0, survived: 0, contracts: 0 });
-    st.contracts++;
-    if (lived) st.survived++;
-    else st.deaths++;
   }
 
-  // gear: survivors keep what they carry
-  collectGear(crew, new Set(survivors));
+  // v1.2 workshop: van materials + this contract's scrap into the stash (before results; it always clears pending)
+  let salvage: { materials: Record<string, number>; scrapped: number } | undefined;
+  try {
+    const r = craftContractEnd(crew, outcome, participants.map((p) => p.id));
+    if (r && typeof r === 'object') salvage = { materials: { ...(r.materials ?? {}) }, scrapped: num(r.scrapped, 0) };
+  } catch (err) {
+    ctx.log('meta').warn('craftContractEnd threw:', err instanceof Error ? err.message : err);
+  }
+
+  // v1.2 stats: commit the contract's counters once (after XP, before the flush), shift lines + crew records
+  const commit = commitContract(crew, {
+    outcome, participants, cards, coreExtracted, hauled, siteName: order.siteName, startedAt: s.contractStartedAt, xpLines,
+  });
+
+  // gear: whoever made it back alive keeps what they carry (the left-behind and the dead do not)
+  const keepers = new Set(participants.filter((p) => {
+    const c = cards.get(p.id);
+    if (c && killerKey(c.killer) === LEFT_BEHIND) return false;
+    const alive = A.isAlive(crew, p.id);
+    return alive === null ? !dead.has(p.id) : alive;
+  }).map((p) => p.id));
+  collectGear(crew, keepers);
 
   s.shift.contract++;
   s.contractsDone++;
@@ -942,6 +1166,9 @@ export function finishContract(crew: Crew, raw: RawResult, outcome0?: string): b
     shiftHauled: s.shift.hauled, quota: s.shift.quota, contract: s.shift.contract, contractsPerShift: e.contractsPerShift,
     xp: xpLines, heardDid: heardDid(crew), shiftEnd,
   };
+  if (salvage) s.results.salvage = salvage;
+  if (commit.players.length) s.results.players = commit.players;
+  if (commit.superlatives.length) s.results.superlatives = commit.superlatives;
   if (shiftEnd) buildShiftReview(crew);
 
   A.call('monsters', 'stopMonsters', crew);
@@ -966,11 +1193,24 @@ function voidContract(crew: Crew): boolean {
     shiftHauled: s.shift.hauled, quota: s.shift.quota, contract: s.shift.contract, contractsPerShift: e.contractsPerShift,
     xp: [], heardDid: [], shiftEnd: false,
   };
+  // nothing a voided contract counted is kept; the workshop drops its pending scrap; lockers stay as they were
+  discardContractStats(crew);
+  try { craftContractEnd(crew, 'voided', []); } catch { /* workshop optional */ }
+  s.handout = null;
   A.call('monsters', 'stopMonsters', crew);
   s.resultsEndsAt = ctxOf().now() + 12_000;
   setPhase(crew, 'results');
   markDirty(crew);
   return true;
+}
+
+/** a save that is not in the crew right now still gets its shift XP (HR memo players after a restart) */
+function awardXpSave(sid: string, xp: number): void {
+  const sv = RT?.store.playerById(sid);
+  if (!sv || !RT) return;
+  sv.xp = Math.max(0, Math.round(sv.xp + xp));
+  sv.level = levelFor(econ(), sv.xp);
+  RT.store.putPlayer(sv);
 }
 
 function buildShiftReview(crew: Crew): void {
@@ -981,15 +1221,23 @@ function buildShiftReview(crew: Crew): void {
   const ot = overtime(e, s.shift.hauled, s.shift.quota);
   const nextQ = met ? nextQuota(e, s.shift.quota, s.shift.index + 1, crew.code) : null;
   if (met) s.shift.balance += ot;
-  const players = [...crew.players.values()].filter((p) => s.shiftStats[p.id]).map((p) => {
-    const st = s.shiftStats[p.id] ?? { deaths: 0, survived: 0, contracts: 0 };
-    return { id: p.id, name: p.name, level: p.level, deaths: st.deaths, survived: st.survived, contracts: st.contracts, quotes: s.quotes[p.id] ?? [] };
+  // every save that worked this shift (CrewSave.shiftStats survives a restart), present or not
+  const live = new Map<string, ServerPlayer>();
+  for (const p of crew.players.values()) if (!isObserver(p)) live.set(P(p).saveId, p);
+  const players = Object.entries(s.shiftStats).filter(([, st]) => st.contracts > 0).map(([sid, st]) => {
+    const p = live.get(sid);
+    const sv = RT?.store.playerById(sid) ?? null;
+    return {
+      id: p?.id ?? sid, saveId: sid, name: p?.name ?? sv?.name ?? 'Contractor', level: sv?.level ?? p?.level ?? 1,
+      deaths: st.deaths, survived: st.survived, contracts: st.contracts, hauled: st.hauled, quotes: (p ? s.quotes[p.id] : null) ?? [],
+    };
   });
-  for (const p of crew.players.values()) {
-    if (!s.shiftStats[p.id]) continue;
-    if (met) awardXp(crew, p.id, num(xpCfg.quotaMet, 100), 'quota met');
-    else awardXp(crew, p.id, num(xpCfg.fired, 30), 'severance experience');
+  for (const pl of players) {
+    const xp = met ? num(xpCfg.quotaMet, 100) : num(xpCfg.fired, 30);
+    if (live.get(pl.saveId)) awardXp(crew, pl.id, xp, met ? 'quota met' : 'severance experience');
+    else awardXpSave(pl.saveId, xp);
   }
+  commitShift(crew, met);
   const input: ReviewInput = { crew: crew.code, shiftIndex: s.shift.index, quota: s.shift.quota, hauled: s.shift.hauled, overtime: ot, met, nextQuota: nextQ, players };
   const review = templateReview(input);
   s.review = review;
@@ -1007,8 +1255,9 @@ function buildShiftReview(crew: Crew): void {
       crew: crew.code, index: s.shift.index, quota: s.shift.quota, hauled: s.shift.hauled, fired: !met,
       players: players.map((p) => ({
         id: p.id, name: p.name, deaths: p.deaths, level: crew.players.get(p.id)?.level ?? p.level,
-        hauled: Math.round(s.shift.hauled / Math.max(1, players.length)),
-        xp: saveOf(crew.players.get(p.id)!)?.xp ?? 0,
+        // v1.2: what this player actually deposited this shift (no extra AI calls)
+        hauled: Math.round(p.hauled),
+        xp: RT?.store.playerById(p.saveId)?.xp ?? 0,
         causes: s.history.slice(-e.contractsPerShift).flatMap((h) => h.deaths.filter((d) => d.player === p.id).map((d) => d.cause)).slice(0, 4),
       })),
       contracts,
@@ -1062,6 +1311,9 @@ export function continueFromResults(crew: Crew): void {
     } else {
       s.shift = { index: 0, contract: 0, quota: firstQuota(e, Math.max(1, connected(crew).length)), hauled: 0, balance: e.startScrip, gear: {}, quotasMet: 0, quotaLocked: false };
       s.gear = {};
+      // v1.2 workshop: a fired crew loses its stash and van upgrades (crafting.json firedWipes); the personnel file, XP,
+      // levels, cosmetics and the collection log are untouched
+      try { craftFired(crew); } catch (err) { ctxOf().log('meta').warn('craftFired threw:', err instanceof Error ? err.message : err); }
     }
     const crewGear = (s.gear.crew ??= {});
     crewGear.walkie = Math.max(crewGear.walkie ?? 0, free);
@@ -1081,11 +1333,21 @@ export function buy(crew: Crew, player: ServerPlayer, itemId: string): { ok: boo
   const item = shopItems().find((i) => i.id === itemId);
   if (!item) return { ok: false, reason: 'not stocked', balance: s.shift.balance };
   if (s.shift.balance < item.price) return { ok: false, reason: `not enough scrip (${s.shift.balance}/${item.price})`, balance: s.shift.balance };
-  s.shift.balance -= item.price;
   const type = item.type ?? item.id;
-  const mine = (s.gear[player.id] ??= {});
-  mine[type] = (mine[type] ?? 0) + (item.qty ?? 1);
+  const sid = P(player).saveId;
+  const mine = s.gear[sid] ?? {};
+  // v1.2: the locker holds real items (packs unpacked) up to maxPoolSlots slot-equivalents
+  const r = realType(type);
+  const units = Math.max(1, Math.round(item.qty ?? 1)) * (r?.[1] ?? 1);
+  const real = r?.[0] ?? type;
+  const max = maxPoolSlots();
+  if (r && poolSlots({ ...mine, [real]: (mine[real] ?? 0) + units }) > max) {
+    return { ok: false, reason: `Your gear locker is full (${max} slots). Use or scrap something first.`, balance: s.shift.balance };
+  }
+  s.shift.balance -= item.price;
+  addUnits((s.gear[sid] = mine), real, units);
   ctxOf().notice(crew, `${player.name} bought ${item.name} (${item.price} scrip)`);
+  recordStat(crew, player.id, 'scripSpent', item.price);
   saveCrew(crew);
   markDirty(crew);
   return { ok: true, balance: s.shift.balance };
@@ -1153,6 +1415,8 @@ export function tickCrew(crew: Crew): void {
         s.ended = false;
       }
       if (s.ended) break;
+      // v1.2 stats: distance / stance / light / radio sampler
+      try { statsTick(crew, 1 / 30); } catch (err) { ctx.log('meta').warn('statsTick threw:', err instanceof Error ? err.message : err); }
       // safety net when (a) objectives is missing or never ends the contract
       const sec = num(ctx.balance.core.contractRealSec, 900);
       const grace = A.has('objectives', 'onContractEnd') ? 90 : 2;
@@ -1182,12 +1446,14 @@ export function onForeignPhase(crew: Crew, from: Crew['phase'], to: Crew['phase'
     if (!s.active) s.active = s.orders.find((o) => o.id === s.picked) ?? s.orders[0] ?? null;
     if (s.active && (!crew.layout || crew.layout.kind !== 'facility')) {
       try {
-        crew.layout = A.generateFacilityLayout(crew, { seed: s.active.seed, players: Math.max(1, connected(crew).length), risk: s.active.risk });
+        crew.layout = A.generateFacilityLayout(crew, facilityParams(crew, s.active));
       } catch { /* keep */ }
     }
     s.contractStartedAt = ctxOf().now();
     s.ended = false;
     s.deaths = [];
+    s.contractId++;
+    beginContractStats(crew);
     const order = s.active;
     if (order) setImmediate(() => {
       A.call('objectives', 'startContract', crew, order);

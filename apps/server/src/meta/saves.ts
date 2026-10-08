@@ -51,6 +51,8 @@ export class SaveStore {
   private players = new Map<string, PlayerSave>();
   private keyIndex = new Map<string, string>();
   private crews = new Map<string, CrewSave>();
+  /** v1.2: save id -> crew codes it is a member of (personnel file 'crews'); built once from disk, kept by putCrew */
+  private memberIdx = new Map<string, Set<string>>();
   private dirtyPlayers = new Set<string>();
   private dirtyCrews = new Set<string>();
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -64,6 +66,34 @@ export class SaveStore {
     this.debounceMs = debounceMs;
     this.onError = onError;
     this.loadPlayers();
+    this.loadCrewIndex();
+  }
+
+  /** scan saves/crews/*.json once (install): fills the member -> crews index and the crew cache */
+  private loadCrewIndex(): void {
+    const d = join(this.dir, 'crews');
+    if (!existsSync(d)) return;
+    for (const f of readdirSync(d)) {
+      if (!f.endsWith('.json')) continue;
+      const s = readJson<CrewSave>(join(d, f));
+      if (!s || typeof s.code !== 'string') continue;
+      if (!this.crews.has(s.code)) this.crews.set(s.code, s);
+      this.indexCrew(s);
+    }
+  }
+
+  private indexCrew(s: CrewSave): void {
+    for (const m of Array.isArray(s.members) ? s.members : []) {
+      if (typeof m !== 'string') continue;
+      let set = this.memberIdx.get(m);
+      if (!set) this.memberIdx.set(m, (set = new Set()));
+      set.add(s.code);
+    }
+  }
+
+  /** crew codes a save is a member of */
+  crewsOf(saveId: string): string[] {
+    return [...(this.memberIdx.get(saveId) ?? [])];
   }
 
   private loadPlayers(): void {
@@ -129,6 +159,7 @@ export class SaveStore {
   putCrew(s: CrewSave): void {
     s.updatedAt = new Date().toISOString();
     this.crews.set(s.code, s);
+    this.indexCrew(s);
     this.dirtyCrews.add(s.code);
     this.schedule();
   }

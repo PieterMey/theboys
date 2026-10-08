@@ -20,9 +20,12 @@ export class Bot {
   private pending = new Map<number, { res: (v: unknown) => void; rej: (e: Error) => void }>();
   private waiters: { pred: (e: Ev) => boolean; res: (e: Ev) => void }[] = [];
 
-  constructor(name: string, key = randomBytes(16).toString('hex')) {
+  profile: ReturnType<typeof randomProfile> | null = null;
+
+  constructor(name: string, key = randomBytes(16).toString('hex'), profile: ReturnType<typeof randomProfile> | null = null) {
     this.name = name;
     this.key = key;
+    this.profile = profile;
   }
 
   get me(): string {
@@ -35,7 +38,7 @@ export class Bot {
       this.ws = ws;
       ws.binaryType = 'nodebuffer';
       const t = setTimeout(() => reject(new Error(`${this.name}: no welcome`)), 8000);
-      ws.on('open', () => this.send({ op: 'hello', v: PROTOCOL_VERSION, build: 'bot', crew, playerKey: this.key, name: this.name, profile: randomProfile(this.name) }));
+      ws.on('open', () => this.send({ op: 'hello', v: PROTOCOL_VERSION, build: 'bot', crew, playerKey: this.key, name: this.name, profile: this.profile ?? randomProfile(this.name) }));
       ws.on('message', (data: Buffer) => {
         const m = decodeMsg<ServerMsg>(data);
         if (m.op === 'welcome') {

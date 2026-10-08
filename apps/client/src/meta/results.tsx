@@ -3,8 +3,53 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ScreenProps } from '../core/ui/api.ts';
 import type { MetaContractResults, MetaShiftReview } from '@dead-air/shared/messages/meta.ts';
+import { MATERIAL_LABEL, isMaterial } from '@dead-air/shared/catalog.ts';
 import { metaOf, sfx, useTicker, useWorldV } from './state.ts';
 import { openScreen } from './nav.ts';
+
+/** v1.2: superlatives (at most 3) as award plaques under the outcome */
+function Awards({ r }: { r: MetaContractResults }) {
+  const list = r.superlatives ?? [];
+  if (!list.length) return null;
+  return (
+    <div class="m-awards" data-testid="results-awards">
+      {list.map((s, i) => (
+        <div key={s.title} class="m-award" style={{ animationDelay: `${0.25 + i * 0.18}s` }}>
+          <div class="t">{s.title}</div>
+          <div class="n">{s.name}</div>
+          <div class="w">{s.why}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** v1.2: workshop salvage committed to the crew stash (STASH +N), a ledger row */
+function StashLine({ r }: { r: MetaContractResults }) {
+  if (!r.salvage) return null;
+  const mats = Object.entries(r.salvage.materials ?? {}).filter(([k, n]) => isMaterial(k) && n > 0);
+  const n = mats.reduce((a, [, v]) => a + v, 0);
+  return (
+    <div class="m-stashline" data-testid="results-stash">
+      <b class={n ? 'm-green' : 'm-dim'}>STASH +{n}</b>
+      {mats.map(([k, v]) => <span key={k} class={`m-chip mat ${k.slice(4)}`}>{MATERIAL_LABEL[k as keyof typeof MATERIAL_LABEL] ?? k} +{v}</span>)}
+      {r.salvage.scrapped > 0 && <span class="m-chip">{r.salvage.scrapped} scrapped for parts</span>}
+      {!n && !r.salvage.scrapped && <span class="m-small m-dim">no parts came back this time</span>}
+    </div>
+  );
+}
+
+/** v1.2: one player's contract line under their XP (haul, items, deaths, revives, metres crept) + NEW FINDS */
+function PlayerLine({ r, player }: { r: MetaContractResults; player: string }) {
+  const p = r.players?.find((x) => x.player === player);
+  if (!p) return null;
+  return (
+    <span class="m-pline" data-testid="results-line">
+      <span><b class="m-amber">{p.hauled}</b> hauled · {p.items} item{p.items === 1 ? '' : 's'} · {p.creptM} m crept{p.revives ? ` · ${p.revives} revive${p.revives === 1 ? '' : 's'}` : ''}{p.deaths ? <b class="m-red"> · died{p.deaths > 1 ? ` ×${p.deaths}` : ''}</b> : ''}</span>
+      {p.finds.map((f) => <span key={f} class="m-chip green">NEW FIND · {f}</span>)}
+    </span>
+  );
+}
 
 const OUTCOME: Record<MetaContractResults['outcome'], [string, string]> = {
   extracted: ['EXTRACTED', 'var(--m-green)'],
@@ -60,6 +105,7 @@ export function ResultsScreen({ ctx }: ScreenProps) {
             <div class="m-small m-dim">{r.lootTotal ? `of ${r.lootTotal} on site` : ''}{r.coreExtracted ? ' · CORE EXTRACTED' : ''}</div>
           </div>
         </div>
+        <Awards r={r} />
         <div class="m-results">
           <div>
             <div class="m-sheet accent">
@@ -76,6 +122,7 @@ export function ResultsScreen({ ctx }: ScreenProps) {
                 <div class="m-quota-bar" style={{ height: '8px' }}><i style={{ width: `${pct}%`, background: r.shiftHauled >= r.quota ? 'var(--m-green)' : 'var(--m-amber)' }} /></div>
                 {fines > 0 && <div class="m-small m-dim">Fines come out of spendable scrip only, never the quota.</div>}
               </div>
+              <StashLine r={r} />
             </div>
             <div class="m-sheet" style={{ marginTop: '16px' }}>
               <div class="m-h3" style={{ color: r.deaths.length ? 'var(--m-red)' : 'var(--m-green)' }}>{r.deaths.length ? 'Death cards' : 'No casualties'}</div>
@@ -93,7 +140,7 @@ export function ResultsScreen({ ctx }: ScreenProps) {
             </div>
           </div>
           <div>
-            <div class="m-sheet accent">
+            <div class="m-sheet accent" data-testid="results-crew">
               <div class="m-h3">Career</div>
               {r.xp.map((x) => {
                 const lv = (ctx.balance.core.xpLevels as number[] | undefined) ?? [0, 150, 400, 750, 1200, 1800, 2600];
@@ -104,6 +151,7 @@ export function ResultsScreen({ ctx }: ScreenProps) {
                   <div class="m-xp" key={x.player}>
                     <span><b>{x.name}</b> <span class="m-dim">LVL {x.level}</span>{x.levelUp && <span class="m-chip green" style={{ marginLeft: '8px' }}>LEVEL UP</span>}</span>
                     <span class="m-amber">+{x.gained} XP</span>
+                    <PlayerLine r={r} player={x.player} />
                     <span class="m-small m-dim" style={{ gridColumn: '1 / -1' }}>{x.reasons.map((q) => `${q.text} +${q.xp}`).join(' · ')}</span>
                     {x.unlocks.length > 0 && <span class="m-small" style={{ gridColumn: '1 / -1', color: 'var(--m-cyan)' }}>UNLOCKED: {x.unlocks.join(' · ')}</span>}
                     <div class="bar"><i style={{ width: `${k * 100}%` }} /></div>

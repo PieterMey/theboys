@@ -3,7 +3,14 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ScreenProps } from '../core/ui/api.ts';
 import type { WorkOrder } from '@dead-air/shared/workorder.ts';
 import { GEAR_PACKS, ITEM_DEFS } from '@dead-air/shared/interactables.ts';
+import { THEMES, isSiteTheme } from '@dead-air/shared/procgen/themes.ts';
 import { isLeader, mePub, metaOf, ordersOf, sfx, useWorldV } from './state.ts';
+
+/** v1.2: the site's theme label (THEMES), shown as a chip on the order card */
+function themeLabel(o: WorkOrder): string | null {
+  const t = o.siteTheme;
+  return t && isSiteTheme(t) ? THEMES[t].label : null;
+}
 import { closeScreen } from './nav.ts';
 
 function Risk({ n }: { n: number }) {
@@ -14,14 +21,17 @@ function Risk({ n }: { n: number }) {
   );
 }
 
-function OrderCard({ o, picked, onPick, canPick, onDenied }: { o: WorkOrder; picked: boolean; onPick: () => void; canPick: boolean; onDenied?: () => void }) {
+function OrderCard({ o, picked, onPick, canPick, onDenied, themes = true }: { o: WorkOrder; picked: boolean; onPick: () => void; canPick: boolean; onDenied?: () => void; themes?: boolean }) {
   const req = o.requirements;
   return (
     <div class={`m-sheet m-order ${picked ? 'picked' : ''} ${o.available ? '' : 'locked'} ${o.risk >= 2 ? 'danger' : 'accent'}`} onClick={() => { if (o.available && canPick) onPick(); else if (o.available) onDenied?.(); }}>
       {picked && <div class="m-stamp">PICKED</div>}
       <div class="m-row" style={{ justifyContent: 'space-between' }}>
         <Risk n={o.risk} />
-        <span class="m-chip">SITE {o.size}</span>
+        <span>
+          {themes && themeLabel(o) && <span class="m-chip theme" data-testid="order-theme">{themeLabel(o)}</span>}
+          <span class="m-chip">SITE {o.size}</span>
+        </span>
       </div>
       <div class="site">{o.siteName}</div>
       <div>{o.modifiers.map((m) => <span key={m} class={`m-chip ${/MANNEQUIN|LISTENER|HOUND|DARK/.test(m) ? 'red' : ''}`}>{m}</span>)}</div>
@@ -127,7 +137,7 @@ export function BoardScreen({ ctx }: ScreenProps) {
           </dl>
         </div>
         <div class="m-orders">
-          {orders.map((o) => <OrderCard key={o.id} o={o} picked={meta?.picked === o.id} canPick={leader} onPick={() => pick(o)} onDenied={denied} />)}
+          {orders.map((o) => <OrderCard key={o.id} o={o} picked={meta?.picked === o.id} canPick={leader} onPick={() => pick(o)} onDenied={denied} themes={ctx.flags.siteThemes !== false} />)}
         </div>
         <div class="m-board-foot">
           <div class="m-small" style={{ lineHeight: 1.7 }}>

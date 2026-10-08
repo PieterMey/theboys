@@ -10,6 +10,7 @@ import { Bot } from './bot.ts';
 import type { FullState } from '../../packages/shared/src/state.ts';
 
 process.env.SAVES_DIR = mkdtempSync(join(tmpdir(), 'deadair-meta-ix-'));
+process.env.SESSION_FILE = join(process.env.SAVES_DIR, 'session.json'); // never <repo>/saves/session-<port>.json (the live server's folder)
 process.env.NODE_ENV = 'development';
 const { boot } = await import('../../apps/server/src/core/boot.ts');
 const { setQuiet } = await import('../../apps/server/src/core/log.ts');

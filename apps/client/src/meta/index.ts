@@ -16,6 +16,10 @@ import { MemoScreen, ResultsScreen } from './results.tsx';
 import { FLOW_SCREENS, ITEM_SCREEN, META_SCREENS, closeScreen, metaSlice, openScreen } from './nav.ts';
 import type { MetaClientSlice } from './nav.ts';
 import { installWorkshop } from './workshop.ts';
+import { StatsScreen } from './stats.tsx';
+
+/** screens the server may open with 'meta.open' (the workshop and the field guide handle their own) */
+const OPENABLE = new Set(['kennel', 'mirror', 'board', 'shop', 'console', 'stats']);
 
 function localPos(ctx: ClientContext): [number, number, number] | null {
   const lp = players(ctx)?.localPose?.();
@@ -51,12 +55,13 @@ export function install(ctx: ClientContext): void {
   ui.registerScreen('console', ConsoleScreen);
   ui.registerScreen('results', ResultsScreen);
   ui.registerScreen('memo', MemoScreen);
+  ui.registerScreen('stats', StatsScreen);
 
   ui.registerHud('top-left', HubCrew, { order: 20, id: 'meta-crew' });
   ui.registerHud('top-right', HubShift, { order: 20, id: 'meta-shift' });
   ui.registerHud('top', HubBanner, { order: 20, id: 'meta-banner' });
   ui.registerHud('center', HubPrompt, { order: 20, id: 'meta-prompt' });
-  void HubHints;
+  ui.registerHud('bottom', HubHints, { order: 40, id: 'meta-hints' });
   ui.registerHud('join', JoinExtras, { order: 30, id: 'meta-join' });
 
   // ---- server -> client
@@ -69,9 +74,12 @@ export function install(ctx: ClientContext): void {
     ctx.world.notify();
   });
   ctx.net.on('meta.open', (d: EventPayload<'meta.open'>) => {
-    if (d.screen === 'kennel' || d.screen === 'mirror' || d.screen === 'board' || d.screen === 'shop' || d.screen === 'console') {
-      if (ui.screen.value.name !== d.screen) openScreen(ctx, d.screen, d.props ?? {});
-    }
+    if (OPENABLE.has(d.screen) && ui.screen.value.name !== d.screen) openScreen(ctx, d.screen, d.props ?? {});
+  });
+  // v1.2 collection log: a first find (private to the finder)
+  ctx.net.on('meta.collection', (d: EventPayload<'meta.collection'>) => {
+    ui.toast(`NEW FIND · ${d.label} · collection log ${d.total}/${d.of}`, 'info', 4500);
+    sfx(ctx, 'sfx.ui_confirm');
   });
   const onAny = ctx.net.on as unknown as (e: string, fn: (d: unknown) => void) => () => void;
   onAny('interaction.patch', (d) => {

@@ -2,19 +2,31 @@
 // shop, quota, XP, saves, claim codes. Cross-track APIs are reached through ./adapters.ts (guarded; fallbacks).
 import type { ServerContext, ServerPlayer, Crew } from '../core/types.ts';
 import { SYSTEM_ORDER } from '../core/types.ts';
+import { isObserver } from '../core/crews.ts';
+import { registerHttpRoute } from '../core/ws.ts';
 import type { ReqArgs, ReqName } from '@dead-air/shared/messages/index.ts';
 import type { ReqHandler } from '../core/types.ts';
+import type { ItemEvent } from '@dead-air/shared/messages/interaction.ts';
+import type { MonsterEvent } from '@dead-air/shared/messages/monsters.ts';
 import * as A from './adapters.ts';
 import {
-  P, S, allReady, attachPlayer, buy, claim, continueFromResults, continueVote, finishContract, markDirty, newBoard, onForeignPhase, pick,
-  recordDeath, recordUtterance, refreshBoard, regenPin, saveOf, setProfile, setRuntime, startDrive, tickCrew, view,
+  P, S, allReady, attachPlayer, buy, claim, continueFromResults, continueVote, finishContract, loadoutMax, markDirty, newBoard,
+  onForeignPhase, pick, poolConsumed, recordDeath, recordUtterance, refreshBoard, regenPin, saveOf, setProfile, setRuntime, startDrive,
+  tickCrew, view,
 } from './flow.ts';
 import type { RawResult } from './flow.ts';
 import { SaveStore, savesDir } from './saves.ts';
 import { economyFrom, levelFor } from './economy.ts';
 import { installCrafting } from './crafting.ts';
+import { validateLoadout } from './pool.ts';
+import {
+  contractBuf, recordStat, statDecision, statDeath, statDeposit, statDoor, statItemEvent, statLoud, statMelee, statMonsterEvent,
+  statPhenomenon, statRevive, statUtterance,
+} from './stats.ts';
+import { canRead, statsReply, statsRoute } from './records.ts';
 
-const SCREEN_FOR: Record<string, string> = { board: 'board', shop: 'shop', mirror: 'mirror', kennel: 'kennel', console: 'console' };
+/** hub interactable kind -> client screen ('workbench' and 'stash' belong to the workshop: never add them here) */
+const SCREEN_FOR: Record<string, string> = { board: 'board', shop: 'shop', mirror: 'mirror', kennel: 'kennel', console: 'console', records: 'stats' };
 
 export async function install(ctx: ServerContext): Promise<void> {
   const log = ctx.log('meta');
@@ -45,13 +57,33 @@ export async function install(ctx: ServerContext): Promise<void> {
       const onDeath = A.fn<(f: (crew: Crew, who: unknown, cause: unknown) => void) => void>('interaction', 'onDeath');
       onDeath?.((crew, who, cause) => {
         const pid = typeof who === 'string' ? who : String((who as { id?: unknown } | null)?.id ?? '');
-        if (pid) recordDeath(crew, pid, cause as A.DeathCause | undefined);
+        if (!pid) return;
+        recordDeath(crew, pid, cause as A.DeathCause | undefined);
+        const c = cause as { killer?: unknown } | string | undefined;
+        statDeath(crew, pid, typeof c === 'string' ? c : String(c?.killer ?? 'UNKNOWN'));
       });
+      // v1.2 stats (counters only)
+      A.fn<(f: (crew: Crew, pid: string, items: { type: string; value?: number }[]) => void) => void>('interaction', 'onDeposit')?.((crew, pid, items) => statDeposit(crew, pid, items));
+      A.fn<(f: (crew: Crew, pid: string, how: string, by: string | null) => void) => void>('interaction', 'onRevive')?.((crew, pid, how, by) => statRevive(crew, pid, how, by));
+      A.fn<(f: (crew: Crew, id: number, open: boolean, by: string | null) => void) => void>('interaction', 'onDoor')?.((crew, id, open, by) => statDoor(crew, id, open, by));
+      // returns nothing: a stats subscriber never claims a melee hit
+      A.fn<(f: (crew: Crew, pid: string) => void) => void>('interaction', 'onMelee')?.((crew, pid) => { statMelee(crew, pid); });
+      A.fn<(f: (crew: Crew, e: ItemEvent) => void) => unknown>('interaction', 'onItemEvent')?.((crew, e) => {
+        statItemEvent(crew, e);
+        if (e?.kind === 'consume') poolConsumed(crew, e.pid, e.type, Number(e.count ?? 1));
+      });
+    } else if (name === 'monsters') {
+      A.fn<(f: (crew: Crew, e: MonsterEvent) => void) => unknown>('monsters', 'onMonsterEvent')?.((crew, e) => statMonsterEvent(crew, e));
+      A.fn<(f: (crew: Crew, d: { valid?: boolean; action?: string; speakerId?: string | null }) => void) => unknown>('monsters', 'listener.onDecision')?.((crew, d) => statDecision(crew, d));
     } else if (name === 'ai') {
       const onUtt = A.fn<(f: (crew: Crew, u: { speaker: string; text: string; hearers?: { listener?: boolean } }) => void) => void>('ai', 'onUtterance');
       onUtt?.((crew, u) => {
         if (u?.hearers?.listener && typeof u.speaker === 'string') recordUtterance(crew, u.speaker, u.text);
+        // the personnel file counts lines, never their text
+        if (typeof u?.speaker === 'string') statUtterance(crew, u.speaker);
       });
+    } else if (name === 'paranormal') {
+      A.fn<(f: (crew: Crew, rec: { witnesses?: string[] }) => void) => unknown>('paranormal', 'onPhenomenon')?.((crew, rec) => statPhenomenon(crew, rec));
     }
   };
   A.setAdapterLog(log, (name) => wire(name));
@@ -88,6 +120,10 @@ export async function install(ctx: ServerContext): Promise<void> {
   });
   ctx.hooks.phase.push(function metaPhase(crew, from, to) {
     onForeignPhase(crew, from, to);
+  });
+  // v1.2 stats: screams (rising edges into band 4); radio seconds come from the tick sampler
+  ctx.hooks.loud.push(function metaLoud(crew, player, prevBand) {
+    statLoud(crew, player, prevBand);
   });
   ctx.hooks.fullState.push(function metaFull(crew, player, state) {
     const s = S(crew);
@@ -168,6 +204,28 @@ export async function install(ctx: ServerContext): Promise<void> {
     return { ok: true, level: r.level };
   });
 
+  // ---- v1.2 (meta-records): hand-out priority + personnel file
+  req('meta.loadout', (crew, player, args) => {
+    const sv = saveOf(player);
+    const cur = [...(sv?.loadout ?? [])];
+    if (!sv) return { ok: false, reason: 'no save', loadout: cur };
+    const v = validateLoadout((args as { order?: unknown } | undefined)?.order, loadoutMax());
+    if (!v.ok) return { ok: false, reason: v.reason, loadout: cur };
+    sv.loadout = v.loadout;
+    store.putPlayer(sv);
+    markDirty(crew);
+    return { ok: true, loadout: [...v.loadout] };
+  });
+  req('meta.stats', (crew, player, args) => {
+    const me = P(player).saveId;
+    const want = typeof (args as { saveId?: unknown } | undefined)?.saveId === 'string' ? String(args!.saveId) : me;
+    const live = [...crew.players.values()].filter((p) => !isObserver(p)).map((p) => P(p).saveId);
+    if (!canRead(store, me, want, live)) throw new Error('not in a crew with you');
+    return statsReply(store, store.playerById(want), me);
+  });
+  // main menu (before joining): the browser key goes in a header, never the URL; never logged
+  registerHttpRoute('/api/stats', statsRoute(store));
+
   // ---- dev-only test controls
   ctx.registerDbg('meta.endContract', (crew, _p, args) => {
     const a = (args ?? {}) as RawResult & { real?: boolean };
@@ -233,6 +291,37 @@ export async function install(ctx: ServerContext): Promise<void> {
   ctx.registerDbg('meta.flush', () => {
     store.flush();
     return { writes: store.writes, dir: store.dir };
+  });
+  // v1.2 (meta-records) test controls
+  ctx.registerDbg('meta.stats', (crew, player, args) => {
+    const a = (args ?? {}) as { id?: string; record?: Record<string, number> };
+    const target = a.id ? crew.players.get(a.id) : player;
+    if (!target) throw new Error('no such player');
+    for (const [k, v] of Object.entries(a.record ?? {})) recordStat(crew, target.id, k, Number(v));
+    const sv = saveOf(target);
+    return {
+      saveId: P(target).saveId, phase: crew.phase, buffer: contractBuf(crew, P(target).saveId), stats: sv?.stats ?? null,
+      collection: sv?.collection ?? {}, achievements: sv?.achievements ?? [], loadout: sv?.loadout ?? [],
+      shiftStats: S(crew).shiftStats, records: S(crew).records, gear: S(crew).gear,
+    };
+  });
+  ctx.registerDbg('meta.itemEvent', (crew, player, args) => {
+    const e = { pid: player.id, id: `dbg${Date.now()}`, ...((args ?? {}) as Partial<ItemEvent>) } as ItemEvent;
+    if (!e.kind || !e.type) throw new Error('kind and type');
+    const target = crew.players.get(e.pid);
+    const before = Object.keys((target && saveOf(target)?.collection) ?? {}).length;
+    statItemEvent(crew, e);
+    if (e.kind === 'consume') poolConsumed(crew, e.pid, e.type, Number(e.count ?? 1));
+    return { ok: true, before, collection: Object.keys((target && saveOf(target)?.collection) ?? {}).length };
+  });
+  ctx.registerDbg('meta.collectionReset', (crew, player, args) => {
+    const a = (args ?? {}) as { id?: string };
+    const target = a.id ? crew.players.get(a.id) : player;
+    const sv = target ? saveOf(target) : null;
+    if (!sv) throw new Error('no such player');
+    sv.collection = {};
+    store.putPlayer(sv);
+    return { ok: true };
   });
 
   process.on('exit', () => {

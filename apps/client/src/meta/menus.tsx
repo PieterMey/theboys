@@ -4,9 +4,14 @@ import { useEffect, useState } from 'preact/hooks';
 import type { ComponentType } from 'preact';
 import type { HudProps, ScreenProps } from '../core/ui/api.ts';
 import type { ClientContext } from '../core/context.ts';
-import { applySettings, players, render, saveSettings, settings, sfx, useTicker, useWorldV } from './state.ts';
+import { applySettings, loose, players, render, saveSettings, settings, sfx, useTicker, useWorldV } from './state.ts';
 import type { MetaSettings } from './state.ts';
 import { closeScreen, openScreen } from './nav.ts';
+import { RecordTab } from './stats.tsx';
+
+interface ParanormalLike { settings?(): { mode: 'full' | 'subtle' }; setSettings?(p: { mode?: 'full' | 'subtle' }): void }
+/** the desktop shell (Electron) exposes this; the browser never reads Ctrl */
+const isDesktop = (): boolean => typeof window !== 'undefined' && !!(window as unknown as { deadAirDesktop?: unknown }).deadAirDesktop;
 
 interface VoiceLike {
   devices?(): Promise<{ deviceId: string; label: string }[]>;
@@ -69,6 +74,9 @@ export function SettingsTab({ ctx }: { ctx: ClientContext }) {
   const [tx, setTx] = useState(v?.transcribe?.() ?? true);
   const [crouchT, setCrouchT] = useState(!!pl?.settings?.().crouchToggle);
   const [invY, setInvY] = useState(!!pl?.settings?.().invertY);
+  const [ctrlC, setCtrlC] = useState(!!(pl?.settings?.() as { ctrlCrouch?: boolean } | undefined)?.ctrlCrouch);
+  const para = loose<ParanormalLike>(ctx, 'paranormal');
+  const [paraMode, setParaMode] = useState<'full' | 'subtle'>(para?.settings?.().mode ?? 'full');
   return (
     <div>
       <h3 class="m-h3">Video</h3>
@@ -100,7 +108,22 @@ export function SettingsTab({ ctx }: { ctx: ClientContext }) {
       <h3 class="m-h3" style={{ marginTop: '18px' }}>Controls</h3>
       <Range label="Mouse sensitivity" min={0.0005} max={0.006} step={0.0001} value={sens} fmt={(x) => (x * 1000).toFixed(1)} onChange={(x) => set({ sensitivity: x }, ['sensitivity'])} />
       <Toggle label="Crouch (C): toggle instead of hold" on={crouchT} disabled={!pl?.setSettings} onChange={(x) => { setCrouchT(x); try { pl?.setSettings?.({ crouchToggle: x }); } catch { /* players mid-init */ } }} />
+      {isDesktop() && (
+        <Toggle label="Desktop app: Left Ctrl crouches too" on={ctrlC} disabled={!pl?.setSettings} note="Ctrl+Esc still opens the Start menu" onChange={(x) => { setCtrlC(x); try { (pl?.setSettings as ((p: { ctrlCrouch?: boolean }) => void) | undefined)?.({ ctrlCrouch: x }); } catch { /* players mid-init */ } }} />
+      )}
       <Toggle label="Invert mouse Y" on={invY} disabled={!pl?.setSettings} onChange={(x) => { setInvY(x); try { pl?.setSettings?.({ invertY: x }); } catch { /* players mid-init */ } }} />
+      <h3 class="m-h3" style={{ marginTop: '18px' }}>Gameplay</h3>
+      <Toggle label="Gameplay hints" on={s.hints} note="key hints in the van" onChange={(x) => set({ hints: x }, [])} />
+      {para?.setSettings && (
+        <label class="m-set">
+          <span>Paranormal activity</span>
+          <select value={paraMode} onChange={(e) => { const m = e.currentTarget.value === 'subtle' ? 'subtle' : 'full'; setParaMode(m); try { para.setSettings?.({ mode: m }); } catch { /* paranormal mid-init */ } }}>
+            <option value="full">FULL</option>
+            <option value="subtle">SUBTLE</option>
+          </select>
+          <span class="m-dim m-small">{paraMode === 'subtle' ? 'fewer, quieter events' : ''}</span>
+        </label>
+      )}
     </div>
   );
 }
@@ -109,21 +132,35 @@ export function SettingsTab({ ctx }: { ctx: ClientContext }) {
 
 const CONTROLS: [string, string][] = [
   ['WASD · Mouse', 'Move · look (click the game to capture the mouse)'],
-  ['Shift', 'Sprint (loud: 12 m)'], ['C', 'Crouch (quiet: 1.5 m)'], ['E', 'Interact · carry · hide'],
+  ['Shift', 'Sprint (loud: 12 m)'], ['C (desktop: Left Ctrl)', 'Crouch: silent to the Hound and the Listener, and it spots you later'], ['E', 'Interact · carry · hide'],
+  ['E (hold)', 'Ease a door or drawer open quietly'],
   ['LMB', 'Use · throw · swing'], ['F', 'Flashlight'], ['Q (hold)', 'Walkie-talkie: transmit'],
   ['V (hold)', 'Push-to-talk (if enabled)'], ['G', 'Drop'], ['1-4', 'Inventory slots'], ['T', 'Emotes'],
-  ['MMB', 'Silent ping (teammates with line of sight)'], ['B', 'Work-order board (in the van)'], ['R', 'Ready up (in the van)'], ['Esc', 'This menu'],
+  ['MMB', 'Silent ping (teammates with line of sight)'], ['B', 'Work-order board (in the van)'], ['R', 'Ready up (in the van)'],
+  ['J', 'Field guide'], ['Esc', 'This menu'],
 ];
 
-export function HowToTab() {
+function Law({ who, title, body }: { who: string; title: string; body: string }) {
+  return (
+    <div class="m-sheet danger"><div class="m-kicker" style={{ color: 'var(--m-red)' }}>{who}</div><h3 class="m-h2" style={{ margin: '8px 0' }}>{title}</h3><div class="m-small" style={{ lineHeight: 1.6 }}>{body}</div></div>
+  );
+}
+
+export function HowToTab({ ctx }: { ctx?: ClientContext } = {}) {
+  // v1.2: the Listener rules follow listenerFairV12, so a rollback never shows rules that are not in the game
+  const fair = ctx?.flags.listenerFairV12 !== false;
+  const snatcher = ctx?.flags.snatcher !== false;
   return (
     <div>
       <h3 class="m-h3">The job</h3>
       <p class="m-credit">Salvage loot, restore power with the <b>twin breaker levers</b> (pulled within one second of each other), read the <b>vault code</b> off the van console, open the vault and carry the <b>Core</b> out between two people. The van leaves at <b>04:00</b>. Blackout at 03:00. Three contracts make a shift; miss the quota and HR writes to you.</p>
       <div class="m-law">
-        <div class="m-sheet danger"><div class="m-kicker" style={{ color: 'var(--m-red)' }}>HOUND</div><h3 class="m-h2" style={{ margin: '8px 0' }}>It is blind</h3><div class="m-small" style={{ lineHeight: 1.6 }}>It ignores whispers and crouch-steps. When it growls, FREEZE. A second noise nearby and it charges. Bottles send it elsewhere.</div></div>
-        <div class="m-sheet danger"><div class="m-kicker" style={{ color: 'var(--m-red)' }}>LISTENER</div><h3 class="m-h2" style={{ margin: '8px 0' }}>It understands</h3><div class="m-small" style={{ lineHeight: 1.6 }}>It hears what a teammate standing where it stands would hear, and acts on room names, player names, numbers and plans. It only grabs someone alone.</div></div>
-        <div class="m-sheet danger"><div class="m-kicker" style={{ color: 'var(--m-red)' }}>MANNEQUIN</div><h3 class="m-h2" style={{ margin: '8px 0' }}>Keep it lit</h3><div class="m-small" style={{ lineHeight: 1.6 }}>Frozen while someone watches it and it is lit. Your visor blinks; two watchers are safe. Risk 2 and every third contract.</div></div>
+        <Law who="HOUND" title="It is blind" body="It ignores whispers and crouch-steps. When it growls: FREEZE, or creep away (C). A second noise nearby and it charges. Bottles send it elsewhere." />
+        {fair
+          ? <Law who="LISTENER" title="It understands" body="It acts on room names, player names, numbers and plans. It SEES you at 6 m when you are lit (3 m in the dark, less if you crouch). When it notices you it stops and its head snaps: run, close a door, light a flare. Crouch behind anything waist-high or taller and it cannot see you." />
+          : <Law who="LISTENER" title="It understands" body="It hears what a teammate standing where it stands would hear, and acts on room names, player names, numbers and plans. It only grabs someone alone." />}
+        <Law who="MANNEQUIN" title="Keep it lit" body="Frozen while someone watches it and it is lit. Your visor blinks; two watchers are safe. Risk 2 and every third contract." />
+        {snatcher && <Law who="SNATCHER" title="Mind the vents" body="A rattling grate or falling dust means it is right above you. It drops on someone alone and drags them into the ducts: mash E to slow it, and a teammate holds E at the grate to pull them back. Risk 2 and later contracts of a shift." />}
       </div>
       <div class="m-row" style={{ alignItems: 'stretch', gap: '14px', marginBottom: '16px' }}>
         <div class="m-sheet accent m-grow"><div class="m-h3">It hunts information, not noise</div><div class="m-small" style={{ lineHeight: 1.6 }}>Laughing and small talk are just loudness. Callsigns ("BOILER"), names, digits and plans ("meet", "wait", "code") give it a target. Use code words. Lie to it. The van cab is sealed: talk freely in there.</div></div>
@@ -132,7 +169,7 @@ export function HowToTab() {
       </div>
       <h3 class="m-h3">Controls</h3>
       <table class="m-table"><tbody>{CONTROLS.map(([k, d]) => <tr key={k}><td><span class="m-keys">{k}</span></td><td>{d}</td></tr>)}</tbody></table>
-      <p class="m-small m-dim" style={{ marginTop: '10px' }}>Never Ctrl: Ctrl+W closes the tab. A wired headset beats speakers (speakers force push-to-talk).</p>
+      <p class="m-small m-dim" style={{ marginTop: '10px' }}>Browser: never Ctrl (Ctrl+W closes the tab). Desktop app: Left Ctrl crouches. A wired headset beats speakers (speakers force push-to-talk).</p>
     </div>
   );
 }
@@ -172,9 +209,11 @@ export function MenuScreen({ ctx, tab: tab0 }: ScreenProps) {
   useEffect(() => { if (typeof tab0 === 'string') setTab(tab0); }, [tab0]);
   useWorldV(ctx);
   const tabs: [string, string, ComponentType<{ ctx: ClientContext }>][] = [
-    ['howto', 'How to play', HowToTab], ['settings', 'Settings', SettingsTab], ['credits', 'Credits', CreditsTab],
+    ['howto', 'How to play', HowToTab], ['record', 'Record', RecordTab], ['settings', 'Settings', SettingsTab], ['credits', 'Credits', CreditsTab],
   ];
+  if (ctx.flags.statsV12 === false) tabs.splice(1, 1);
   const Cur = tabs.find((t) => t[0] === tab)?.[2] ?? HowToTab;
+  const guide = ctx.ui.screens.has('fieldguide');
   return (
     <div class="m-screen">
       <button class="m-close" onClick={() => closeScreen(ctx)}>RESUME [ESC]</button>
@@ -189,6 +228,7 @@ export function MenuScreen({ ctx, tab: tab0 }: ScreenProps) {
           <div class="m-menu-nav">
             <button class="m-btn primary" onClick={() => closeScreen(ctx)}>Resume</button>
             {tabs.map(([id, label]) => <button key={id} class={`m-btn ${tab === id ? 'on' : ''}`} onClick={() => setTab(id)}>{label}</button>)}
+            {guide && <button class="m-btn" onClick={() => ctx.ui.setScreen('fieldguide')}>Field guide [J]</button>}
             <div class="m-hazard" style={{ margin: '10px 0 4px' }} />
             {!confirm
               ? <button class="m-btn danger" onClick={() => setConfirm(true)}>Leave the shift</button>
@@ -275,7 +315,7 @@ export function KennelScreen({ ctx }: ScreenProps) {
         </div>
         <div class="m-sheet accent" style={{ marginBottom: '16px' }}>
           <div class="m-small" style={{ lineHeight: 1.7 }}>
-            The chained Hound behind the fence is blind. <b class="m-amber">Whisper</b> and it ignores you. <b class="m-green">Talk</b> and it turns its head. <b class="m-red">Shout</b> and it lunges at the fence. Out there, it is not chained. This also teaches the game your voice: your friends hear you exactly as far as it does.
+            The chained Hound behind the fence is blind. <b class="m-amber">Whisper</b> and it ignores you. <b class="m-green">Talk</b> and it turns its head. <b class="m-red">Shout</b> and it lunges at the fence. Walk up and it turns; creep and it never notices. Out there, it is not chained. This also teaches the game your voice: your friends hear you exactly as far as it does.
           </div>
           <div class="m-kennel-meter"><i style={{ width: `${k * 100}%`, background: BAND_COLOR[band] }} /></div>
           <div class="m-kennel-scale">{BAND_LABEL.map((b, i) => <span key={b} style={{ color: i === band ? BAND_COLOR[i] : undefined, fontWeight: i === band ? 700 : 400 }}>{b}</span>)}</div>

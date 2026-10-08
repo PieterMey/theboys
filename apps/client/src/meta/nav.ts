@@ -1,8 +1,9 @@
 // Owner: track (d) Meta. Screen routing helpers shared by the meta screens (no imports of screens: avoids cycles).
 import type { ClientContext } from '../core/context.ts';
 
-/** screens this track owns (Esc closes them; phase changes replace them) */
-export const META_SCREENS = new Set(['board', 'shop', 'mirror', 'kennel', 'brightness', 'menu', 'drive', 'console', 'results', 'memo']);
+/** screens this track owns or routes (Esc closes them; phase changes replace them). v1.2: the personnel file ('stats'),
+ *  the workshop's 'workbench' and the field guide's 'fieldguide' */
+export const META_SCREENS = new Set(['board', 'shop', 'mirror', 'kennel', 'brightness', 'menu', 'drive', 'console', 'results', 'memo', 'stats', 'workbench', 'fieldguide']);
 /** screens that are part of the phase flow (not closable with Esc) */
 export const FLOW_SCREENS = new Set(['drive', 'results', 'memo']);
 /** hub item kind -> screen */

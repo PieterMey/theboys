@@ -33,5 +33,21 @@
   "briefAiWaitSec": 25,
   "reviewAiWaitSec": 60,
   "fallbackContractSec": 960,
-  "saveDebounceMs": 400
+  "saveDebounceMs": 400,
+  "handoutSlots": 3,
+  "maxPoolSlots": 8,
+  "loadoutMax": 12,
+  "achievementXp": 50,
+  "achievements": {
+    "Ghost": 1000,
+    "Field Medic": 10,
+    "Hoarder": 10000,
+    "Lab Rat": 4,
+    "Night Shift": 25,
+    "Collector": 6,
+    "Tinkerer": 20,
+    "Duct Rat": 10,
+    "Clean Record": 10,
+    "Archivist": 10
+  }
 }

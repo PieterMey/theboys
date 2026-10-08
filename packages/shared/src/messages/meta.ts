@@ -2,7 +2,89 @@
 // Additive only. The base MetaState fields (shift, careers, shop) are filled by the core defaultMeta() and the meta track.
 import type { WorkOrder } from '../workorder.ts';
 import type { Profile } from '../profile.ts';
-import type { StatsReply } from '../progress.ts';
+import type { PlayerStatsV1, StatsReply } from '../progress.ts';
+import { ITEM_DEFS, LOOT_NAMES } from '../interactables.ts';
+import { CURIOS, CURIO_TYPE, MATERIAL_LABEL, MATERIAL_TYPES, PAGE_TYPE, POUCH_TYPE } from '../catalog.ts';
+
+// ---------------------------------------------------------------- v1.2 (meta-records): collection log + commendations
+// Pure and shared so the server (first finds, collectionSize) and the client (the '???' grid) agree on every entry.
+
+export interface CollectionDef {
+  /** CollectionEntry key: gear/material type, 'loot:<flavour>', 'curio:<name>' or 'loot.idol' */
+  key: string;
+  label: string;
+  group: 'gear' | 'material' | 'salvage' | 'curio' | 'idol';
+}
+
+/** never collection-log entries */
+export const COLLECTION_EXCLUDED: readonly string[] = ['badge', 'keycard', POUCH_TYPE, PAGE_TYPE];
+export const IDOL_TYPE = 'loot.idol';
+
+let catCache: { n: number; list: CollectionDef[]; keys: Set<string> } | null = null;
+
+/**
+ * Every collectable entry, counted once: gear ITEM_DEFS (non-loot, minus badge/keycard/pouch/page and materials) +
+ * MATERIAL_TYPES + every LOOT_NAMES flavour + CURIOS + the cursed idol. Computed from ITEM_DEFS at call time, so gear that
+ * interaction implements later joins the log on its own.
+ */
+export function collectionCatalog(): CollectionDef[] {
+  const n = Object.keys(ITEM_DEFS).length;
+  if (catCache && catCache.n === n) return catCache.list;
+  const list: CollectionDef[] = [];
+  const keys = new Set<string>();
+  const add = (d: CollectionDef) => {
+    if (keys.has(d.key)) return;
+    keys.add(d.key);
+    list.push(d);
+  };
+  const mats = MATERIAL_TYPES as readonly string[];
+  for (const [type, def] of Object.entries(ITEM_DEFS)) {
+    if (def.loot || type.startsWith('loot.') || COLLECTION_EXCLUDED.includes(type) || mats.includes(type)) continue;
+    add({ key: type, label: def.name, group: 'gear' });
+  }
+  for (const m of MATERIAL_TYPES) add({ key: m, label: MATERIAL_LABEL[m], group: 'material' });
+  for (const tier of LOOT_NAMES) for (const name of tier) add({ key: `loot:${name}`, label: name, group: 'salvage' });
+  for (const name of CURIOS) add({ key: `curio:${name}`, label: name, group: 'curio' });
+  add({ key: IDOL_TYPE, label: ITEM_DEFS[IDOL_TYPE]?.name ?? 'Cursed idol', group: 'idol' });
+  catCache = { n, list, keys };
+  return list;
+}
+
+/** collection key of an item (type + flavour name), or null when it is not a catalog entry */
+export function collectionKey(type: string, name?: string | null): string | null {
+  if (!type || COLLECTION_EXCLUDED.includes(type)) return null;
+  let key: string | null;
+  if (type === IDOL_TYPE) key = IDOL_TYPE;
+  else if (type === CURIO_TYPE) key = name ? `curio:${name}` : null;
+  else if (type.startsWith('loot.')) key = name ? `loot:${name}` : null;
+  else key = type;
+  if (!key) return null;
+  collectionCatalog();
+  return catCache!.keys.has(key) ? key : null;
+}
+
+export function collectionLabel(key: string): string {
+  return collectionCatalog().find((d) => d.key === key)?.label ?? key.replace(/^(loot|curio):/, '');
+}
+
+/** commendation (PlayerSave.achievements name) -> what earns it. stat 'curioFinds' = distinct curios in the collection,
+ *  'monsterKinds' = distinct monsters in killedBy (LEFT BEHIND excluded). config/balance/meta.json achievements.<name>
+ *  overrides `at`. */
+export interface AchievementDef { name: string; desc: string; stat: keyof PlayerStatsV1 | 'curioFinds' | 'monsterKinds'; at: number }
+export const ACHIEVEMENTS: readonly AchievementDef[] = [
+  { name: 'Ghost', desc: 'Crept 1,000 m', stat: 'crouchM', at: 1000 },
+  { name: 'Field Medic', desc: 'Revived 10 teammates', stat: 'revivesGiven', at: 10 },
+  { name: 'Hoarder', desc: '10,000 scrip of salvage deposited', stat: 'lootValue', at: 10000 },
+  { name: 'Lab Rat', desc: 'Killed by 4 kinds of monster', stat: 'monsterKinds', at: 4 },
+  { name: 'Night Shift', desc: '25 contracts worked', stat: 'contracts', at: 25 },
+  { name: 'Collector', desc: '6 different curios found', stat: 'curioFinds', at: 6 },
+  { name: 'Tinkerer', desc: '20 items crafted', stat: 'crafted', at: 20 },
+  { name: 'Duct Rat', desc: 'Crawled through 10 vents', stat: 'ductsCrawled', at: 10 },
+  { name: 'Clean Record', desc: '10 contracts survived in a row', stat: 'bestCleanStreak', at: 10 },
+  { name: 'Archivist', desc: '10 field-guide pages filed', stat: 'pagesFiled', at: 10 },
+];
+/** v1.1 achievement kept as is (Risk 2 unlock) */
+export const CORE_BUSINESS = 'Core Business';
 
 /** shop line shown in the van store (PLAN §3.5) */
 export interface MetaShopItem {
@@ -174,6 +256,17 @@ export interface MetaState {
   unlocks?: string[];
   /** v1.2: crew stash */
   stash?: Record<string, number>;
+  /** v1.2 (meta-records): this shift so far, one line per save that worked it (personnel file 'This shift' table) */
+  shiftLines?: MetaShiftLine[];
+}
+
+/** v1.2: CrewSave.shiftStats line with a name (MetaState.shiftLines) */
+export interface MetaShiftLine {
+  saveId: string;
+  /** live id when the player is in the crew right now, else null */
+  player: string | null;
+  name: string;
+  contracts: number; survived: number; deaths: number; hauled: number; revives: number; crafted: number; scrapped: number;
 }
 
 export interface MetaEvents {

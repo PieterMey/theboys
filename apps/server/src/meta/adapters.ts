@@ -17,6 +17,10 @@ export interface Adapters {
   interaction: Mod | null;
   monsters: Mod | null;
   ai: Mod | null;
+  /** v1.2: stealthStance (G1) */
+  players: Mod | null;
+  /** v1.2: onPhenomenon (E4), guarded */
+  paranormal: Mod | null;
 }
 
 const SPECS: Record<keyof Adapters, string> = {
@@ -25,9 +29,11 @@ const SPECS: Record<keyof Adapters, string> = {
   interaction: '../interaction/api.ts',
   monsters: '../monsters/api.ts',
   ai: '../ai/api.ts',
+  players: '../players/api.ts',
+  paranormal: '../paranormal/api.ts',
 };
 
-export const mods: Adapters = { level: null, objectives: null, interaction: null, monsters: null, ai: null };
+export const mods: Adapters = { level: null, objectives: null, interaction: null, monsters: null, ai: null, players: null, paranormal: null };
 const lastTry: Record<string, number> = {};
 const failedOnce = new Set<string>();
 const wired = new Set<string>();
@@ -115,20 +121,43 @@ export function generateHubLayout(): LevelLayout {
   return sharedHub();
 }
 
+export interface FacilityParams { seed: string; players: number; risk: number; theme?: string; modifiers?: readonly string[] }
+
 /**
  * Facility for a work order. Prefers ② generateFacility(params), then ② generateFacilityForCrew(crew, params) (which also
  * stores it as crew.layout + builds ②'s nav state, using balance/level.json tuning), else the shared procgen defaults.
+ * v1.2: {theme, modifiers} are forwarded. A themed/modified site that fails to generate falls back to the same site
+ * without modifiers, then to the plain shared facility {seed, players, risk} (plan check #3), each inside a try.
  */
-export function generateFacilityLayout(crew: Crew, p: { seed: string; players: number; risk: number }): LevelLayout {
-  const g = fn<(p: { seed: string; players: number; risk: number }) => LevelLayout>('level', 'generateFacility');
-  const gc = fn<(crew: Crew, p: { seed: string; players: number; risk: number }) => LevelLayout>('level', 'generateFacilityForCrew');
-  try {
-    const l = g ? g(p) : gc ? gc(crew, p) : null;
-    if (l && l.kind === 'facility') return l;
-  } catch (e) {
-    log?.warn('level facility generation threw, using shared procgen:', e instanceof Error ? e.message : e);
+export function generateFacilityLayout(crew: Crew, p: FacilityParams): LevelLayout {
+  const g = fn<(p: FacilityParams) => LevelLayout>('level', 'generateFacility');
+  const gc = fn<(crew: Crew, p: FacilityParams) => LevelLayout>('level', 'generateFacilityForCrew');
+  const plain = { seed: p.seed, players: p.players, risk: p.risk };
+  const tries: FacilityParams[] = [p];
+  if (p.modifiers?.length) tries.push({ ...plain, theme: p.theme });
+  if (p.theme || p.modifiers?.length) tries.push(plain);
+  let last: unknown = null;
+  for (const q of tries) {
+    try {
+      const l = g ? g(q) : gc ? gc(crew, q) : null;
+      if (l && l.kind === 'facility') return l;
+    } catch (e) {
+      last = e;
+      log?.warn(`level facility generation threw (${q.theme ?? 'facility'}${q.modifiers?.length ? ` +${q.modifiers.length} modifiers` : ''}), falling back:`, e instanceof Error ? e.message : e);
+    }
   }
-  return sharedFacility(p);
+  try {
+    return sharedFacility(plain);
+  } catch (e) {
+    log?.error('shared facility generation threw too:', e instanceof Error ? e.message : e);
+    throw last ?? e;
+  }
+}
+
+/** the server's stealth stance (G1 players/api.ts), else the claimed pose stance */
+export function stealthStance(crew: Crew, pid: string): number {
+  const r = call<number>('players', 'stealthStance', crew, pid);
+  return typeof r === 'number' ? r : (crew.players.get(pid)?.pose.stance ?? 0);
 }
 
 export function isAlive(crew: Crew, pid: string): boolean | null {

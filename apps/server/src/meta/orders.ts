@@ -3,6 +3,7 @@
 import { makeRng } from '@dead-air/shared/rng.ts';
 import type { Rng } from '@dead-air/shared/rng.ts';
 import type { ClueNote, CompanyRequest, CompanyRequestKind, WorkOrder } from '@dead-air/shared/workorder.ts';
+import { siteThemeOf } from '@dead-air/shared/procgen/themes.ts';
 import {
   CODE_A_NOTES, CODE_B_NOTES, FLAVOUR_NOTES, LEVER_NOTES, REQUEST_REWARD, REQUEST_TEXT, SITES,
 } from './templates.ts';
@@ -88,6 +89,8 @@ export function makeBoard(b: BoardInput): WorkOrder[] {
       risk,
       siteName: site.name,
       theme: 'facility',
+      // v1.2: stamped from the TEMPLATE site name, before any AI rename can change siteName
+      siteTheme: siteThemeOf(site.name) ?? 'facility',
       size: sizeFor(b.players),
       payoutMult: b.payoutMult[String(risk)] ?? 1,
       modifiers,

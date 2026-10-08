@@ -52,7 +52,7 @@ export function DriveScreen({ ctx }: ScreenProps) {
         <div class="m-kicker">EN ROUTE · VAN 9 · CONTRACT {Math.min((meta?.shift.contract ?? 0) + 1, per)}/{per} · RISK {order?.risk ?? 1}</div>
         <h1 class="m-h1" style={{ fontSize: '78px', marginTop: '10px' }}>{d?.siteName ?? order?.siteName ?? 'Unknown site'}</h1>
         <div class="m-small m-dim" style={{ marginTop: '10px', maxWidth: '760px', lineHeight: 1.6 }}>{order?.memo}</div>
-        <div class="m-rules">
+        <div class={`m-rules ${(d?.rules?.length ?? 0) >= 4 ? 'four' : ''}`}>
           {(d?.rules ?? []).map((r) => (
             <div key={r.monster} class={`m-sheet m-rule ${r.title.includes('NOT REPORTED') ? 'off' : 'danger'}`}>
               <div class="who">{r.monster.toUpperCase()}</div>

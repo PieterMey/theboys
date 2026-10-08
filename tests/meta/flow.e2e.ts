@@ -12,6 +12,7 @@ import type { FullState } from '../../packages/shared/src/state.ts';
 
 const saves = mkdtempSync(join(tmpdir(), 'deadair-meta-'));
 process.env.SAVES_DIR = saves;
+process.env.SESSION_FILE = join(saves, 'session.json'); // never <repo>/saves/session-<port>.json (the live server's folder)
 process.env.NODE_ENV = 'development';
 
 const { boot } = await import('../../apps/server/src/core/boot.ts');

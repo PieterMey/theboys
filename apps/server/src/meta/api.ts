@@ -5,7 +5,7 @@ import type { Crew } from '../core/types.ts';
 import type { CrewSave, PlayerSave } from '@dead-air/shared/saves.ts';
 import type { WorkOrder } from '@dead-air/shared/workorder.ts';
 import type { MetaShiftReview, MetaState, MetaXpLine } from '@dead-air/shared/messages/meta.ts';
-import { S, awardXp as award, runtime, saveCrew, saveOf, view } from './flow.ts';
+import { S, awardXp as award, poolAddUnits, poolViewOf, runtime, saveCrew, saveOf, view } from './flow.ts';
 import { craftView } from './crafting.ts';
 
 export { fillPlaceholders } from './orders.ts';
@@ -66,11 +66,15 @@ export function updatePlayerSave(crew: Crew, pid: string, fn: (sv: PlayerSave) =
 }
 // Gear pool keyed by save id (G4). Migrating an old live-id owner key: the live id of a save is
 // playerIdFromKey(key) for each sv.keys entry (apps/server/src/core/crews.ts: 'p' + base64url(sha256(key)).slice(0, 10)),
-// never 'p' + a sha256 hex digest (plan check #24g).
-/** G4 fills: add crafted units to pid's pool (cap, stacks); accepts POOL_TYPES + HANDOUT_ONLY */
-export function poolAdd(_crew: Crew, _pid: string, _type: string, _units: number): { ok: boolean; reason?: string } {
-  return { ok: false, reason: 'Gear pool not ready' };
+// never 'p' + a sha256 hex digest (plan check #24g). Implementation: flow.ts (hand-out / collect) + pool.ts (maths).
+/** add crafted units to pid's (live id) locker: POOL_TYPES + HANDOUT_ONLY or a GEAR_PACKS id (unpacked into its real
+ *  item); refused past maxPoolSlots slot-equivalents (POOL_STACK). Only ok:true means the units were added. */
+export function poolAdd(crew: Crew, pid: string, type: string, units: number): { ok: boolean; reason?: string } {
+  if (!runtime()) return { ok: false, reason: 'Gear pool not ready' };
+  return poolAddUnits(crew, pid, type, units);
 }
-export function poolView(_crew: Crew, _pid: string): { units: Record<string, number>; slots: number; maxSlots: number } {
-  return { units: {}, slots: 0, maxSlots: 8 };
+/** pid's (live id) locker: real item type -> units, slot-equivalents used and the cap */
+export function poolView(crew: Crew, pid: string): { units: Record<string, number>; slots: number; maxSlots: number } {
+  if (!runtime()) return { units: {}, slots: 0, maxSlots: 8 };
+  return poolViewOf(crew, pid);
 }

@@ -2,7 +2,8 @@
 import { useEffect, useState } from 'preact/hooks';
 import type { HudProps } from '../core/ui/api.ts';
 import type { ClientContext } from '../core/context.ts';
-import { isLeader, mePub, metaOf, ordersOf, useTicker, useWorldV } from './state.ts';
+import { MATERIAL_LABEL, MATERIAL_TYPES } from '@dead-air/shared/catalog.ts';
+import { isLeader, mePub, metaOf, onSettings, ordersOf, settings, useTicker, useWorldV } from './state.ts';
 import { metaSlice } from './nav.ts';
 
 type PeerInfo = { state: string; candidate: string; name: string; band: number; gain: number };
@@ -116,12 +117,20 @@ export function HubShift({ ctx }: HudProps) {
   const sh = meta.shift;
   const per = sh.contractsPerShift ?? 3;
   const pct = sh.quota > 0 ? Math.min(100, (sh.hauled / sh.quota) * 100) : 0;
+  // v1.2 workshop: crew stash chips (materials in the van locker)
+  const stash = MATERIAL_TYPES.filter((m) => (meta.stash?.[m] ?? 0) > 0);
   return (
     <div class="m-hud-shift">
       <div class="m-kicker">SHIFT {sh.index + 1} · CONTRACT {Math.min(sh.contract + 1, per)}/{per}</div>
       <div class="big" style={{ marginTop: '6px' }}>{sh.hauled} <span class="m-dim" style={{ fontSize: '16px' }}>/ {sh.quota} QUOTA</span></div>
       <div class="m-quota-bar"><i style={{ width: `${pct}%` }} /></div>
       <div class="m-small"><span class="m-dim">SCRIP</span> <b class="m-amber">{sh.balance}</b> <span class="m-dim">· QUOTAS MET</span> {sh.quotasMet}</div>
+      {stash.length > 0 && (
+        <div class="m-stash-chips" data-testid="hub-stash">
+          <span class="m-dim">STASH</span>
+          {stash.map((m) => <span key={m} class={`m-chip mat ${m.slice(4)}`}>{MATERIAL_LABEL[m].toUpperCase()} {meta.stash![m]}</span>)}
+        </div>
+      )}
     </div>
   );
 }
@@ -168,26 +177,19 @@ export function HubPrompt({ ctx }: HudProps) {
   );
 }
 
+/** van key hints (R is handled once, in meta/index.ts); hidden by the 'Gameplay hints' setting */
 export function HubHints({ ctx }: HudProps) {
   useWorldV(ctx);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.repeat || ctx.world.phase !== 'hub' || ctx.ui.screen.value.name !== 'none') return;
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      if (e.code === 'KeyR') {
-        const me = mePub(ctx);
-        void ctx.net.req('meta.ready', { ready: !me?.ready }).catch(() => {});
-      }
-    };
-    addEventListener('keydown', onKey);
-    return () => removeEventListener('keydown', onKey);
-  }, [ctx]);
-  if (ctx.world.phase !== 'hub' || ctx.net.status !== 'joined' || ctx.ui.screen.value.name !== 'none') return null;
+  const [on, setOn] = useState(settings().hints);
+  useEffect(() => onSettings(() => setOn(settings().hints)), []);
+  if (!on || ctx.world.phase !== 'hub' || ctx.net.status !== 'joined' || ctx.ui.screen.value.name !== 'none') return null;
+  const desktop = !!(window as unknown as { deadAirDesktop?: unknown }).deadAirDesktop;
   return (
     <div class="m-hints">
       <span><span class="m-keys">B</span> WORK ORDERS</span>
       <span><span class="m-keys">R</span> READY</span>
       <span><span class="m-keys">E</span> USE</span>
+      <span><span class="m-keys">{desktop ? 'C / L-CTRL' : 'C'}</span> CROUCH</span>
       <span><span class="m-keys">ESC</span> MENU · HOW TO PLAY</span>
     </div>
   );
