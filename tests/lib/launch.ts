@@ -37,6 +37,9 @@ export interface Player {
   close(): Promise<void>;
 }
 
+/** set by tools/gpu-guard.mjs while hardware rendering is off for agent tests (the host's GPU fault) */
+const SOFTWARE = process.env.DEADAIR_RENDER === 'swiftshader';
+
 export async function launchPlayer(opts: LaunchOpts): Promise<Player> {
   const wavName = opts.wav ?? 'silence.wav';
   const wav = isAbsolute(wavName) ? wavName : join(VOICE_DIR, wavName);
@@ -50,6 +53,8 @@ export async function launchPlayer(opts: LaunchOpts): Promise<Player> {
       `--use-file-for-fake-audio-capture=${wav}`,
       '--autoplay-policy=no-user-gesture-required',
       ...(opts.extraArgs ?? []),
+      // tools/gpu-guard.mjs sets this while hardware rendering is off for agent tests: CPU-only SwiftShader
+      ...(SOFTWARE ? ['--disable-gpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : []),
     ],
   });
   const context = await browser.newContext({ viewport: opts.viewport ?? { width: 1280, height: 720 } });
@@ -69,7 +74,8 @@ export async function launchPlayer(opts: LaunchOpts): Promise<Player> {
       try { localStorage.setItem('deadair.name', n); } catch { /* ignore */ }
     }, name);
   }
-  const q = new URLSearchParams({ test: '1', ...(opts.webgl ? { webgl: '1' } : {}), ...(opts.query ?? {}) });
+  const q = new URLSearchParams({ test: '1', ...(opts.webgl || SOFTWARE ? { webgl: '1' } : {}), ...(SOFTWARE ? { preset: 'low' } : {}), ...(opts.query ?? {}) });
+  if (SOFTWARE) q.set('webgl', '1');
   const url = `${opts.baseUrl.replace(/\/$/, '')}/?${q.toString()}${opts.crew ? `#${opts.crew}` : ''}`;
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   return { browser, page, errors, close: () => browser.close() };

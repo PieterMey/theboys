@@ -92,20 +92,52 @@ if (!(await acquire())) {
 }
 const start = new Date();
 let outcome = null;
+// HARDWARE GPU POLICY: since the 2026-10-08 00:50 crash (a guarded agent test set off the GPU fault and the PC
+// bugchecked anyway), agent tests run in SOFTWARE rendering only. The child gets DEADAIR_RENDER=swiftshader
+// (tests/lib/launch.ts then adds --disable-gpu --use-angle=swiftshader --enable-unsafe-swiftshader, ?webgl=1,
+// ?preset=low), and a watchdog kills the run (exit 95) if any process in its tree uses the NVIDIA 3D engine.
+// Only the integrator, with the user's explicit OK, sets DEADAIR_HW_GPU_OK=1 for a real-GPU pass.
+const hardware = process.env.DEADAIR_HW_GPU_OK === '1';
+const childEnv = { ...process.env };
+if (!hardware) {
+  childEnv.DEADAIR_RENDER = 'swiftshader';
+  say(`SOFTWARE RENDERING ONLY (hardware GPU is off for agent tests since the 00:50 crash). Launch Chrome with --disable-gpu --use-angle=swiftshader --enable-unsafe-swiftshader and ?webgl=1&preset=low (tests/lib/launch.ts does this when DEADAIR_RENDER=swiftshader). Judge layout and logic, not lighting quality or perf; never launch the desktop app. Any NVIDIA 3D-engine use kills the run (exit 95).`);
+}
 const needsShell = process.platform === 'win32' && (/\.(cmd|bat)$/i.test(cmd[0]) || /^(npm|npx|pnpm|yarn)$/i.test(cmd[0]));
-const child = spawn(cmd[0], cmd.slice(1), { stdio: 'inherit', shell: needsShell });
+const child = spawn(cmd[0], cmd.slice(1), { stdio: 'inherit', shell: needsShell, env: childEnv });
 const onSignal = () => { killTree(child.pid); release(); process.exit(130); };
 process.on('SIGINT', onSignal);
 process.on('SIGTERM', onSignal);
 const deadline = setTimeout(() => { outcome = 124; say(`time limit ${maxSec} s reached: stopping '${label}'`); killTree(child.pid); }, maxSec * 1000);
+
+/** NVIDIA 3D-engine utilisation (%) summed over the child's process tree (Windows GPU Engine counters) */
+function treeGpu3d(rootPid) {
+  const ps = `$all = Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId; $tree = @{ ${rootPid} = $true }; ` +
+    `do { $n = $tree.Count; foreach ($p in $all) { if ($tree.ContainsKey([int]$p.ParentProcessId)) { $tree[[int]$p.ProcessId] = $true } } } while ($tree.Count -gt $n); ` +
+    `$sum = 0; foreach ($s in (Get-Counter '\\GPU Engine(*engtype_3D)\\Utilization Percentage' -ErrorAction SilentlyContinue).CounterSamples) { if ($s.InstanceName -match '^pid_(\\d+)_' -and $tree.ContainsKey([int]$Matches[1])) { $sum += $s.CookedValue } }; [math]::Round($sum, 1)`;
+  const r = spawnSync('powershell', ['-NoProfile', '-Command', ps], { encoding: 'utf8', windowsHide: true, timeout: 15000 });
+  return Number(String(r.stdout ?? '0').trim().split(/\s+/).pop()) || 0;
+}
+let hotSamples = 0;
 const watch = setInterval(() => {
+  if (outcome !== null) return;
   const n = driverEventsSince(start);
-  if (n > 0 && outcome === null) {
+  if (n > 0) {
     outcome = 99;
     say(`ABORT: ${n} NVIDIA driver event(s) during '${label}': killed it. Do not retry; report it to the integrator.`);
     killTree(child.pid);
+    return;
   }
-}, 2000);
+  if (!hardware) {
+    const g = treeGpu3d(child.pid);
+    hotSamples = g > 5 ? hotSamples + 1 : 0;
+    if (hotSamples >= 2) {
+      outcome = 95;
+      say(`ABORT: '${label}' used the NVIDIA GPU (${g}% of the 3D engine) while hardware rendering is off: killed it. Launch Chrome in the software lane (see above) and re-run once.`);
+      killTree(child.pid);
+    }
+  }
+}, 3000);
 child.on('exit', (code) => {
   clearTimeout(deadline);
   clearInterval(watch);

@@ -1,7 +1,7 @@
 // Config loader: config/flags.json + config/balance/<domain>.json (namespaced by file name: balance.core,
 // balance.voice, ...). Reload updates the SAME objects in place so references held by tracks stay valid.
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
 export const ROOT = resolve(import.meta.dirname, '../../../..');
@@ -68,7 +68,9 @@ export function readBalance(root = ROOT): Balance {
 export function makeEnv(mode: Mode, portOverride?: number): ServerEnv {
   const e = process.env;
   const PORT = portOverride ?? Number(e.PORT ?? 3000);
-  const assets = e.ASSETS_DIR ?? (existsSync(join(ROOT, '.assets')) ? join(ROOT, '.assets') : join(DATA_ROOT, '.assets'));
+  let assets = e.ASSETS_DIR ?? (existsSync(join(ROOT, '.assets')) ? join(ROOT, '.assets') : join(DATA_ROOT, '.assets'));
+  // ASSETS_DIR is the folder that CONTAINS dist/; also accept the dist folder itself (it holds manifest.json)
+  if (e.ASSETS_DIR && !existsSync(join(assets, 'dist')) && existsSync(join(assets, 'manifest.json'))) assets = dirname(assets);
   const aiMode = (e.AI_MODE ?? 'mock') as AiMode;
   return {
     mode,
