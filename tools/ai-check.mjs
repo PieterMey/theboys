@@ -39,13 +39,19 @@ function scrub(text) {
   return s.length > 400 ? s.slice(0, 400) + '...' : s;
 }
 
-const MODEL_FAST = process.env.MODEL_FAST || 'claude-haiku-4-5';
+const MODEL_FAST = process.env.MODEL_FAST || 'claude-haiku-5-5';
+// fast-model request knobs for benchmarking (Claude Haiku 5.5 thinks adaptively by default; Haiku 4.5 rejects effort)
+const FAST_EFFORT = process.env.AI_CHECK_EFFORT || null; // low | medium | high
+const FAST_THINKING = process.env.AI_CHECK_THINKING || null; // disabled | adaptive (unset = model default)
+const FAST_MAX_TOKENS = Number(process.env.AI_CHECK_MAX_TOKENS || 100);
 const MODEL_WRITER = process.env.MODEL_WRITER || 'claude-opus-5-5';
 const JEV_MODEL = process.env.JEV_MODEL || 'jev-1.13.0';
 
 // USD per million tokens (claude-api skill pricing table, cached 2026-09-25; TypeSafe models page).
 const PRICES = {
   'claude-haiku-4-5': { in: 1, out: 5, cacheWrite: 1.25, cacheRead: 0.1 },
+  // Claude Haiku 5.5: prompts <= 100K tokens (claude-api skill, cached 2026-10-06)
+  'claude-haiku-5-5': { in: 0.1, out: 0.5, cacheWrite: 0.125, cacheRead: 0.01 },
   'claude-opus-5-5': { in: 4, out: 20, cacheWrite: 5, cacheRead: 0.2 },
   jev: { in: 0.042, out: 0 },
 };
@@ -367,10 +373,11 @@ async function runClaude() {
       const stream = client.messages.stream(
         {
           model: MODEL_FAST,
-          max_tokens: 100,
+          max_tokens: FAST_MAX_TOKENS,
           system: LISTENER_SYSTEM,
           messages: [{ role: 'user', content: JSON.stringify(sit) }],
-          output_config: { format: { type: 'json_schema', schema: LISTENER_SCHEMA } },
+          ...(FAST_THINKING ? { thinking: { type: FAST_THINKING } } : {}),
+          output_config: { ...(FAST_EFFORT ? { effort: FAST_EFFORT } : {}), format: { type: 'json_schema', schema: LISTENER_SCHEMA } },
         },
         { timeout: 15_000 },
       );
@@ -415,6 +422,8 @@ async function runClaude() {
   console.log(`[claude] ${MODEL_FAST}: ${F.valid}/${F.calls.length} valid JSON decisions; total ${fmtStats(F.total)}; warm (calls 2-8) ${fmtStats(F.totalWarm)}; TTFT ${fmtStats(F.ttft)}; cost $${F.costUsd.toFixed(4)}`);
   if (F.valid < F.calls.length) results.problems.push(`${MODEL_FAST}: ${F.calls.length - F.valid} of ${F.calls.length} decisions invalid or failed`);
 
+  // --fast-only: benchmark the fast model alone (no writer call)
+  if (want('--fast-only')) return;
   // --- writer model: one structured call at low effort (thinking is always on for this model).
   const W = { model: MODEL_WRITER, ms: null, stop: null, usage: null, costUsd: 0, placeholderOk: null };
   R.writer = W;

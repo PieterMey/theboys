@@ -426,7 +426,7 @@ interface Produced { url: string; ms: number; source: 'haiku' | 'template'; cach
 
 async function produce(req: LureRequest, f: LureFacts, deadlineAt: number, late: () => boolean): Promise<Produced | { fail: string }> {
   const ctx = getCtx();
-  const model = ctx?.env.MODEL_FAST ?? process.env.MODEL_FAST ?? 'claude-haiku-4-5';
+  const model = ctx?.env.MODEL_FAST ?? process.env.MODEL_FAST ?? 'claude-haiku-5-5';
   const reserve = balNum('lureTtsReserveMs', 480);
   const t0 = performance.now();
   // the first call per process compiles the schema grammar: let that request run long (the grammar stays cached

@@ -80,7 +80,7 @@ Nobody edits objectives, voice, net (except movement.ts), ai (except director.ts
 - **Audio.** No `ScriptProcessorNode`. Mic constraints are `echoCancellation:true, noiseSuppression:true, autoGainControl:false`. Never use `'remote-only'`. Every remote WebRTC stream also gets a muted, playing `<audio>` keep-alive element.
 - **Claude API.** Read `docs/claude-api-notes.md` first. Then read the SDK docs in `C:\Users\Pieter\AppData\Local\Temp\claude\bundled-skills\2.1.291\47bac98defa643f89cebfe3371a586f9\claude-api\typescript\claude-api\*.md` and `...\claude-api\shared\prompt-caching.md`.
   - No `temperature`/`top_p`/`top_k`, no `budget_tokens`, no `thinking:{type:'disabled'}`, no forced `tool_choice`, no prefill, no `effort` on Haiku 4.5, no `messages.parse`. Use `create()` with `output_config.format` json_schema, then branch on `stop_reason`.
-  - Model IDs come from env (`MODEL_WRITER=claude-opus-5-5`, `MODEL_FAST=claude-haiku-4-5`).
+  - Model IDs come from env (`MODEL_WRITER=claude-opus-5-5`, `MODEL_FAST=claude-haiku-5-5`, `MODEL_RETRY=claude-haiku-4-5` for the refusal retry). Haiku 5.5 thinks by default: the gateway adds effort low and a 1024 max_tokens floor (see docs/claude-api-notes.md); never size a Haiku 5.5 route's max_tokens for the answer alone.
 - **Costs (the user asked to limit them).** Never call live AI in loops or tests. Use `AI_MODE=mock` by default; only `tools/ai-*.mjs` makes live calls, and it's small. ElevenLabs generation happens once, at build time, and is cached.
 
 ## Secrets (public repo!)

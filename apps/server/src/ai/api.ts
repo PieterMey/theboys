@@ -26,7 +26,9 @@ import { getCtx, listenerStats, log, sttStatus, subscribe } from './hub.ts';
 export type { AiStatus, DirectorOption, ListenerInput, ListenerIntent, ShiftReview, ShiftSummary, Utterance };
 export type { LureHeard, LureRequest };
 
-const fastModel = () => getCtx()?.env.MODEL_FAST ?? process.env.MODEL_FAST ?? 'claude-haiku-4-5';
+const fastModel = () => getCtx()?.env.MODEL_FAST ?? process.env.MODEL_FAST ?? 'claude-haiku-5-5';
+/** refusal retry for briefs/memos: Haiku 4.5 on purpose (no safety classifiers; Haiku 5.5 has them and no fallback) */
+const retryModel = () => getCtx()?.env.MODEL_RETRY ?? process.env.MODEL_RETRY ?? 'claude-haiku-4-5';
 const writerModel = () => getCtx()?.env.MODEL_WRITER ?? process.env.MODEL_WRITER ?? 'claude-opus-5-5';
 
 /** Subscribe to transcribed utterances (voice + proximity text). Returns an unsubscribe function. */
@@ -46,12 +48,12 @@ export function directorPick(state: unknown, allowed: readonly DirectorOption[])
 
 /** AI-written flavour for a template work order (same id/seed/mechanics), or the template itself. Never rejects. */
 export function briefFor(order: WorkOrder): Promise<WorkOrder> {
-  return brief(order, writerModel(), fastModel());
+  return brief(order, writerModel(), retryModel());
 }
 
 /** Shift review (per-player HR memo + comments + letter). Template parts where AI failed. Never rejects. */
 export function reviewFor(shift: ShiftSummary): Promise<ShiftReview> {
-  return review(shift, writerModel(), fastModel()).then((r) => {
+  return review(shift, writerModel(), retryModel()).then((r) => {
     const ctx = getCtx();
     const crew = ctx?.crews.get(shift.crew);
     if (ctx && crew) {

@@ -24,6 +24,8 @@
   "jevTimeoutMs": 900,
   "haikuTimeoutMs": 3000,
   "haikuColdTimeoutMs": 8000,
+  "haikuEffort": "low",
+  "haikuMinMaxTokens": 1024,
   "directorTimeoutMs": 900,
   "briefTimeoutMs": 120000,
   "reviewTimeoutMs": 55000,
@@ -62,6 +64,7 @@
   "pricesPerMTok": {
     "claude-opus-5-5": { "in": 4, "out": 20, "cacheWrite": 5, "cacheRead": 0.2 },
     "claude-haiku-4-5": { "in": 1, "out": 5, "cacheWrite": 1.25, "cacheRead": 0.1 },
+    "claude-haiku-5-5": { "in": 0.1, "out": 0.5, "cacheWrite": 0.125, "cacheRead": 0.01 },
     "claude-sonnet-5-5": { "in": 2, "out": 10, "cacheWrite": 2.5, "cacheRead": 0.2 },
     "jev": { "in": 0.042, "out": 0 }
   }

@@ -32,6 +32,8 @@ export interface ServerEnv {
   CLIENT_DIST: string;
   MODEL_WRITER: string;
   MODEL_FAST: string;
+  /** refusal-retry model for briefs/memos (Haiku 4.5: no safety classifiers) */
+  MODEL_RETRY: string;
 }
 
 export interface AppConfig {
@@ -85,7 +87,8 @@ export function makeEnv(mode: Mode, portOverride?: number): ServerEnv {
     ROOT,
     CLIENT_DIST: process.env.CLIENT_DIST || join(ROOT, 'apps/client/dist'),
     MODEL_WRITER: e.MODEL_WRITER ?? 'claude-opus-5-5',
-    MODEL_FAST: e.MODEL_FAST ?? 'claude-haiku-4-5',
+    MODEL_FAST: e.MODEL_FAST ?? 'claude-haiku-5-5',
+    MODEL_RETRY: e.MODEL_RETRY ?? 'claude-haiku-4-5',
   };
 }
 

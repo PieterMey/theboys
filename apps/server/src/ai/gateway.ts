@@ -117,6 +117,8 @@ interface Price { in: number; out: number; cacheWrite: number; cacheRead: number
 const DEFAULT_PRICES: Record<string, Price> = {
   'claude-opus-5-5': { in: 4, out: 20, cacheWrite: 5, cacheRead: 0.2 },
   'claude-haiku-4-5': { in: 1, out: 5, cacheWrite: 1.25, cacheRead: 0.1 },
+  // Claude Haiku 5.5, prompts <= 100K tokens ($0.50 / $2.50 above; our prompts are ~2.6K)
+  'claude-haiku-5-5': { in: 0.1, out: 0.5, cacheWrite: 0.125, cacheRead: 0.01 },
   'claude-sonnet-5-5': { in: 2, out: 10, cacheWrite: 2.5, cacheRead: 0.2 },
   jev: { in: 0.042, out: 0, cacheWrite: 0, cacheRead: 0 },
 };
@@ -124,7 +126,7 @@ const DEFAULT_PRICES: Record<string, Price> = {
 function priceOf(model: string): Price {
   const table = (G.cfg.bal().pricesPerMTok ?? {}) as Record<string, Partial<Price>>;
   const key = model.startsWith('jev') ? 'jev' : model;
-  const p = table[key] ?? DEFAULT_PRICES[key] ?? (model.includes('haiku') ? DEFAULT_PRICES['claude-haiku-4-5'] : DEFAULT_PRICES['claude-opus-5-5']);
+  const p = table[key] ?? DEFAULT_PRICES[key] ?? (model.includes('haiku') ? DEFAULT_PRICES[model.includes('haiku-4') ? 'claude-haiku-4-5' : 'claude-haiku-5-5'] : DEFAULT_PRICES['claude-opus-5-5']);
   return { in: p.in ?? 4, out: p.out ?? 20, cacheWrite: p.cacheWrite ?? (p.in ?? 4) * 1.25, cacheRead: p.cacheRead ?? (p.in ?? 4) * 0.1 };
 }
 
@@ -378,6 +380,16 @@ function isSpendLimit(e: InstanceType<typeof Anthropic.APIError>): boolean {
   return t.includes('spend limit') || t.includes('spend_limit') || t.includes('credit balance') || t.includes('usage limit');
 }
 
+/** Claude Haiku 5.5+ thinks adaptively by default and its thinking counts toward max_tokens, so a request sized for
+ *  Haiku 4.5 (80-120 tokens) can stop at max_tokens before any JSON. Fast routes therefore run at the configured
+ *  effort (balance haikuEffort, default 'low': measured p50 0.88 s against 1.70 s on Haiku 4.5, docs/claude-api-notes.md)
+ *  with a max_tokens floor (haikuMinMaxTokens, default 1024; only produced tokens are billed). Haiku 4.5 rejects effort. */
+export function haikuOpts(model: string, effort: Effort | undefined, maxTokens: number): { effort: Effort | undefined; maxTokens: number } {
+  if (!/^claude-haiku-(?!4)/.test(model)) return { effort, maxTokens };
+  const e = (G.cfg.bal().haikuEffort as Effort | undefined) ?? 'low';
+  return { effort: effort ?? e, maxTokens: Math.max(maxTokens, num('haikuMinMaxTokens', 1024)) };
+}
+
 /** Parse a provider-shaped Message: branch on stop_reason, JSON.parse the text block. */
 export function parseClaudeMessage(msg: MockMessage): { ok: true; data: unknown } | { ok: false; reason: FailReason; category?: string | null } {
   if (msg.stop_reason === 'refusal') return { ok: false, reason: 'refusal', category: msg.stop_details?.category ?? null };
@@ -417,14 +429,15 @@ export async function claudeJson(req: ClaudeReq): Promise<ClaudeResult> {
       }
       msg = f.raw as MockMessage;
     } else {
+      const fast = haikuOpts(req.model, req.effort, req.maxTokens);
       const res = await anthropicClient().messages.create(
         {
           model: req.model,
-          max_tokens: req.maxTokens,
+          max_tokens: fast.maxTokens,
           system: req.system,
           messages: [{ role: 'user', content: req.user }],
-          output_config: req.effort
-            ? { effort: req.effort, format: { type: 'json_schema', schema: req.schema } }
+          output_config: fast.effort
+            ? { effort: fast.effort, format: { type: 'json_schema', schema: req.schema } }
             : { format: { type: 'json_schema', schema: req.schema } },
         },
         { timeout: req.timeoutMs, maxRetries: 0 },
