@@ -1,6 +1,6 @@
 // `node apps/server/src/index.ts --selftest`: boot on a random port (mode 'test', all tracks installed strictly),
-// connect 2 ws clients to one crew, assert both get welcome + snap within 2 s, check a req round trip and that
-// secret paths 404. Prints OK and exits 0, else exits 1.
+// connect 2 ws clients to one crew, assert both get welcome + snap within 2 s, check a req round trip, that
+// secret paths 404 and that /healthz carries the live flags. Prints OK and exits 0, else exits 1.
 import { randomBytes } from 'node:crypto';
 import WebSocket from 'ws';
 import { PROTOCOL_VERSION, decodeMsg, encodeMsg } from '@dead-air/shared/envelope.ts';
@@ -76,8 +76,12 @@ export async function runSelftest(tracks: [string, TrackInstall][]): Promise<voi
     }
     const h = await fetch(`http://127.0.0.1:${srv.port}/healthz`);
     if (!h.ok) throw new Error(`/healthz ${h.status}`);
+    // the live flags clients merge at page load (core/http.ts + client core/flags.ts): the server's own ctx.flags
+    const served = JSON.stringify(((await h.json()) as { flags?: unknown }).flags ?? null);
+    if (served !== JSON.stringify(srv.ctx.flags)) throw new Error(`/healthz does not carry the live flags (${served.slice(0, 80)})`);
+    if (h.headers.get('cache-control') !== 'no-store') throw new Error('/healthz must be Cache-Control: no-store');
     const ms = Math.round(performance.now() - t0);
-    console.log(`selftest OK: 2 clients joined crew SELF, welcome+snap (${a.snaps}/${b.snaps} snaps), req round trip, 404s ok, ${tracks.length} tracks installed (${ms} ms)`);
+    console.log(`selftest OK: 2 clients joined crew SELF, welcome+snap (${a.snaps}/${b.snaps} snaps), req round trip, 404s ok, live flags served, ${tracks.length} tracks installed (${ms} ms)`);
     await srv.close();
     finish(0);
   } catch (e) {

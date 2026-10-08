@@ -129,7 +129,10 @@ test('pose validation: walk ok, teleport and wall-crossing rejected with net.cor
   p.pose = pose(5.7, 2.5);
   p.poseAt = performance.now() - 200;
   assert.notEqual(hook(crew, p, pose(6.3, 2.5)), false, 'doorway accepted');
-  // dead players (spectator camera) are never validated
+  // v1.2 (plan check #7): a LIVING player's dead claim is validated like stand and stored as stand
   p.pose = pose(2, 2);
-  assert.notEqual(hook(crew, p, { ...pose(40, 40), stance: 4 }), false);
+  { const q = { ...pose(40, 40), stance: 4 }; assert.equal(hook(crew, p, q), false, 'living dead-claim validated'); assert.equal(q.stance, 0, 'rewritten to stand'); }
+  // truly dead players (spectator camera) are never validated
+  p.alive = false;
+  assert.notEqual(hook(crew, p, { ...pose(40, 40), stance: 4 }), false, 'truly dead: free');
 });

@@ -29,3 +29,6 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 .idea/
+
+# Personal guides (they describe the owner: keep out of the public repo)
+docs/STEAM.md

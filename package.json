@@ -16,7 +16,7 @@
     "check": "tsc --noEmit && node tools/check-forbidden.mjs && node tools/check-secrets.mjs",
     "selftest": "node apps/server/src/index.ts --selftest",
     "typecheck": "tsc --noEmit",
-    "test:unit": "node --test \"packages/**/*.test.ts\" \"apps/**/*.test.ts\" \"tools/**/*.test.ts\" \"tests/**/*.test.ts\"",
+    "test:unit": "node --test \"packages/**/*.test.ts\" \"apps/**/*.test.ts\" \"tools/**/*.test.ts\" \"tests/**/*.test.ts\" \"apps/desktop/**/*.test.mjs\"",
     "gate:g0": "node tests/gates/g0.mjs",
     "fixtures:voice": "node tests/fixtures/make-voice.mjs",
     "host": "node tools/host.mjs",

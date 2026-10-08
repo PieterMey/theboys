@@ -116,12 +116,16 @@ export function install(ctx: ClientContext): void {
     }
   };
   const prepareSteps = async (t0: number, deadline: number, capMs: number, a0: ReturnType<typeof assetProgress>, report: (step: StepId, k: number, detail: string) => void, my: () => boolean, minMs: number): Promise<boolean> => {
-    // downloads (props, textures, sounds): real counts/bytes of what this scene asked for
+    // downloads (props, textures, sounds): real counts/bytes of what this scene asked for. Loads already in flight
+    // when this wait began (the scene starts fetching before the screen measures) are this scene's work too: count
+    // them in the totals, or 'done' outruns 'files' ("75/3 files · 37 MB / 1.3 MB") and k passes 1
     while (performance.now() < deadline - capMs * 0.35 && my()) {
       const a = assetProgress();
-      const files = a.started - a0.started, done = a.done - a0.done;
-      const bt = a.bytesTotal - a0.bytesTotal, bd = a.bytesDone - a0.bytesDone;
-      const k = bt > 0 ? bd / bt : files > 0 ? done / files : 1;
+      const files = a.started - a0.started + a0.pending;
+      const done = Math.max(0, Math.min(files, a.done - a0.done));
+      const bt = a.bytesTotal - a0.bytesTotal + Math.max(0, a0.bytesTotal - a0.bytesDone);
+      const bd = Math.max(0, Math.min(bt, a.bytesDone - a0.bytesDone));
+      const k = Math.min(1, bt > 0 ? bd / bt : files > 0 ? done / files : 1);
       report('assets', k, files > 0 ? `${done}/${files} files${bt > 0 ? ` · ${fmtMB(bd)} / ${fmtMB(bt)}` : ''}` : 'cached');
       if (assetsIdle() && levelBuilt()) break;
       await sleep(120);

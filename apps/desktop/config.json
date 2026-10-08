@@ -1,7 +1,7 @@
 {
-  "$comment": "DEAD AIR desktop defaults (packaged into the app). Override per user in %APPDATA%\\DEAD AIR\\config.json, with DEADAIR_* env vars or --server=URL. See docs/STEAM.md.",
+  "$comment": "DEAD AIR desktop defaults (packaged into the app). Override per user in %APPDATA%\\DEAD AIR\\config.json, with DEADAIR_* env vars or --server=URL. See docs/STEAM.md. Unless one of those sets serverUrl, the host's own PC plays on the server its %APPDATA%\\DEAD AIR\\host.json names (src/host.cjs).",
   "mode": "remote",
-  "serverUrl": "http://127.0.0.1:3000",
+  "serverUrl": "https://play.dead-air.io",
   "query": "",
   "bundled": { "port": 43117, "checkBuild": true },
   "window": { "width": 1600, "height": 900, "fullscreen": false, "rememberBounds": true },

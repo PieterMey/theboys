@@ -1,5 +1,5 @@
-// Dev launcher: `npm run desktop` (repo root) / `npm start` (apps/desktop). Runs the shell from source with the
-// installed Electron; extra arguments pass through (e.g. -- --server=http://127.0.0.1:3601 --devtools).
+// Dev launcher: `npm start -w @dead-air/desktop` (repo root) / `npm start` (apps/desktop). Runs the shell from source
+// with the installed Electron; extra arguments pass through (e.g. -- --server=http://127.0.0.1:3601 --devtools).
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';

@@ -14,8 +14,9 @@ import type { AudioCore } from './audio.ts';
 import { createErrorLog } from './errors.ts';
 import { createReadiness } from './readiness.ts';
 import type { Readiness } from './readiness.ts';
-import { loadClientConfig } from './config.ts';
+import { bundledFlags, loadClientConfig } from './config.ts';
 import type { Balance, Flags } from './config.ts';
+import { changedFlags } from './flags.ts';
 import { createUi } from './ui/api.ts';
 import type { UiApi } from './ui/api.ts';
 
@@ -60,7 +61,8 @@ function parseHash(): string {
   return code;
 }
 
-export function createClientContext(): ClientContext & { hashCrew: string } {
+/** serverFlags: the server's live flags (core/flags.ts fetchServerFlags; null = keep the bundled copy) */
+export function createClientContext(serverFlags: Flags | null = null): ClientContext & { hashCrew: string } {
   const errors = createErrorLog();
   const bus = createBus(errors.report);
   const world = createWorld();
@@ -68,7 +70,10 @@ export function createClientContext(): ClientContext & { hashCrew: string } {
   const loop = createLoop(errors.report);
   const services = createServices();
   const params = new URLSearchParams(location.search);
-  const { flags, balance } = loadClientConfig();
+  const { flags, balance } = loadClientConfig(serverFlags);
+  // which flags the server overrode (a kill switch flipped since this client was built); __game.state().diag.flags
+  const flagsDiag = { source: serverFlags ? 'server' : 'bundled', changed: changedFlags(bundledFlags(), flags) };
+  if (flagsDiag.changed.length) console.info('[flags] server overrides:', flagsDiag.changed.map((k) => `${k}=${flags[k]}`).join(' '));
   const ctx = {
     flags,
     balance,
@@ -88,7 +93,7 @@ export function createClientContext(): ClientContext & { hashCrew: string } {
       bus.emit('error', { msg });
     },
     errors: () => errors.list.slice(),
-    diag: {},
+    diag: { flags: flagsDiag } as Record<string, unknown>,
     loop,
     hashCrew: parseHash(),
   };

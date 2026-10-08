@@ -2,6 +2,7 @@
 import './core/ui/styles.css';
 import { createClientContext } from './core/context.ts';
 import type { ClientContext } from './core/context.ts';
+import { fetchServerFlags } from './core/flags.ts';
 import { mountUi } from './core/ui/App.tsx';
 import { installTestApi } from './core/testapi.ts';
 import { install as net } from './net/index.ts';
@@ -31,7 +32,9 @@ const TRACKS: [string, Install][] = [
   ['loading', loading],
 ];
 
-const ctx = createClientContext();
+// the server's live flags BEFORE any install (render/level/paranormal/fieldguide read them at install time); a
+// failure or a 1.5 s timeout keeps the bundled copy
+const ctx = createClientContext(await fetchServerFlags());
 if (ctx.testMode) installTestApi(ctx);
 mountUi(ctx, document.getElementById('overlay')!);
 

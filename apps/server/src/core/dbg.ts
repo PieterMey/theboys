@@ -4,6 +4,7 @@ import { monitorEventLoopDelay } from 'node:perf_hooks';
 import type { Phase } from '@dead-air/shared/state.ts';
 import type { ServerContext } from './types.ts';
 import type { Internals } from './context.ts';
+import { runHooks } from './hooks.ts';
 
 const PHASES: readonly Phase[] = ['hub', 'drive', 'contract', 'results'];
 
@@ -12,6 +13,16 @@ export function installCoreDbg(ctx: ServerContext, internals: Internals): void {
   ctx.registerDbg('reloadConfig', () => {
     ctx.reloadConfig();
     return { flags: ctx.flags };
+  });
+  // kill-switch tests: { set: { mirrors: false, ... } } flips flags IN MEMORY (booleans only; config/flags.json is
+  // untouched, dbg.reloadConfig restores it); config hooks run as on a reload. Clients pick the live flags up at their
+  // next page load (/healthz `flags`, apps/client/src/core/flags.ts).
+  ctx.registerDbg('setFlags', (_crew, _p, args) => {
+    const set = (args as { set?: Record<string, unknown> } | null)?.set ?? {};
+    const applied: Record<string, boolean> = {};
+    for (const [k, v] of Object.entries(set)) if (typeof v === 'boolean') ctx.flags[k] = applied[k] = v;
+    runHooks(ctx, 'config', ctx.hooks.config);
+    return { applied, flags: ctx.flags };
   });
   ctx.registerDbg('stats', () => {
     const s = internals.stats;

@@ -25,8 +25,31 @@ try {
     await a.dbg('objectives.start', { fixture: 'facility_s1_p2', realSec: 600, monsters: false, openDoors: true });
     await a.waitFor(() => !!a.obj?.active && a.full?.phase === 'contract', 8000, 'contract');
     await sleep(2700); // spawn lock / pose grace
+    // 'monsters: false' does not stop (c): its contract runtime starts ~2.5 s in, unfrozen. Freeze THAT one ("monsters
+    // off"), or a bot that walks out of the vault meets the Hound.
+    for (let i = 0; i < 50; i++) {
+      const m = (await a.dbg('monsters.state').catch(() => null)) as { mode?: string; frozen?: boolean } | null;
+      if (!m || m.mode === 'off') break; // no monsters track
+      if (m.mode === 'contract' && m.frozen) break;
+      if (m.mode === 'contract') await a.dbg('monsters.freeze', { on: true }).catch(() => undefined);
+      await sleep(100);
+    }
   };
   const front = (p: [number, number, number], rot: number, d = 0.9): [number, number] => [p[0] + Math.sin(rot) * d, p[2] + Math.cos(rot) * d];
+  /** the walkable cell centre minM..minM+4 m (straight line) from `from` that `bot` reaches by the shortest path:
+   *  out through the vault door when the vault is too small for the leash (layout-independent, no fixed coordinates) */
+  const farSpot = (bot: Bot, from: [number, number], minM: number): [number, number] | null => {
+    const L = bot.layout;
+    if (!L) return null;
+    let best: [number, number] | null = null, cost = Infinity;
+    for (let z = 0; z < L.H; z++) for (let x = 0; x < L.W; x++) {
+      const px = x + 0.5, pz = z + 0.5, d = Math.hypot(px - from[0], pz - from[1]);
+      if (d < minM || d > minM + 4 || L.owner[z * L.W + x] < 0) continue;
+      const k = bot.pathCost(px, pz);
+      if (k < cost) { cost = k; best = [px, pz]; }
+    }
+    return best;
+  };
 
   // ---------- contract 1: breaker failure ----------
   await start();
@@ -72,10 +95,13 @@ try {
   await sleep(250);
   check('one handle does not lift; two do', one === 'vault' && st().coreState === 'carried', `${one} -> ${st().coreState}`);
   const before = st().core!.value;
-  // B walks away from A: leash breaks
-  const dropEv = a.waitEvent('objectives.core', (d) => d.state === 'dropped', 6000);
-  for (let i = 0; i < 25; i++) { b.setPos(c.p[0] + 0.9 + i * 0.2, c.p[2]); await sleep(55); }
+  // B walks away from A: leash breaks. A real path to a spot > leash + 1.5 m from A (a straight +x walk can end at the
+  // vault wall inside the leash); the server slows stretched carriers, hence the longer windows.
+  const dropEv = a.waitEvent('objectives.core', (d) => d.state === 'dropped', 15000);
+  const away = farSpot(b, [c.p[0] - 0.9, c.p[2]], 6);
+  if (away) void b.goTo(away[0], away[1], { speed: 2.5, timeoutMs: 14000 }).catch(() => undefined);
   const de = await dropEv.catch(() => null);
+  b.stop();
   await sleep(250);
   check('carriers separating > leash drops the Core (-15%)', !!de && st().core!.value === before - Math.round(before * 0.15), de ? `${before} -> ${st().core!.value} (lost ${de.lost})` : 'no drop');
 

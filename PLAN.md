@@ -524,6 +524,7 @@ Whatever happens, **G2 gives you a playable co-op horror game with proximity voi
 
    If the tunnel itself dies, use the prepared Tailscale Funnel link.
 4. **Live fixes:** use `npm run server:restart`, only while the crew is in the van. Never restart cloudflared, because the link would change.
+   - **Kill switches** (`config/flags.json`, e.g. gate P's order mirrors → paranormal → siteThemes): set the flag to `false`, then `npm run server:restart` in the van (SIGHUP also reloads the file where the OS can send it). The server applies it at once. Clients take the server's live flags from `/healthz` when the page loads, before anything installs, so have everyone **reload the page**. No client rebuild is needed. Client-side switches such as mirrors, volumetrics or gtao only change on that reload.
 5. **Before the session:** disable sleep, use wired Ethernet if you can, and close heavy apps.
 
 ## 8. Not in tonight's build
@@ -646,6 +647,24 @@ E1: stationsOf/stationOf, containersOf/containerById, loreSpotsOf, mirrorsOf, mo
 - Gear pool (G4): keyed by save id. To migrate an old live-id owner, a save's live ids are playerIdFromKey(key) for each sv.keys entry (apps/server/src/core/crews.ts: 'p' + base64url(sha256(key)).slice(0, 10)), never 'p' + a sha256 hex digest. poolAdd, the hand-out and meta.loadout accept POOL_TYPES + HANDOUT_ONLY ('soles'); carry-over stays POOL_TYPES.
 - Layout identity (E1, gate L1): tests/fixtures/identity-v11/ is the frozen v1.1 reference, generated at gate C by the HEAD generator for the tests/fixtures/layouts seeds/players/risk plus the hub. index.json lists the entries (seed, players, risk, hash) and the tuning used. identity.test.ts regenerates each entry with no theme or modifiers (generateFacility({seed, players, risk}, index.tuning); generateHub()) and compares per plan check #2. `node tools/make-identity-fixtures.ts --check` shows which layouts changed. Never regenerate the set; tests/fixtures/layouts stays as it is until the integrator regenerates it at L1.
 - Dev and test servers: NODE_ENV=development AI_MODE=mock SAVES_DIR=<scratch>/saves SESSION_FILE=<scratch>/session.json (CLAUDE.md).
+- Live flags (integrator): `/healthz` carries `flags`, the server's live `ctx.flags`. The client merges them over its bundled copy before any track installs (apps/client/src/core/flags.ts; `__game.state().diag.flags` = {source, changed}), so a server reload plus a page reload applies a kill switch without rebuilding. Server tracks read `ctx.flags` when they use it (never a cached copy), so a reload applies at once. Client tracks may read it at install, because the client only takes new flags at page load. Tests flip flags in memory with `dbg.setFlags {set: {name: bool}}` (config hooks run; `dbg.reloadConfig` restores the file). See tests/gates/live-flags.e2e.ts.
+
+### v1.2 additions after the build (additive; requested by G1, E4 and E1)
+- G1, messages/players.ts: `StepKind`/`STEP_KINDS` ('crouchStep' | 'walkStep' | 'sprintStep'), `StepNoiseBalance` (the players.json slice `stepNoiseRadius` reads), and the event `'players.crawl': CrawlEvent` = {pid, phase 'enter' | 'exit', p, yaw, until (server ms), from?, to? (vent item ids)}. It goes to everyone in the crew (flag crawlVents).
+- E4, messages/paranormal.ts: `PARANORMAL_PHRASES`, `mirrorName(name)` and the per-kind `ParanormalEvent.data` keys. silhouette data = {room: the lit space behind the figure (it browns out when the figure vanishes), end: the space beyond the corridor end (-1 = a wall), brownMs, depth, approachM}. The figure stands at the far end of a corridor, never in a doorway (paranormal.json silhouette.minM-maxM, 8-22 m).
+- E1, procgen + messages/level.ts:
+  - `ThemeDef.prefer` = {landmarks, rooms, avoid?}, also exported as `CallsignPrefer` (names.ts). avoid = off-theme callsigns moved to the end; a stable partition with no rng draws.
+  - `LevelSummary.theme` (the dbg.level.info result); `dbg.level.generate` takes {theme?, modifiers?}.
+  - decor.ts: `THEME_PROP_KEYS` (theme -> its procedural PROP_DEFS keys) and `THEME_GLB_KEYS` (GLB props that appear in themed sets only).
+  - clutter.ts: `DECAL_CELLS`, in the atlas order of the staged `decal.index`.
+  - containers.ts: `containerDefFor(item)`, `CONTAINER_NODES` (GLB part nodes per prop), `FILING_DRAWER`, `CONTAINER_LIMITS` {perRoom 3, perSite 32, maxTravel 0.45}, and `containersOfFresh` (tests).
+  - lights.ts: `EMERGENCY_Y` (2.4 m) and `THEME_FIXTURES`.
+  - lore.ts: `LORE_DIMS`.
+  - mirrors.ts: `MIRROR_DIMS`, `MIRROR_DEPTH`, `MIRROR_ROOMS`.
+  - van.ts: `VAN_CARGO_L` = 4, `VAN_STATION_PROPS` and `HUB_MIRROR_DATA`.
+  - themes.ts / tuning.ts: `GEN_MODIFIERS`, `MODIFIER_TUNING`, `THEME_TUNING`, `themedTuning`, `overlayTuning`, `themeChain`, `THEME_FLOORS` and `HARD_FLOOR`.
+  - nav/grid.ts: `solidBoxesOf(items)`.
+  - Consumers outside E1 today: E3 (CONTAINER_NODES, FILING_DRAWER, containerDefFor, EMERGENCY_Y, LORE_DIMS, MIRROR_DEPTH, DECAL_CELLS) and gate R (THEME_PROP_KEYS, THEME_GLB_KEYS).
 
 ---
 

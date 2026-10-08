@@ -2,7 +2,8 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
 import { PROTOCOL_VERSION, decodeMsg, encodeMsg, encodeVoiceChunk } from '../../packages/shared/src/envelope.ts';
@@ -22,10 +23,15 @@ export async function waitHttp(url: string, ms: number, check: (r: Response) => 
   return false;
 }
 
-/** Spawn the real dev server (all tracks) on `port`, AI_MODE=mock. */
+/** Spawn the real dev server (all tracks) on `port`, AI_MODE=mock. Saves and the session file default to a temp
+ *  folder: the repo's saves/ belongs to the live server. */
 export function startDevServer(port: number, sttUrl: string): ChildProcess {
+  const scratch = process.env.SAVES_DIR && process.env.SESSION_FILE ? '' : mkdtempSync(join(tmpdir(), 'deadair-ai-'));
   const server = spawn(process.execPath, ['--env-file-if-exists=C:/Users/Pieter/repos/theboys/.env', join(REPO, 'apps/server/src/index.ts'), '--dev'], {
-    env: { ...process.env, PORT: String(port), AI_MODE: 'mock', STT_URL: sttUrl, NODE_ENV: 'development' },
+    env: {
+      ...process.env, PORT: String(port), AI_MODE: 'mock', STT_URL: sttUrl, NODE_ENV: 'development',
+      SAVES_DIR: process.env.SAVES_DIR ?? join(scratch, 'saves'), SESSION_FILE: process.env.SESSION_FILE ?? join(scratch, `session-${port}.json`),
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   server.stdout?.on('data', (d: Buffer) => { if (process.env.E2E_VERBOSE) process.stdout.write(`[srv] ${d}`); });

@@ -287,7 +287,8 @@ export async function runContractBot(opts: ContractBotOpts): Promise<ContractBot
 
     // ---------- crew save (meta) ----------
     const root = opts.root ?? resolve(import.meta.dirname, '../..');
-    const savePath = join(root, 'saves/crews', `${crew}.json`);
+    // the server's SAVES_DIR (every test server uses a scratch one, CLAUDE.md), else <repo>/saves
+    const savePath = join(process.env.SAVES_DIR ?? join(root, 'saves'), 'crews', `${crew}.json`);
     const s0 = performance.now();
     while (performance.now() - s0 < 6000) {
       if (existsSync(savePath)) {
