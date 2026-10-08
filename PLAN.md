@@ -525,6 +525,7 @@ Whatever happens, **G2 gives you a playable co-op horror game with proximity voi
    If the tunnel itself dies, use the prepared Tailscale Funnel link.
 4. **Live fixes:** use `npm run server:restart`, only while the crew is in the van. Never restart cloudflared, because the link would change.
    - **Kill switches** (`config/flags.json`, e.g. gate P's order mirrors → paranormal → siteThemes): set the flag to `false`, then `npm run server:restart` in the van (SIGHUP also reloads the file where the OS can send it). The server applies it at once. Clients take the server's live flags from `/healthz` when the page loads, before anything installs, so have everyone **reload the page**. No client rebuild is needed. Client-side switches such as mirrors, volumetrics or gtao only change on that reload.
+   - **Hang watchdog:** keep the `npm run host` window open. If the game server stops answering `/healthz` for 60 s while its process lives, the window logs `watchdog: game server not answering for 60 s, restarting` and restarts it (same link, crews land back in the van). It never acts during `npm run server:restart` / `npm run host -- --restart` or on a server it didn't start (after a deploy, restart once with either so its banner says `watchdog: on`), and after 3 automatic restarts in 10 min it logs `GIVING UP` and stops: read `logs/server.log`, then `npm run server:restart`.
 5. **Before the session:** disable sleep, use wired Ethernet if you can, and close heavy apps.
 
 ## 8. Not in tonight's build
@@ -665,6 +666,11 @@ E1: stationsOf/stationOf, containersOf/containerById, loreSpotsOf, mirrorsOf, mo
   - themes.ts / tuning.ts: `GEN_MODIFIERS`, `MODIFIER_TUNING`, `THEME_TUNING`, `themedTuning`, `overlayTuning`, `themeChain`, `THEME_FLOORS` and `HARD_FLOOR`.
   - nav/grid.ts: `solidBoxesOf(items)`.
   - Consumers outside E1 today: E3 (CONTAINER_NODES, FILING_DRAWER, containerDefFor, EMERGENCY_Y, LORE_DIMS, MIRROR_DEPTH, DECAL_CELLS) and gate R (THEME_PROP_KEYS, THEME_GLB_KEYS).
+
+### v1.2 additions after the playtest fixes (additive)
+- G1 players -> `services.interaction.lightOn(space)` (G3, the mirrored server room-light state): the one-time "flashlight on" hint when the Listener spots you in an unlit room. Missing provider: the hint never shows.
+- G3 interaction -> level `loadPropModel(key)` / `templateInfo()` (E3, level/assets.ts): the `prop.item_*` item models (E1 manifest) as plain meshes. Missing key: the procedural model stays.
+- E2 render -> `render.warmSite()` (called by loading/index.ts in every prepare flow): every level mesh and material compiled once, main and shadow passes, behind the loading/drive screen; E3 level props are site-wide batches (level/sitebatch.ts) so a first room reveal compiles nothing.
 
 ---
 
