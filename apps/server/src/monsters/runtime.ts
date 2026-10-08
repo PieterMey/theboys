@@ -3,19 +3,20 @@
 import { ANIM } from '@dead-air/shared/anim.ts';
 import { BAND, BAND_RADIUS_M, CLOCK } from '@dead-air/shared/constants.ts';
 import type { LevelLayout } from '@dead-air/shared/layout.ts';
-import { buildEdgeGrid, fieldAt, soundFlood } from '@dead-air/shared/nav/index.ts';
+import { buildEdgeGrid, fieldAt, los, soundFlood } from '@dead-air/shared/nav/index.ts';
 import { makeRng } from '@dead-air/shared/rng.ts';
 import { STANCE } from '@dead-air/shared/state.ts';
 import type { MonsterKind, SnapMonster, Snapshot } from '@dead-air/shared/state.ts';
-import type { MonsterCue, MonsterKindX } from '@dead-air/shared/messages/monsters.ts';
+import type { MonsterCue, MonsterEvent, MonsterKindX } from '@dead-air/shared/messages/monsters.ts';
 import type { Crew, ServerContext, ServerPlayer } from '../core/types.ts';
-import { extDoorOpen, extKill, extSetDoor, extUnhide, hasDoorApi, isAlive, isHidden } from './ext.ts';
+import { emitMonsterEvent } from './api.ts';
+import { extDoorOpen, extHiddenIn, extKill, extSetDoor, extUnhide, hasDoorApi, isAlive, isHidden } from './ext.ts';
 import { dist, inCab, perceive } from './geo.ts';
 import type { Perceived } from './geo.ts';
 import { bal, num } from './types.ts';
 import type { Agent, Bal, CrewMonsters, HoundAgent, ListenerAgent, MannequinAgent, Noise, SnatcherAgent } from './types.ts';
 import { houndHear, houndTick, makeHound } from './hound.ts';
-import { makeMannequin, mannequinTick, blinkTick } from './mannequin.ts';
+import { litAt, makeMannequin, mannequinTick, blinkTick } from './mannequin.ts';
 import { listenerHearNoise, listenerTick, makeListener } from './listener.ts';
 import { makeSnatcher, snatcherTick, snatchVictim } from './snatcher.ts';
 
@@ -165,6 +166,7 @@ export function makeRt(ctx: ServerContext, crew: Crew, cm: CrewMonsters, onDeath
     retreatBal: bal(ctx, 'retreat'),
     cue(a, cue, radius) {
       ctx.emit(crew, 'monsters.cue', { id: a.id, kind: a.kind, cue, p: [round2(a.x), 0, round2(a.z)], radius });
+      logCue(cm, a.id, a.kind, a.x, a.z, radius);
     },
     kill(a, p, reason, detail) {
       if (!isAlive(crew, p)) return;
@@ -176,6 +178,7 @@ export function makeRt(ctx: ServerContext, crew: Crew, cm: CrewMonsters, onDeath
         ctx.crews.broadcastRoster(crew);
       }
       ctx.emit(crew, 'monsters.kill', { victim: p.id, killer: a.kind, reason, detail, p: [round2(x), 0, round2(z)] });
+      monsterEvent(rt, a, 'kill', p.id, null, x, z);
       ctx.log('monsters').info(`crew ${crew.code}: ${a.kind.toUpperCase()} killed ${p.name}: ${reason} (${detail})`);
       onDeath(crew, p.id, a, x, z);
     },
@@ -211,6 +214,90 @@ export function makeRt(ctx: ServerContext, crew: Crew, cm: CrewMonsters, onDeath
 }
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
+
+// ---------------- v1.2 monster event bus (api.onMonsterEvent) ----------------
+
+/** publish one MonsterEvent (victim = perceiver for seen/heard, target otherwise; by = freer / rescuer / cause) */
+export function monsterEvent(rt: Rt, a: Agent, event: MonsterEvent['event'], victim?: string | null, by?: string | null, x = a.x, z = a.z): void {
+  const e: MonsterEvent = { monster: a.kind, id: a.id, event, p: [round2(x), 0, round2(z)], at: rt.ctx.now() };
+  if (victim) e.victim = victim;
+  if (by) e.by = by;
+  emitMonsterEvent(rt.crew, e);
+}
+
+/** a cue went out at (x, z): players inside its radius 'heard' that monster (processed in the 2 Hz pass) */
+export function logCue(cm: CrewMonsters, id: string, kind: MonsterKindX, x: number, z: number, r: number): void {
+  const log = (cm.cueLog ??= []);
+  if (log.length < 64) log.push({ id, kind, x, z, r });
+}
+
+/** 2 Hz: 'seen' (in the player's view cone, LOS, lit or close; the Mannequin by the client sighting reports) and
+ *  'heard' (inside a cue's radius), deduped per event + monster + player for dedupeSec */
+function encounterPass(rt: Rt, dt: number): void {
+  const cm = rt.cm;
+  const eb = bal(rt.ctx, 'events');
+  cm.evAcc = (cm.evAcc ?? 0) + dt;
+  if (cm.evAcc < num(eb, 'intervalSec', 0.5)) return;
+  cm.evAcc = 0;
+  const t = cm.time;
+  const dedupe = num(eb, 'dedupeSec', 30);
+  const last = (cm.evLast ??= new Map());
+  const fresh = (key: string): boolean => {
+    const at = last.get(key);
+    if (at !== undefined && t - at < dedupe) return false;
+    last.set(key, t);
+    return true;
+  };
+  if (last.size > 256) for (const [k, v] of last) if (t - v >= dedupe) last.delete(k);
+  const players = rt.alive().filter((p) => !String(extHiddenIn(rt.crew, p.id) ?? '').startsWith('duct:'));
+  // heard: every cue since the last pass, straight-line radius (the client plays it within the same radius)
+  const cues = cm.cueLog ?? [];
+  cm.cueLog = [];
+  for (const c of cues) {
+    const a = cm.agents.find((q) => q.id === c.id);
+    if (!a) continue;
+    for (const p of players) {
+      if (dist(p.pose.p[0], p.pose.p[2], c.x, c.z) > c.r) continue;
+      if (fresh(`heard|${a.id}|${p.id}`)) monsterEvent(rt, a, 'heard', p.id, null, c.x, c.z);
+    }
+  }
+  // seen
+  const range = num(eb, 'seenRangeM', 15), close = num(eb, 'seenCloseM', 3);
+  const cosHalf = Math.cos(((num(eb, 'seenConeDeg', 110) / 2) * Math.PI) / 180);
+  const now = performance.now();
+  for (const a of cm.agents) {
+    if (!a.active || a.state === 'out' || a.state === 'vent' || a.state === 'dormant') continue;
+    if (a.kind === 'listener' && (a as ListenerAgent).dormant) continue;
+    if (a.kind === 'mannequin' && !(a as MannequinAgent).spawned) continue;
+    if (a.kind === 'snatcher' && (a.state === 'lurk' || a.state === 'duct' || a.state === 'stalk')) continue;
+    let litHere: boolean | null = null;
+    for (const p of players) {
+      const key = `seen|${a.id}|${p.id}`;
+      const at = last.get(key);
+      if (at !== undefined && t - at < dedupe) continue;
+      let vis = false;
+      if (a.kind === 'mannequin') {
+        const s = cm.sight.get(a.id)?.get(p.id);
+        vis = !!s && s.until >= now;
+      } else {
+        const [px, , pz] = p.pose.p;
+        const d = dist(px, pz, a.x, a.z);
+        if (d > range) continue;
+        if (d > 0.5) {
+          const fx = Math.sin(p.pose.yaw), fz = Math.cos(p.pose.yaw);
+          if ((fx * (a.x - px) + fz * (a.z - pz)) / d < cosHalf) continue;
+        }
+        if (!los(cm.grid, px, pz, a.x, a.z, cm.doorOpen)) continue;
+        if (d > close) {
+          litHere ??= litAt(rt, a.x, a.z);
+          if (!litHere) continue;
+        }
+        vis = true;
+      }
+      if (vis && fresh(key)) monsterEvent(rt, a, 'seen', p.id);
+    }
+  }
+}
 
 export function bandRadius(ctx: ServerContext, band: number): number {
   const arr = (ctx.balance.voice as { bandRadiusM?: unknown } | undefined)?.bandRadiusM;
@@ -312,10 +399,11 @@ function processNoise(rt: Rt): void {
       const d = fieldAt(cm.grid, field, a.x, a.z);
       if (!(d <= n.radiusM)) continue;
       const per: Perceived = perceive(cm, field, a.x, a.z, n.x, n.z);
-      // any voice above a whisper from a hiding spot right next to a monster gives you away
+      // any voice above a whisper from a hiding spot right next to a monster gives you away (a locker; never a duct
+      // crawl 'duct:<vent>': nothing pulls a crawler out of the vent)
       if (n.kind === 'voice' && (n.band ?? 0) >= 2 && d <= 2.5 && n.source && (a.kind === 'hound' || a.kind === 'listener')) {
         const hp = crew.players.get(n.source);
-        if (hp && isHidden(crew, hp)) extUnhide(crew, hp.id);
+        if (hp && isHidden(crew, hp) && !String(extHiddenIn(crew, hp.id) ?? '').startsWith('duct:')) extUnhide(crew, hp.id);
       }
       if (a.kind === 'hound') houndHear(rt, a as HoundAgent, n, d, per);
       else if (a.kind === 'listener') listenerHearNoise(rt, a as ListenerAgent, n, d, per);
@@ -342,6 +430,7 @@ export function tickRuntime(rt: Rt, dt: number): void {
     else if (a.kind === 'snatcher') snatcherTick(rt, a as SnatcherAgent, dt);
   }
   blinkTick(rt);
+  encounterPass(rt, dt);
 }
 
 /** After every death: the killer and monsters within 25 m retreat ~20 s (the hound eats first). */

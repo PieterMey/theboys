@@ -3,7 +3,8 @@
 //  - wake-up -> facility flicker + immediate decision on what it overheard (rule brain), telegraphed
 //    (room flicker, INTERCEPT console line), logged ('it heard "..." -> ambushed BOILER') and acted on
 //  - AI brain intents are validated (an unheard room degrades), valid ones are executed
-//  - grab of a lone player: 3 s window, teammate shove frees it (Listener retreats), else death with the quote
+//  - grab of a lone player (v1.2 warn first: an unwarned touch only makes it notice; the first grab per player only
+//    knocks down): 5 s window, teammate shove frees it (Listener retreats), else death with the quote
 //  - Mannequin: frozen while watched (fake 'monsters.see' reports) and lit; moves when unwatched; visor blink
 //    breaks a single watcher's gaze, two watchers keep it frozen; kills on touch
 //   node tests/monsters/listener.e2e.ts
@@ -33,6 +34,8 @@ try {
   await A.connect(url, 'LSTN');
   await B.connect(url, 'LSTN');
   await C.connect(url, 'LSTN');
+  // v1.2: no grabs in the director's relax / fade phases -> keep the director out of this test (dev-only flag flip)
+  await A.dbg('monsters.flag', { name: 'director', on: false });
   await A.dbg('monsters.start', { seed: 'g3-listener', players: 3, risk: 1 });
   const L = await layoutOf(A);
   const g = buildEdgeGrid(L);
@@ -49,7 +52,8 @@ try {
     for (let c = 0; c < f.length; c++) if (f[c] >= lo && f[c] <= hi && g.owner[c] >= 0 && L.spaces[g.owner[c]].kind !== 'outside') return [(c % g.W) + 0.5, Math.floor(c / g.W) + 0.5];
     return null;
   };
-  const p8 = cellAt(7.5, 8.5)!, p15 = cellAt(14.5, 15.5)!;
+  // "15 m" = any spot well beyond the 10 m talk radius (layouts change: closed doors make the sound field jump)
+  const p8 = cellAt(7.5, 8.5)!, p15 = (cellAt(14.5, 15.5) ?? cellAt(12.5, 20))!;
   const here = g.owner[Math.floor(l0.z) * g.W + Math.floor(l0.x)];
   const cs = L.spaces.find((s) => s.callsign && s.callsign !== 'VAN' && s.callsign !== 'LOBBY' && s.id !== here)!;
   const callsign = cs.callsign!;
@@ -96,6 +100,8 @@ try {
   const lp = await lis();
   const fa = soundFlood(g, lp.x, lp.z, 9, doorOpen);
   let near: [number, number] | null = null;
+  // 4-7 m by sound, but >= 3.5 m in a straight line (v1.2: never right behind a wall / door next to it)
+  for (let c = 0; c < fa.length && !near; c++) if (fa[c] >= 4 && fa[c] <= 7 && g.owner[c] >= 0 && Math.hypot((c % g.W) + 0.5 - lp.x, Math.floor(c / g.W) + 0.5 - lp.z) >= 3.5) near = [(c % g.W) + 0.5, Math.floor(c / g.W) + 0.5];
   for (let c = 0; c < fa.length && !near; c++) if (fa[c] >= 4 && fa[c] <= 7 && g.owner[c] >= 0) near = [(c % g.W) + 0.5, Math.floor(c / g.W) + 0.5];
   await A.dbg('monsters.tp', { x: near![0], z: near![1] });
   A.loud(BAND.talk);
@@ -106,8 +112,13 @@ try {
   const d2 = await waitFor(async () => { const d = await dump(); return d.log.length > n1 ? d : null; }, 8000, 'decision on v1').catch(() => dump());
   const e2 = d2.log[d2.log.length - 1];
   check('AI intent with an unheard room is rejected + degraded', !!e2 && e2.source === 'fake' && e2.valid === false && e2.action !== 'ambush_room', e2 ? `${e2.action} valid=${e2.valid}: ${e2.line}` : 'none');
+  // v1.2: its investigation would find Ann (notice -> hunt -> knockdown -> retreat) before the next decision: Ann waits
+  // in the cab, then it is back where it stood, facing away from her spot (it hears her, it does not see her)
+  await A.dbg('monsters.tp', { x: cab.x + 1, z: cab.y + 1.5 });
   await A.dbg('monsters.fakeBrain', { intent: { action: 'stalk_player', player: A.id } });
   await sleep(3100);
+  await A.dbg('monsters.place', { id: 'listener0', x: lp.x, z: lp.z, yaw: Math.atan2(lp.x - near![0], lp.z - near![1]), state: 'ambush', active: true });
+  await A.dbg('monsters.tp', { x: near![0], z: near![1] });
   A.loud(BAND.talk);
   await sleep(500);
   A.loud(BAND.silent);
@@ -118,26 +129,53 @@ try {
   const l3 = d3.agents.find((a) => a.kind === 'listener')!;
   check('valid AI intent (stalk the speaker it heard) is executed', !!e3 && e3.valid && e3.action === 'stalk_player' && l3.targetPlayer === A.id, e3 ? `${e3.line} -> ${l3.state}` : 'none');
   await A.dbg('monsters.fakeBrain', { off: true });
+  await A.dbg('monsters.place', { id: 'listener0', outSec: 9999 }); // out of play until the grab tests place it
 
-  // grab: lone player -> 3 s -> death with the quote
+  // grab (v1.2 listenerFairV12, warn first): touching an unwarned lone player -> it recoils and NOTICES (no grab);
+  // once warned (>= 1 s) a touch grabs; the first grab per player only knocks down; the next one holds: no rescue,
+  // no struggle -> death after grabSec with the quote
+  const grabSec = 5;
+  const touch = () => A.dbg('monsters.place', { id: 'listener0', x: near![0] + 0.6, z: near![1], state: 'patrol', active: true });
+  const grabOf = (bot: Bot, since: number, state: string) => bot.eventsOf('monsters.grab', since).find((e) => (e.d as { state: string; victim: string }).state === state && (e.d as { victim: string }).victim === bot.id);
+  /** warn `bot` (unwarned touch -> notice), then touch -> knockdown, then touch -> the real grab; returns that grab */
+  const warnedGrab = async (bot: Bot) => {
+    const t0 = performance.now();
+    await touch();
+    const notice = await waitFor(() => bot.eventsOf('monsters.cue', t0).find((e) => (e.d as { cue: string }).cue === 'notice'), 800, 'notice').catch(() => null);
+    const noGrab = !bot.eventsOf('monsters.grab', t0).length;
+    // noticed: it hunts them and knocks them down by itself, else touch them again once the warning is >= 1 s old
+    let knock = await waitFor(() => grabOf(bot, t0, 'knockdown'), 2600, 'knockdown (hunt)').catch(() => null);
+    if (!knock) {
+      const t1 = performance.now();
+      await touch();
+      knock = await waitFor(() => grabOf(bot, t1, 'knockdown'), 1500, 'knockdown').catch(() => null);
+    }
+    await sleep(2300);
+    const t2 = performance.now();
+    await touch();
+    const grab = await waitFor(() => grabOf(bot, t2, 'start'), 1500, 'grab').catch(() => null);
+    return { notice: !!notice && noGrab, knock: !!knock && !bot.eventsOf('monsters.kill', t0).length, grab, t2 };
+  };
   const lg = await lis();
-  await A.dbg('monsters.place', { id: 'listener0', x: near![0] + 0.6, z: near![1], state: 'patrol', active: true });
-  const tg = performance.now();
-  const grab = await waitFor(() => A.eventsOf('monsters.grab', tg).find((e) => (e.d as { state: string }).state === 'start'), 1500, 'grab').catch(() => null);
-  check('touching a lone player -> GRAB (3 s rescue window)', !!grab && (grab.d as { victim: string }).victim === A.id, lg.state);
-  const kill = await waitFor(() => A.eventsOf('monsters.kill', tg).find((e) => (e.d as { victim: string }).victim === A.id), 4500, 'grab kill').catch(() => null);
+  const wa = await warnedGrab(A);
+  check('touching an unwarned lone player (0.6 m) -> it notices first, no grab (v1.2 warn first)', wa.notice, lg.state);
+  check('warned + touched -> the first grab only KNOCKS DOWN (survives)', wa.knock);
+  check(`warned + touched again -> GRAB (${grabSec} s rescue window)`, !!wa.grab && (wa.grab.d as { victim: string }).victim === A.id);
+  const tg = wa.t2;
+  const kill = await waitFor(() => A.eventsOf('monsters.kill', tg).find((e) => (e.d as { victim: string }).victim === A.id), grabSec * 1000 + 1500, 'grab kill').catch(() => null);
   const kd = kill?.d as { killer: string; reason: string; detail: string } | undefined;
-  const dt = kill ? kill.at - (grab?.at ?? tg) : 0;
-  check('no rescue -> death after ~3 s, cause quotes what it heard', !!kd && kd.killer === 'listener' && kd.reason.startsWith('heard "') && /s ago$/.test(kd.detail) && dt > 2500, kd ? `${Math.round(dt)} ms: ${kd.reason} (${kd.detail})` : 'none');
+  const dt = kill ? kill.at - (wa.grab?.at ?? tg) : 0;
+  check(`no rescue -> death after ~${grabSec} s, cause quotes what it heard`, !!kd && kd.killer === 'listener' && kd.reason.startsWith('heard "') && /s ago$/.test(kd.detail) && dt > grabSec * 1000 - 500, kd ? `${Math.round(dt)} ms: ${kd.reason} (${kd.detail})` : 'none');
   const after = await lis();
   check('after the kill the Listener retreats out of play', after.state === 'out' && !after.active, after.state);
 
-  // rescue: Bob shoves it off Cas
-  await A.dbg('monsters.place', { id: 'listener0', x: near![0] + 0.6, z: near![1], state: 'patrol', active: true });
+  // rescue: Bob shoves it off Cas (Cas warned first, knocked down once, then grabbed)
   await C.dbg('monsters.tp', { x: near![0], z: near![1] });
-  const tr = performance.now();
-  const grab2 = await waitFor(() => C.eventsOf('monsters.grab', tr).find((e) => (e.d as { state: string; victim: string }).state === 'start' && (e.d as { victim: string }).victim === C.id), 1500, 'grab 2').catch(() => null);
-  check('second grab (Cas alone)', !!grab2);
+  await sleep(3200);
+  const wc = await warnedGrab(C);
+  const tr = wc.t2;
+  const grab2 = wc.grab;
+  check('second grab (Cas alone, warned, after his knockdown)', !!grab2 && wc.notice && wc.knock);
   await B.dbg('monsters.tp', { x: near![0] - 0.8, z: near![1] });
   const sh = await B.req<{ ok: boolean; freed: boolean }>('monsters.shove', { kind: 'shove' });
   const freedEv = await waitFor(() => C.eventsOf('monsters.grab', tr).find((e) => (e.d as { state: string }).state === 'freed'), 800, 'freed').catch(() => null);

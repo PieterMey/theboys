@@ -15,10 +15,12 @@ const SOURCES = {
   objectives: '../objectives/api.ts',
   meta: '../meta/api.ts',
   ai: '../ai/api.ts',
+  /** v1.2 (E4): paranormalQuietUntil */
+  paranormal: '../paranormal/api.ts',
 } as const;
 type Src = keyof typeof SOURCES;
 
-const mods: Record<Src, Mod | null> = { interaction: null, objectives: null, meta: null, ai: null };
+const mods: Record<Src, Mod | null> = { interaction: null, objectives: null, meta: null, ai: null, paranormal: null };
 const subscribed = new Set<string>();
 let warnFn: ((m: string) => void) | null = null;
 
@@ -43,6 +45,10 @@ export async function bindExternal(ctx: ServerContext, hooks: {
   onDeath: (crew: Crew, pid: string, cause: unknown) => void;
   onMelee: (crew: Crew, attacker: string, args: unknown[]) => boolean | void;
   onUtterance: (crew: Crew, u: unknown) => void;
+  /** v1.2: a door opened/closed (by = player id or null) */
+  onDoor?: (crew: Crew, id: number, open: boolean, by: string | null) => void;
+  /** v1.2 (G3): item events ('use' of a flashbulb) */
+  onItemEvent?: (crew: Crew, e: unknown) => void;
 }): Promise<string[]> {
   const log = ctx.log('monsters');
   warnFn = (m) => log.warn(m);
@@ -63,6 +69,14 @@ export async function bindExternal(ctx: ServerContext, hooks: {
   sub('interaction', 'onDeath', (crew, who, cause) => hooks.onDeath(crew as Crew, pidOf(who), cause));
   sub('interaction', 'onMelee', (crew, who, ...rest) => hooks.onMelee(crew as Crew, pidOf(who), rest) === true);
   sub('ai', 'onUtterance', (crew, u) => hooks.onUtterance(crew as Crew, u));
+  if (hooks.onDoor) {
+    const h = hooks.onDoor;
+    sub('interaction', 'onDoor', (crew, id, open, by) => h(crew as Crew, Number(id), open === true, typeof by === 'string' ? by : null));
+  }
+  if (hooks.onItemEvent) {
+    const h = hooks.onItemEvent;
+    sub('interaction', 'onItemEvent', (crew, e) => h(crew as Crew, e));
+  }
   return bound;
 }
 
@@ -245,6 +259,46 @@ export function extBlackout(crew: Crew): boolean {
   }
   st ??= crew.slices.objectives ?? null;
   return !!(st && typeof st === 'object' && (st as { blackout?: unknown }).blackout === true);
+}
+
+/** v1.2: the hiding spot id ('locker' item id, or 'duct:<vent id>' while crawling) or null */
+export function extHiddenIn(crew: Crew, pid: string): string | null {
+  const f = fn('interaction', 'hiddenIn');
+  if (f) {
+    try {
+      const v = f(crew, pid);
+      if (typeof v === 'string') return v;
+      if (v === null) return null;
+    } catch { /* fall through */ }
+  }
+  const hid = (crew.slices.interaction as { hidden?: Record<string, string> } | undefined)?.hidden;
+  const v = hid && typeof hid === 'object' ? hid[pid] : undefined;
+  return typeof v === 'string' ? v : null;
+}
+
+/** v1.2: burning flares (interaction state(crew).flares; `until` on the ctx.now() clock) */
+export function extFlares(crew: Crew, nowMs: number): { x: number; z: number }[] {
+  const f = fn('interaction', 'state');
+  let st: unknown = null;
+  if (f) {
+    try { st = f(crew); } catch { st = null; }
+  }
+  const fl = st && typeof st === 'object' ? (st as { flares?: unknown }).flares : undefined;
+  if (!fl || typeof fl !== 'object') return [];
+  const out: { x: number; z: number }[] = [];
+  for (const v of Object.values(fl as Record<string, unknown>)) {
+    if (!v || typeof v !== 'object') continue;
+    const p = (v as { p?: unknown }).p, until = Number((v as { until?: unknown }).until);
+    if (!Array.isArray(p) || !Number.isFinite(Number(p[0])) || !Number.isFinite(Number(p[2]))) continue;
+    if (Number.isFinite(until) && until <= nowMs) continue;
+    out.push({ x: Number(p[0]), z: Number(p[2]) });
+  }
+  return out;
+}
+
+/** v1.2 (E4): server ms until ambient systems should hold back (0 = free) */
+export function extParanormalQuietUntil(crew: Crew): number {
+  return safe(fn('paranormal', 'paranormalQuietUntil'), [crew], 0, asNum);
 }
 
 /** pull a hidden player out of their locker (a monster heard them talk right next to it) */

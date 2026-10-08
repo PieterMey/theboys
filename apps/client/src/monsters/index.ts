@@ -29,11 +29,20 @@ interface SfxHandleLike { stop(): void; setPos?(p: Vec3): void }
 interface SfxLike {
   play(id: string, pos?: Vec3 | null, opts?: { volume?: number; loop?: boolean; radius?: number; rate?: number; ui?: boolean; id?: string }): SfxHandleLike | null;
   flicker?(space: number, ms: number): void;
+  setFear?(v: number): void;
+  /** v1.2 (E5): per-source heartbeat, the maximum over sources wins; ms clears the source after ms */
+  fear?(source: string, v: number, ms?: number): void;
 }
-interface RenderLike { flickerSpace?(space: number, ms: number): void }
+/** render (E2 v1.2: brownout = smooth sag + recovery, failSpace = a fixture dies; flickerSpace = the strobe, Listener only) */
+interface RenderLike { flickerSpace?(space: number, ms: number): void; brownout?(space: number, ms: number, depth?: number): void; failSpace?(space: number): void }
 interface LevelLike { doorOpen?: DoorOpenFn; spaceGroup?(space: number): THREE.Group | null }
-interface PlayersLike { freeze?(reason: string, on: boolean): void; localPose?(): { p: Vec3; yaw: number } | null; cameraPos?(): Vec3; setFlashlightEnabled?(on: boolean): void; flashlightOn?(): boolean }
+interface PlayersLike { freeze?(reason: string, on: boolean): void; localPose?(): { p: Vec3; yaw: number; pitch?: number } | null; cameraPos?(): Vec3; setFlashlightEnabled?(on: boolean, reason?: string): void; flashlightOn?(): boolean }
 interface InputLike { teleport?(x: number, z: number, yaw?: number): void; look?(yaw: number, pitch: number): void }
+
+/** accessibility: meta settings 'Reduce flicker' (read directly, the meta client is another package) */
+function reduceFlicker(): boolean {
+  try { return (JSON.parse(localStorage.getItem('deadair.meta.settings') ?? '{}') as { reduceFlicker?: boolean }).reduceFlicker === true; } catch { return false; }
+}
 
 declare module '../core/bus.ts' {
   interface BusEvents {
@@ -64,6 +73,8 @@ interface View {
   tilt: number;
   /** performance.now() the Snatcher's drop started (fall from the ceiling) */
   dropAt: number;
+  /** v1.2 Listener: performance.now() its current notice (head snap) started (0 = not noticing) */
+  noticeAt: number;
 }
 
 const CUE_SFX: Record<string, [string, number, number?]> = {
@@ -238,7 +249,7 @@ export function install(ctx: ClientContext): void {
   const makeView = (s: SnapMonster): View => {
     const root = new THREE.Group();
     root.name = `monster:${s.id}`;
-    const v: View = { id: s.id, kind: s.kind, root, model: null, placeholder: null, current: -1, frozenAt: 0, speed: 0, lastP: new THREE.Vector3(s.p[0], 0, s.p[2]), loop: null, loopKey: '', state: s.state, tilt: 0.42 + Math.random() * 0.2, dropAt: 0 };
+    const v: View = { id: s.id, kind: s.kind, root, model: null, placeholder: null, current: -1, frozenAt: 0, speed: 0, lastP: new THREE.Vector3(s.p[0], 0, s.p[2]), loop: null, loopKey: '', state: s.state, tilt: 0.42 + Math.random() * 0.2, dropAt: 0, noticeAt: 0 };
     ensureLib();
     if (lib) attachModel(v);
     if (!v.model) { v.placeholder = placeholder(s.kind); root.add(v.placeholder); }
@@ -288,12 +299,19 @@ export function install(ctx: ClientContext): void {
     a.timeScale = ts;
   };
 
+  /** loop key; a '#hot' suffix = the same loop played higher and louder over a bigger radius */
   const loopFor = (v: View, s: SnapMonster): string => {
     if (!s.active) return '';
     if (v.kind === 'mannequin' && (s.state === 'move' || s.state === 'door')) return 'sfx.mannequin_scrape';
-    if (v.kind === 'listener') return 'sfx.fluorescent_hum_loop';
+    // v1.2: its hum rises in pitch and carries further while it notices you and while it hunts
+    if (v.kind === 'listener') return s.state === 'notice' || s.state === 'hunt' || s.state === 'grab' ? 'sfx.fluorescent_hum_loop#hot' : 'sfx.fluorescent_hum_loop';
     if (v.kind === 'hound' && s.state === 'eat') return 'sfx.hound_eating';
     return '';
+  };
+  const loopOpts = (want: string): { volume: number; radius: number; rate: number } => {
+    if (want === 'sfx.fluorescent_hum_loop#hot') return { volume: 0.75, radius: 16, rate: 1.06 };
+    if (want === 'sfx.fluorescent_hum_loop') return { volume: 0.55, radius: 9, rate: 0.79 };
+    return { volume: 0.9, radius: want === 'sfx.mannequin_scrape' ? 14 : 9, rate: 1 };
   };
 
   // ---------------- mannequin sightings ----------------
@@ -356,11 +374,55 @@ export function install(ctx: ClientContext): void {
     }, delay);
   };
 
+  // ---------------- v1.2 'it noticed you' (victim only): heartbeat + red vignette (a slow fade under reduceFlicker) ----
+  const spotVig = document.createElement('div');
+  spotVig.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:38;opacity:0;background:radial-gradient(ellipse at center, rgba(0,0,0,0) 42%, rgba(150,8,4,0.42) 78%, rgba(70,0,0,0.85) 100%)';
+  document.body.append(spotVig);
+  let spotTimers: ReturnType<typeof setTimeout>[] = [];
+  const spotted = (ms: number) => {
+    const s = sfx();
+    if (s?.fear) s.fear('spotted', 0.8, 2000);
+    else if (s?.setFear) { s.setFear(0.8); setTimeout(() => s.setFear?.(0), 2000); }
+    for (const t of spotTimers) clearTimeout(t);
+    spotTimers = [];
+    const hold = Math.max(600, Math.min(2200, ms));
+    const set = (o: number, tr: number) => { spotVig.style.transition = `opacity ${tr}ms ease-out`; spotVig.style.opacity = String(o); };
+    if (reduceFlicker()) {
+      set(0.85, 280);
+      spotTimers.push(setTimeout(() => set(0, 1100), hold));
+    } else {
+      // a hard red pulse (the heartbeat), a second one, then it fades
+      set(1, 0);
+      spotTimers.push(setTimeout(() => set(0.45, 140), 120));
+      spotTimers.push(setTimeout(() => set(0.95, 60), 330));
+      spotTimers.push(setTimeout(() => set(0, 900), hold));
+    }
+  };
+  ctx.bus.on('world:phase', () => { for (const t of spotTimers) clearTimeout(t); spotTimers = []; spotVig.style.opacity = '0'; });
+
   // ---------------- grab ----------------
-  const grabState = signal<{ id: string; victim: string; until: number; p: Vec3 } | null>(null);
+  // v1.2: the victim's camera turns to it, a struggle bar + countdown + MASH [E] ('monsters.struggle'); every teammate
+  // sees '<NAME> IS GRABBED · <ROOM> · Ns'; the first grab per contract is only a knockdown (frozen, flashlight off)
+  interface GrabSt { id: string; victim: string; until: number; p: Vec3; room: string | null; solo: boolean; struggle: number; step: number; decay: number; at: number; v12: boolean }
+  const grabState = signal<GrabSt | null>(null);
+  const grabUi = signal(0);
+  const knock = signal<{ victim: string; until: number; room: string | null; shownUntil: number } | null>(null);
   const ledUntil = signal(0);
   let lastShove = 0;
+  let lastGrabStruggle = 0;
+  let grabUiAt = 0;
+  let grabLook = { yaw: 0, pitch: 0, init: false };
+  let lightTimer: ReturnType<typeof setTimeout> | null = null;
   const myId = () => ctx.world.me ?? ctx.net.me;
+  const listenerBal = () => (ctx.balance.monsters as { listener?: Record<string, unknown> } | undefined)?.listener ?? {};
+  const roomAt = (p: Vec3): string | null => {
+    const L = ctx.world.layout;
+    if (!L) return null;
+    const x = Math.floor(p[0]), z = Math.floor(p[2]);
+    const s = x >= 0 && z >= 0 && x < L.W && z < L.H ? L.owner[z * L.W + x] : -1;
+    return (s >= 0 ? L.spaces[s]?.callsign : null) ?? null;
+  };
+  const playerName = (id: string) => ctx.world.crew?.players.find((p) => p.id === id)?.name ?? 'SOMEONE';
   const nearGrab = (): boolean => {
     const gs = grabState.value;
     const me = myId();
@@ -370,7 +432,7 @@ export function install(ctx: ClientContext): void {
     const lm = ctx.world.sampleMonster(gs.id);
     const dl = lm ? Math.hypot(c[0] - lm.p[0], c[2] - lm.p[2]) : 99;
     // the server's shove range (balance listener.shoveRangeM) plus a little slack for interpolation
-    const range = Number((ctx.balance.monsters as { listener?: { shoveRangeM?: number } } | undefined)?.listener?.shoveRangeM ?? 2.6) + 0.2;
+    const range = Number(listenerBal().shoveRangeM ?? 2.6) + 0.2;
     return Math.min(dl, Math.hypot(c[0] - gs.p[0], c[2] - gs.p[2])) <= range;
   };
   const shove = (kind: 'shove' | 'melee') => {
@@ -378,18 +440,86 @@ export function install(ctx: ClientContext): void {
     lastShove = performance.now();
     void ctx.net.req('monsters.shove', { kind }).catch(() => null);
   };
+  /** the victim's local meter: last server value minus the linear decay since */
+  const struggleNowValue = (gs: GrabSt) => Math.max(0, gs.struggle - gs.decay * Math.max(0, (performance.now() - gs.at) / 1000));
+  const grabStruggle = () => {
+    const gs = grabState.value;
+    if (!gs || !gs.v12 || gs.victim !== myId() || performance.now() - lastGrabStruggle < 45) return;
+    lastGrabStruggle = performance.now();
+    // optimistic: the bar moves on the press, the reply corrects it
+    grabState.value = { ...gs, struggle: Math.min(1, struggleNowValue(gs) + gs.step), at: performance.now() };
+    void ctx.net.req('monsters.struggle', {}).then((r) => {
+      const cur = grabState.value;
+      if (cur && r && r.ok && cur.victim === gs.victim) grabState.value = { ...cur, struggle: r.struggle, at: performance.now() };
+    }).catch(() => null);
+  };
   const busAny = ctx.bus as unknown as { on(k: string, fn: (d: { down?: boolean }) => void): () => void };
-  busAny.on('action:interact', (d) => { if (d?.down !== false) shove('shove'); });
+  const typingGrab = (e: KeyboardEvent) => { const t = e.target as HTMLElement | null; return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable); };
+  busAny.on('action:interact', (d) => { if (d?.down !== false) { shove('shove'); grabStruggle(); } });
   busAny.on('action:use', (d) => { if (d?.down !== false) shove('melee'); });
-  addEventListener('keydown', (e) => { if (e.code === 'KeyE' && !e.repeat) shove('shove'); });
+  addEventListener('keydown', (e) => { if (e.code === 'KeyE' && !e.repeat && !typingGrab(e)) { shove('shove'); grabStruggle(); } });
 
+  const gbar = (f: number, col: string, w = 240) => h('div', { style: `width:${w}px;height:7px;background:rgba(255,255,255,0.13);margin:6px auto 0;border-radius:3px;overflow:hidden` },
+    h('div', { style: `width:${Math.round(Math.max(0, Math.min(1, f)) * 100)}%;height:100%;background:${col}` }));
   ctx.ui.registerHud('center', () => {
+    void grabUi.value;
     const gs = grabState.value;
     const me = myId();
-    if (!gs) return null;
-    if (gs.victim === me) return h('div', { class: 'hud-chip', style: 'color:#ff6b5b;font-weight:700;letter-spacing:0.12em' }, 'IT HAS YOU — SCREAM FOR HELP');
-    return nearGrab() ? h('div', { class: 'hud-chip', style: 'color:#ffd27a;font-weight:700;letter-spacing:0.1em' }, '[E] SHOVE IT OFF') : null;
+    const kn = knock.value;
+    if (!gs) {
+      if (!kn || performance.now() > kn.shownUntil) return null;
+      if (kn.victim === me) {
+        return h('div', { class: 'hud-chip', style: 'color:#ff6b5b;font-weight:700;letter-spacing:0.12em;text-align:center' },
+          'KNOCKED DOWN', h('div', { style: 'font-size:12px;font-weight:600;letter-spacing:0.08em;opacity:0.85;margin-top:4px' }, 'IT LET GO. NEXT TIME, FIGHT IT: MASH [E]'));
+      }
+      return h('div', { class: 'hud-chip', style: 'color:#ff9a7a;font-weight:600;letter-spacing:0.08em' },
+        `${playerName(kn.victim).toUpperCase()} WAS KNOCKED DOWN${kn.room ? ` · ${kn.room}` : ''}`);
+    }
+    const left = Math.max(0, Math.ceil((gs.until - ctx.world.serverNow()) / 1000));
+    if (gs.victim === me) {
+      if (!gs.v12) return h('div', { class: 'hud-chip', style: 'color:#ff6b5b;font-weight:700;letter-spacing:0.12em' }, 'IT HAS YOU — SCREAM FOR HELP');
+      const total = Math.max(0.5, Number(listenerBal()[gs.solo ? 'soloGrabSec' : 'grabSec'] ?? 5));
+      const tLeft = Math.max(0, (gs.until - ctx.world.serverNow()) / 1000);
+      return h('div', { class: 'hud-chip', style: 'color:#ff6b5b;font-weight:700;letter-spacing:0.12em;text-align:center;padding:10px 16px' },
+        h('div', { style: 'font-size:20px;letter-spacing:0.16em' }, 'MASH [E]'),
+        h('div', { style: 'font-size:12px;opacity:0.9;margin-top:2px' }, gs.solo ? 'IT HAS YOU · FIGHT IT OFF' : 'IT HAS YOU · FIGHT, OR SCREAM FOR HELP'),
+        gbar(struggleNowValue(gs), '#ffd27a'),
+        gbar(tLeft / total, '#ff4a3a'),
+        h('div', { style: 'font-size:12px;margin-top:4px;opacity:0.9' }, `${left} s`));
+    }
+    const line = `${playerName(gs.victim).toUpperCase()} IS GRABBED${gs.room ? ` · ${gs.room}` : ''} · ${left}s`;
+    return h('div', { class: 'hud-chip', style: 'text-align:center;letter-spacing:0.08em' },
+      nearGrab() ? h('div', { style: 'color:#ffd27a;font-weight:700;letter-spacing:0.1em;margin-bottom:3px' }, '[E] SHOVE IT OFF') : null,
+      h('div', { style: 'color:#ff9a7a;font-weight:600' }, line));
   }, { id: 'monsters-grab', order: 5 });
+  const endKnockLocal = () => {
+    players()?.freeze?.('monsters.knockdown', false);
+  };
+  const lightBack = () => {
+    if (lightTimer) clearTimeout(lightTimer);
+    lightTimer = null;
+    players()?.setFlashlightEnabled?.(true, 'knockdown');
+  };
+  /** victim camera: turn to face the Listener (it holds you up to its face) */
+  const grabCamera = (dt: number) => {
+    const gs = grabState.value;
+    const me = myId();
+    if (!gs || gs.victim !== me) { grabLook.init = false; return; }
+    const lp = players()?.localPose?.();
+    const lm = ctx.world.sampleMonster(gs.id);
+    if (!lp || !lm) return;
+    const dx = lm.p[0] - lp.p[0], dz = lm.p[2] - lp.p[2];
+    const d = Math.max(0.5, Math.hypot(dx, dz));
+    const yaw = Math.atan2(dx, dz), pitch = Math.atan2(1.95 - 1.62, d);
+    if (!grabLook.init) grabLook = { yaw: lp.yaw, pitch: lp.pitch ?? 0, init: true };
+    let dy = (yaw - grabLook.yaw) % (Math.PI * 2);
+    if (dy > Math.PI) dy -= Math.PI * 2;
+    if (dy < -Math.PI) dy += Math.PI * 2;
+    const k = 1 - Math.exp(-10 * dt);
+    grabLook.yaw += dy * k;
+    grabLook.pitch += (pitch - grabLook.pitch) * k;
+    input()?.look?.(grabLook.yaw, grabLook.pitch);
+  };
   ctx.ui.registerHud('top-right', () => (ledUntil.value > performance.now() && !use<unknown>('interaction')
     ? h('div', { class: 'hud-chip', title: 'walkie', style: 'color:#ff3030' }, h('span', { style: 'display:inline-block;width:9px;height:9px;border-radius:50%;background:#ff2a2a;box-shadow:0 0 8px #ff2a2a;margin-right:6px' }), 'RX')
     : null), { id: 'monsters-led', order: 60 });
@@ -694,6 +824,16 @@ export function install(ctx: ClientContext): void {
       `${nameOf(st.victim).toUpperCase()} WAS TAKEN: FOLLOW THE SCRATCHING (${left} s)`);
   }, { id: 'monsters-snatch', order: 4 });
   net.on('monsters.cue', (d) => {
+    if (d.cue === 'notice') {
+      // v1.2 'it noticed you': a head-snap bone crack + a low double click (never its retreat breath, never the ambient
+      // single click at rate 1.0)
+      if (!within(d.p, d.radius)) return;
+      const p: Vec3 = [d.p[0], 2.1, d.p[2]];
+      playAt('sfx.bone_crack', p, { volume: 0.35, radius: d.radius, rate: 1.6 });
+      playAt('sfx.listener_click_tick', p, { volume: 0.9, radius: d.radius, rate: 0.62 });
+      setTimeout(() => playAt('sfx.listener_click_tick', p, { volume: 0.75, radius: d.radius, rate: 0.58 }), 95);
+      return;
+    }
     const s = CUE_SFX[d.cue];
     if (d.cue === 'dust') addDust([d.p[0], d.p[1], d.p[2]], d.p[1] > 1.5 ? 56 : 40, d.p[1] > 1.5 ? 0.6 : 0.3);
     if (!s || !within(d.p, d.radius)) return;
@@ -744,7 +884,12 @@ export function install(ctx: ClientContext): void {
     const me = myId();
     switch (d.kind) {
       case 'flicker':
-        if (d.space !== undefined) { render()?.flickerSpace?.(d.space, d.ms ?? 900); sfx()?.flicker?.(d.space, d.ms ?? 900); }
+        // v1.2: a smooth brownout (render E2); the strobe (flickerSpace) is reserved for the Listener's telegraph
+        if (d.space !== undefined) {
+          const r = render();
+          if (r?.brownout) r.brownout(d.space, d.ms ?? 900, 0.6);
+          else { r?.flickerSpace?.(d.space, d.ms ?? 900); sfx()?.flicker?.(d.space, d.ms ?? 900); }
+        }
         break;
       case 'door_slam':
         if (d.p) playAt('sfx.distant_door_slam', d.p, { volume: 1, radius: 40 });
@@ -753,7 +898,11 @@ export function install(ctx: ClientContext): void {
         if (me && d.to?.includes(me)) play2d('sfx.radio_static_burst', { volume: 0.5 });
         break;
       case 'fixture_failure':
-        if (d.space !== undefined) render()?.flickerSpace?.(d.space, d.ms ?? 900);
+        if (d.space !== undefined) {
+          const r = render();
+          if (r?.failSpace) r.failSpace(d.space);
+          else r?.flickerSpace?.(d.space, d.ms ?? 900);
+        }
         if (d.p) playAt('sfx.glass_break', d.p, { volume: 0.8, radius: 20 });
         break;
       default:
@@ -763,23 +912,49 @@ export function install(ctx: ClientContext): void {
   net.on('monsters.grab', (d) => {
     const me = myId();
     if (d.state === 'start') {
-      grabState.value = { id: d.id, victim: d.victim, until: d.until, p: d.p };
+      grabState.value = {
+        id: d.id, victim: d.victim, until: d.until, p: d.p, room: d.room ?? roomAt(d.p), solo: d.solo === true,
+        struggle: d.struggle ?? 0, step: d.step ?? 0, decay: d.decay ?? 0, at: performance.now(), v12: typeof d.step === 'number',
+      };
+      knock.value = null;
       if (d.victim === me) {
         players()?.freeze?.('monsters.grab', true);
         vignette.style.opacity = '1';
+        grabLook.init = false;
         ctx.bus.emit('monsters:grabbed', { on: true });
         play2d('sfx.breath_scared', { volume: 0.9 });
+      }
+    } else if (d.state === 'knockdown') {
+      // v1.2: thrown to the floor (frozen until `until`), flashlight knocked out for lightOffMs; it lets go
+      const room = d.room ?? roomAt(d.p);
+      knock.value = { victim: d.victim, until: d.until, room, shownUntil: performance.now() + Math.max(2500, d.until - ctx.world.serverNow() + 1200) };
+      playAt('sfx.body_fall', [d.p[0], 0.3, d.p[2]], { volume: 1, radius: 18 });
+      if (d.victim === me) {
+        players()?.freeze?.('monsters.knockdown', true);
+        players()?.setFlashlightEnabled?.(false, 'knockdown');
+        if (lightTimer) clearTimeout(lightTimer);
+        lightTimer = setTimeout(lightBack, Math.max(0, d.lightOffMs ?? 6000));
+        setTimeout(endKnockLocal, Math.max(0, serverToLocal(d.until) - performance.now()));
+        play2d('sfx.bone_crack', { volume: 0.6, rate: 0.8 });
+        play2d('sfx.breath_scared', { volume: 1 });
+        spotted(900);
+        ctx.bus.emit('monsters:grabbed', { on: true });
+        setTimeout(() => ctx.bus.emit('monsters:grabbed', { on: false }), Math.max(0, serverToLocal(d.until) - performance.now()));
       }
     } else {
       grabState.value = null;
       if (d.victim === me) {
         players()?.freeze?.('monsters.grab', false);
         vignette.style.opacity = '0';
+        grabLook.init = false;
         ctx.bus.emit('monsters:grabbed', { on: false });
+        if (d.state === 'escaped') play2d('sfx.breath_scared', { volume: 0.8 });
       }
       if (d.state === 'freed') playAt('sfx.creature_growl', [d.p[0], 1.6, d.p[2]], { volume: 0.9, radius: 20 });
+      if (d.state === 'escaped') playAt('sfx.creature_scream', [d.p[0], 1.8, d.p[2]], { volume: 0.7, radius: 20, rate: 1.25 });
     }
   });
+  net.on('monsters.spotted', (d) => spotted(Math.max(600, d.until - ctx.world.serverNow() + 400)));
   net.on('monsters.kill', (d) => {
     const me = myId();
     if (within(d.p, 25)) playAt('sfx.bone_crack', [d.p[0], 1, d.p[2]], { volume: 0.9, radius: 25 });
@@ -797,8 +972,11 @@ export function install(ctx: ClientContext): void {
     clearTrail();
     bursts.length = 0;
     grabState.value = null;
+    knock.value = null;
     vignette.style.opacity = '0';
     players()?.freeze?.('monsters.grab', false);
+    endKnockLocal();
+    if (lightTimer) lightBack();
   });
 
   // load + warm the models early (menu/join), long before a monster first appears (loading screen: readiness)
@@ -844,10 +1022,18 @@ export function install(ctx: ClientContext): void {
           if (v.model) poseSnatcher(v.model, v.root.userData.duct ? 'drag' : s.state, performance.now() / 1000);
         } else if (visible) {
           setAnim(v, s.anim, dt, s);
-          // the Listener's head is always cocked
+          // the Listener's head is always cocked; v1.2 notice: it snaps straight (110 ms) and lifts toward you, trembling
           if (v.kind === 'listener' && v.model?.head) {
-            v.model.head.rotateZ(v.tilt);
-            v.model.head.rotateX(-0.15);
+            if (s.state === 'notice') { if (!v.noticeAt) v.noticeAt = performance.now(); } else v.noticeAt = 0;
+            if (v.noticeAt) {
+              const k = Math.min(1, (performance.now() - v.noticeAt) / 110);
+              const tremor = Math.sin(performance.now() * 0.09) * 0.035 * (1 - k * 0.5);
+              v.model.head.rotateZ(v.tilt * (1 - k) + tremor);
+              v.model.head.rotateX(-0.15 - 0.22 * k);
+            } else {
+              v.model.head.rotateZ(v.tilt);
+              v.model.head.rotateX(-0.15);
+            }
           }
         }
         // loops
@@ -856,7 +1042,7 @@ export function install(ctx: ClientContext): void {
           v.loop?.stop();
           v.loop = null;
           v.loopKey = want;
-          if (want) v.loop = playAt(want, [s.p[0], 1.2, s.p[2]], { volume: want === 'sfx.fluorescent_hum_loop' ? 0.55 : 0.9, radius: want === 'sfx.mannequin_scrape' ? 14 : 9, rate: want === 'sfx.fluorescent_hum_loop' ? 0.79 : 1, ...{ loop: true } } as never);
+          if (want) v.loop = playAt(want.split('#')[0], [s.p[0], 1.2, s.p[2]], { ...loopOpts(want), ...{ loop: true } } as never);
           if (want && v.loop === null) v.loopKey = '';
         } else if (v.loop?.setPos) v.loop.setPos([s.p[0], 1.2, s.p[2]]);
         v.state = s.state;
@@ -868,6 +1054,10 @@ export function install(ctx: ClientContext): void {
       reportSightings(dt);
       if (performance.now() > blinkUntil && overlay.style.opacity !== '0' && overlay.style.opacity !== '') overlay.style.opacity = '0';
       if (grabState.value && myId() === grabState.value.victim) vignette.style.opacity = String(0.75 + 0.25 * Math.sin(performance.now() / 90));
+      grabCamera(dt);
+      // grab / knockdown HUD (struggle bar, countdowns) at ~12 Hz
+      if ((grabState.value || knock.value) && performance.now() - grabUiAt > 80) { grabUiAt = performance.now(); grabUi.value = (grabUi.value + 1) % 1000000; }
+      if (knock.value && performance.now() > knock.value.shownUntil) knock.value = null;
     },
   });
 
@@ -876,6 +1066,8 @@ export function install(ctx: ClientContext): void {
       views: () => [...views.values()].map((v) => ({ id: v.id, kind: v.kind, model: !!v.model, visible: v.root.visible, anim: v.current, state: v.state, loop: v.loopKey })),
       loaded: () => !!lib,
       layout: () => ctx.world.layout,
+      /** v1.2: grab / knockdown HUD state + the 'spotted' vignette opacity */
+      hud: () => ({ grab: grabState.value, knock: knock.value, spotted: Number(spotVig.style.opacity || 0), vignette: Number(vignette.style.opacity || 0) }),
       tint: (id: string, hex: number) => { const v = views.get(id); let n = 0; v?.root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && (m.material as THREE.MeshStandardNodeMaterial).color) { (m.material as THREE.MeshStandardNodeMaterial).color.setHex(hex); n++; } }); return n; },
       basic: (id: string) => { const v = views.get(id); let n = 0; v?.root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.material = new THREE.MeshBasicNodeMaterial({ color: 0x000000 }); n++; } }); return n; },
       mat: (id: string, kind: string) => { const v = views.get(id); v?.root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && !(m.material as THREE.Material).name.startsWith('eye')) { const old = m.material as THREE.MeshStandardMaterial; m.material = kind === 'std' ? new THREE.MeshStandardNodeMaterial({ color: 0x000000, roughness: 1, metalness: 0 }) : kind === 'stdmap' ? new THREE.MeshStandardNodeMaterial({ color: 0x050505, roughness: 1, metalness: 0, map: old.map ?? null }) : kind === 'lambert' ? new THREE.MeshLambertNodeMaterial({ color: 0x000000 }) : new THREE.MeshStandardNodeMaterial({ color: 0x000000, roughness: 1, metalness: 0, flatShading: true }); } }); return true; },

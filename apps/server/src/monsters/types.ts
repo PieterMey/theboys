@@ -87,6 +87,8 @@ export interface MannequinAgent extends Agent {
   /** crew time it last moved (for client scrape loops) */
   movedAt: number;
   observed: boolean;
+  /** v1.2: it was watched since it last moved (its first move afterwards creaks) */
+  watched?: boolean;
 }
 
 /** a vent grate (layout item kind 'vent'): wall mount + inward normal (into its room) */
@@ -184,8 +186,8 @@ export interface ListenerAgent extends Agent {
   thinking: boolean;
   /** new meaningful input since the last decision */
   fresh: boolean;
-  /** current intent */
-  intent: ListenerAction | 'patrol' | 'hunt';
+  /** current intent ('notice': v1.2, it stopped to look at someone it just saw) */
+  intent: ListenerAction | 'patrol' | 'hunt' | 'notice';
   targetSpace: number;
   targetPlayer: string | null;
   /** crew time the current intent expires */
@@ -205,6 +207,36 @@ export interface ListenerAgent extends Agent {
   voiceHeard: Map<string, number[]>;
   lastClickAt: number;
   searchUntil: number;
+  // ---- v1.2 fairness (flag listenerFairV12; unused with the flag off) ----
+  /** player id -> crew time it warned them (noticed them; the 'spotted' tell reached them) */
+  warned: Map<string, number>;
+  /** player id -> perceived position (the doorway the sound came through) + crew time it last heard them */
+  heardP: Map<string, { x: number; z: number; t: number }>;
+  /** player id -> crew time a notice of them last started (re-notice cooldown) */
+  noticedAt: Map<string, number>;
+  /** crew time the current notice ends */
+  noticeUntil: number;
+  /** pounce: crew time the current pounce ends (0 = none) and the next one may start */
+  pounceUntil: number;
+  pounceReadyAt: number;
+  /** stun / stagger / knock state budget (s) and what follows it */
+  timer: number;
+  /** door slam: it still saw the target when the door closed (keeps hunting after the stun) */
+  stunKeep: boolean;
+  /** after a stagger / knock: retreat this long (s) */
+  retreatAfter: number;
+  /** current grab: solo rules, struggle meter (0..1), per-press step, linear decay /s, last press (crew time) */
+  grabSolo: boolean;
+  grabStruggle: number;
+  grabStep: number;
+  grabDecay: number;
+  lastStruggleAt: number;
+  /** player id -> knockdowns this contract (the first grabsBeforeKill grabs only knock down) */
+  knocks: Map<string, number>;
+  /** player id -> knocked down until crew time, pinned at (x, z) */
+  knocked: Map<string, { until: number; x: number; z: number }>;
+  /** vent item ids of the current / planned vent trip (ventInUse) */
+  ventIds: [string, string] | null;
 }
 
 export interface DecisionEntry {
@@ -265,6 +297,12 @@ export interface CrewMonsters {
   callsignSpace: Map<string, number>;
   /** crew time of the contract start (for clock fallback) */
   lastAutoStart: number;
+  // ---- v1.2 monster event bus (seen / heard at 2 Hz) ----
+  evAcc?: number;
+  /** `${event}|${agent id}|${player id}` -> crew time last emitted (dedupe) */
+  evLast?: Map<string, number>;
+  /** cues emitted since the last seen/heard pass: agent + position + radius */
+  cueLog?: { id: string; kind: MonsterKindX; x: number; z: number; r: number }[];
 }
 
 export type Bal = Record<string, number>;
@@ -278,6 +316,17 @@ export function bal(ctx: ServerContext, section: string): Bal {
 export function num(b: Bal, key: string, d: number): number {
   const v = b[key];
   return typeof v === 'number' && Number.isFinite(v) ? v : d;
+}
+
+/** boolean balance knob (JSON true/false; a number reads as != 0) */
+export function knob(b: Bal, key: string, d: boolean): boolean {
+  const v = (b as Record<string, unknown>)[key];
+  return typeof v === 'boolean' ? v : typeof v === 'number' ? v !== 0 : d;
+}
+
+/** v1.2 Listener fairness kill switch (config/flags.json listenerFairV12; off = the v1.1 Listener + hotfix balance) */
+export function fairOn(ctx: ServerContext): boolean {
+  return ctx.flags.listenerFairV12 !== false;
 }
 
 export function crewM(crew: Crew): CrewMonsters | null {

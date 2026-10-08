@@ -4,18 +4,23 @@ import type { DirectorOption } from '@dead-air/shared/messages/ai.ts';
 import { jevChoose, stableJson } from './gateway.ts';
 import { balNum, flagOn, log } from './hub.ts';
 
+// v1.2 (G2): the director's event ids are DirectorEventKind (messages/monsters.ts); 'flicker' renders as a smooth
+// brownout and the strobe belongs to the Listener's telegraph only. Old camelCase / short ids stay as aliases.
 const DEFAULT_DESC: Record<string, string> = {
-  flicker: 'Lights flicker in a room near the crew',
+  flicker: 'The lights in a room near the crew sag into a brownout, then recover',
   door_slam: 'A door slams somewhere close to the crew',
   doorSlam: 'A door slams somewhere close to the crew',
   hound_relocate: 'The Hound pads off to a different room',
   houndRelocate: 'The Hound pads off to a different room',
   mannequin_relocate: 'The Mannequin moves somewhere nobody is watching',
   mannequinRelocate: 'The Mannequin moves somewhere nobody is watching',
-  fixture_fail: 'A light fixture dies for good',
-  fixtureFail: 'A light fixture dies for good',
-  radio_static: 'Every walkie hisses with static',
-  radioStatic: 'Every walkie hisses with static',
+  fixture_failure: 'A light fixture in a lit room near the crew dies for good',
+  fixture_fail: 'A light fixture in a lit room near the crew dies for good',
+  fixtureFail: 'A light fixture in a lit room near the crew dies for good',
+  radio_static: "One crew member's walkie hisses with static",
+  radioStatic: "One crew member's walkie hisses with static",
+  vent_rattle: 'A vent grate near a lone crew member rattles and drops dust (the Snatcher is in the ducts)',
+  ventRattle: 'A vent grate near a lone crew member rattles and drops dust (the Snatcher is in the ducts)',
   quiet: 'Nothing happens: let the crew breathe',
   quiet_period: 'Nothing happens: let the crew breathe',
 };

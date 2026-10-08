@@ -65,8 +65,28 @@ export interface MonstersEvents {
   'monsters.intercept': { text: string; quote: string; speaker: string | null; callsign: string | null; action: string; at: number };
   /** the Listener woke up: facility-wide flicker for `ms` + every walkie squelches */
   'monsters.wake': { ms: number };
-  /** Listener grab lifecycle: the victim has until `until` (server ms) to be freed by a teammate (E shove / crowbar) */
-  'monsters.grab': { id: string; victim: string; until: number; state: 'start' | 'freed' | 'killed'; by?: string; p: Vec3 };
+  /**
+   * Listener grab lifecycle: the victim has until `until` (server ms) to be freed by a teammate (E shove / crowbar).
+   * v1.2 (flag listenerFairV12): 'knockdown' = the first grab per player per contract only knocks the victim down
+   * (frozen until `until`, flashlight off for lightOffMs; no death); 'escaped' = the victim struggled free (by = victim).
+   */
+  'monsters.grab': {
+    id: string; victim: string; until: number;
+    state: 'start' | 'freed' | 'killed' | 'knockdown' | 'escaped';
+    by?: string; p: Vec3;
+    /** v1.2: callsign of the room it happened in (teammates' HUD line) */
+    room?: string | null;
+    /** v1.2 'start': solo-crew rules (longer timer, bigger struggle step) */
+    solo?: boolean;
+    /** v1.2 'start': struggle meter 0..1, + per E press, - linear decay per second (the victim's bar; 1.0 = free) */
+    struggle?: number;
+    step?: number;
+    decay?: number;
+    /** v1.2 'knockdown': the victim's flashlight stays off this long (ms) */
+    lightOffMs?: number;
+  };
+  /** v1.2 (G2): sent only to the player the Listener just noticed: heartbeat + red vignette; it hunts at `until` (server ms) if it still senses them */
+  'monsters.spotted': { id: string; until: number };
   /** fake radio transmission (static + garbled half-voice) through these players' walkies, or an intercom at `p` */
   'monsters.lure': { to: string[]; clip: string; ms: number; p?: Vec3; intercom?: string };
   /** walkie LED flickers red on these players' walkies (Listener tell: no PTT click) */
@@ -91,15 +111,24 @@ export interface MonstersReqs {
   'monsters.see': { args: { s: Record<string, boolean> }; result: { ok: boolean } };
   /** E shove / crowbar hit on a Listener that is grabbing a teammate (server checks range) */
   'monsters.shove': { args: { kind?: 'shove' | 'melee' } | undefined; result: { ok: boolean; freed: boolean } };
-  /** Snatcher victim mashing E (each press slows the drag; server rate-limits) */
-  'monsters.struggle': { args: Record<string, never> | undefined; result: { ok: boolean; struggle: number } };
+  /** Snatcher victim mashing E (each press slows the drag; server rate-limits). v1.2: also the Listener grab victim (1.0 = escaped) */
+  'monsters.struggle': { args: Record<string, never> | undefined; result: { ok: boolean; struggle: number; escaped?: boolean } };
   /** teammate holding E at the rescue spot: send { on: true } every <= 250 ms while held, { on: false } on release */
   'monsters.pull': { args: { on?: boolean } | undefined; result: { ok: boolean; pull: number; inRange: boolean } };
   /** Listener decision log lines ('it heard "meet in BOILER" -> ambushed BOILER') for the results screen */
   'monsters.log': { args: Record<string, never> | undefined; result: { lines: string[] } };
 }
 
-/** v1.2 monster event bus (server only): api.onMonsterEvent. Consumers: meta stats, fieldguide, paranormal ('wake') */
+/**
+ * v1.2 monster event bus (server only): api.onMonsterEvent. Consumers: meta stats, fieldguide, paranormal ('wake').
+ * - seen: an active monster within 15 m, in the player's 110 deg view cone, LOS, lit or within 3 m (Mannequin: the
+ *   client sighting reports); heard: the player was inside a monster cue's radius. Both 2 Hz, deduped per monster and
+ *   player for 30 s; victim = the perceiver. The hub's kennel Hound counts.
+ * - hound: alert (growl) / charge (wind-up); victim = the player whose noise caused it (kennel: lunge = charge).
+ * - listener: notice (victim = the noticed player), grab (every grab start, a knockdown too: 'grab' then 'knockdown'),
+ *   freed (by = the teammate), escaped (struggled free), flinch (by = the flashbulb user), wake (no victim).
+ * - snatcher: snatch, rescued (by = the rescuer). kill: every monster kill (victim).
+ */
 export interface MonsterEvent {
   monster: MonsterKindX;
   id: string;

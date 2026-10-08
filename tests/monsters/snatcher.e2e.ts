@@ -74,6 +74,9 @@ try {
   check('drop cue + drag route to the right grate', cues(a, t0, 'snatch').length > 0 && !!sd.grate && sd.grate.id === g.id && (sd.p.length === 3), `grate ${sd.grate?.id}`);
   // the victim is dragged along the floor to the grate, then into the duct (stance hidden)
   const duct = await waitFor(() => a.eventsOf('monsters.snatch', start.at).find((e) => (e.d as SnatchD).phase === 'duct'), 12_000, 'duct phase');
+  // the 'duct' event can arrive one snapshot before the pose that shows it (under load): wait up to 500 ms for it
+  const inDuct = () => a.snap?.players.find((p) => p.id === a.id && p.stance === 3);
+  await waitFor(inDuct, 500, 'hidden pose').catch(() => undefined);
   const posA = a.snap?.players.find((p) => p.id === a.id);
   const dG = posA ? Math.hypot(posA.p[0] - g.front[0], posA.p[2] - g.front[1]) : 99;
   check('victim dragged to the grate, then into the duct (hidden)', dG < 0.6 && posA?.stance === 3, `${dG.toFixed(2)} m from the grate front, stance ${posA?.stance}, ${((duct.at - start.at) / 1000).toFixed(1)} s`);

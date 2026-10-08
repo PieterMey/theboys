@@ -15,8 +15,12 @@ import { bal, num } from '../monsters/types.ts';
 import type { HoundAgent, ListenerAgent, MannequinAgent, SnatcherAgent } from '../monsters/types.ts';
 import { rattle as snatchRattle, snatcherOf } from '../monsters/snatcher.ts';
 import { dist, doorCenter, inCab, monsterCanOpen, randomReachable } from '../monsters/geo.ts';
-import { extLightsOn, extSetDoor, extSetLights, hasWalkie, isAlive } from '../monsters/ext.ts';
+import { extLightsOn, extParanormalQuietUntil, extSetDoor, extSetLights, hasWalkie, isAlive } from '../monsters/ext.ts';
 import { clockMin, relocateMannequin } from '../monsters/mannequin.ts';
+
+// v1.2: 'flicker' is now a smooth brownout on the client (render.brownout) and 'fixture_failure' a fixture dying
+// (render.failSpace): the strobe means only the Listener's telegraph. The crew.slices.director shape {phase, tension,
+// events} is read by env-paranormal (E4); an ambient event waits while paranormalQuietUntil(crew) is in the future.
 
 type Phase = DirectorPickState['phase'];
 
@@ -37,7 +41,7 @@ export interface DirectorSlice {
   t: number;
 }
 
-const CHASE = new Set(['charge', 'windup', 'hunt', 'grab', 'move', 'drop', 'drag']);
+const CHASE = new Set(['charge', 'windup', 'hunt', 'grab', 'move', 'drop', 'drag', 'notice']);
 
 function slice(crew: Crew): DirectorSlice {
   let d = crew.slices.director as DirectorSlice | undefined;
@@ -92,9 +96,12 @@ function updateTension(rt: Rt, d: DirectorSlice, dt: number): void {
       }
     }
     if (a.kind === 'listener') {
-      const v = (a as ListenerAgent).grabVictim;
-      if (v && !d.grabbed[v]) { d.grabbed[v] = true; d.tension[v] = Math.min(1, (d.tension[v] ?? 0) + 0.5); }
-      if (!v) d.grabbed = {};
+      // grabbed or (v1.2) knocked down: +0.5 once per grab
+      const La = a as ListenerAgent;
+      const held: string[] = La.grabVictim ? [La.grabVictim] : [];
+      for (const [pid, k] of La.knocked ?? []) if (k.until > cm.time) held.push(pid);
+      for (const v of held) if (!d.grabbed[v]) { d.grabbed[v] = true; d.tension[v] = Math.min(1, (d.tension[v] ?? 0) + 0.5); }
+      if (!held.length) d.grabbed = {};
     }
     if (a.kind === 'snatcher') {
       // a snatch is a peak for the victim and everyone who hears it (+0.35 within 20 m)
@@ -310,6 +317,11 @@ export function installDirector(ctx: ServerContext, rtFor: (crew: Crew) => Rt | 
           break;
       }
       if (d.t >= d.nextEventAt && !d.picking) {
+        // v1.2 (SHOULD): a paranormal phenomenon is playing: hold the ambient event back (re-checked in 2 s)
+        if (extParanormalQuietUntil(crew) > ctx.now()) {
+          d.nextEventAt = d.t + 2;
+          return;
+        }
         d.nextEventAt = d.t + R('eventMinSec', 'eventMaxSec', 20, 30);
         const allowed = allowedEvents(rt, d);
         if (!allowed.length) return;

@@ -10,7 +10,7 @@ import { ANIM } from '@dead-air/shared/anim.ts';
 import { BAND } from '@dead-air/shared/constants.ts';
 import type { ServerPlayer } from '../core/types.ts';
 import type { Rt } from './runtime.ts';
-import { activeRecently, makeAgentBase } from './runtime.ts';
+import { activeRecently, makeAgentBase, monsterEvent } from './runtime.ts';
 import { doorById, dist, follow, monsterCanOpen, planTo, randomReachable, throughDoor, turnToward, yawTo } from './geo.ts';
 import type { Perceived } from './geo.ts';
 import { num } from './types.ts';
@@ -83,6 +83,7 @@ function reAlert(rt: Rt, h: HoundAgent, x: number, z: number, door: number, pid:
   h.path = null;
   const p = rt.crew.players.get(pid);
   growl(rt, h, true, p ? dist(p.pose.p[0], p.pose.p[2], h.x, h.z) + 1.5 : 0);
+  if (p) monsterEvent(rt, h, 'alert', p.id);
 }
 
 /** gate before any wind-up caused by player `pid`: true = go ahead */
@@ -111,6 +112,7 @@ function startWindup(rt: Rt, h: HoundAgent, x: number, z: number, n: Noise, d: n
   h.anim = ANIM.mAttack;
   h.yaw = yawTo(h.x, h.z, x, z);
   rt.cue(h, 'bark', 20);
+  if (n.source && rt.crew.players.has(n.source)) monsterEvent(rt, h, 'charge', n.source);
 }
 
 function investigateTarget(rt: Rt, h: HoundAgent, per: Perceived): [number, number] {
@@ -127,7 +129,7 @@ function investigateTarget(rt: Rt, h: HoundAgent, per: Perceived): [number, numb
 
 export function houndHear(rt: Rt, h: HoundAgent, n: Noise, d: number, per: Perceived): void {
   if (!h.active || h.state === 'eat' || h.state === 'out') return;
-  if (h.chained) return kennelHear(rt, h, n);
+  if (h.chained) return kennelHear(rt, h, n, d);
   const now = rt.cm.time;
   if (n.kind === 'bottle') {
     // bottles override everything: go to the impact point and sniff
@@ -163,6 +165,7 @@ export function houndHear(rt: Rt, h: HoundAgent, n: Noise, d: number, per: Perce
       h.path = null;
       const src = n.source ? rt.crew.players.get(n.source) : undefined;
       growl(rt, h, false, src ? dist(src.pose.p[0], src.pose.p[2], h.x, h.z) + 1.5 : 0);
+      if (src) monsterEvent(rt, h, 'alert', src.id);
       return;
     }
     case 'alert': {
@@ -204,12 +207,21 @@ export function houndHear(rt: Rt, h: HoundAgent, n: Noise, d: number, per: Perce
   }
 }
 
-function kennelHear(rt: Rt, h: HoundAgent, n: Noise): void {
-  if (n.kind !== 'voice' && n.kind !== 'airhorn' && n.kind !== 'bottle' && n.kind !== 'radio') return;
-  if (n.radiusM < num(rt.hound, 'hearMinRadiusM', 4)) return; // whisper: ignored
+/**
+ * Chained kennel hound (hub; never kills). Voice: whisper ignored, talk -> turns + growls, shout -> lunges at the fence.
+ * v1.2 crouch tutorial: a walkStep within kennelWalkM (6 m path) turns it + growls, a sprintStep within kennelSprintM
+ * (10 m) makes it lunge, a crouchStep is ignored (below hearMinRadiusM).
+ */
+function kennelHear(rt: Rt, h: HoundAgent, n: Noise, d = 0): void {
+  const step = n.kind === 'walkStep' || n.kind === 'sprintStep';
+  if (n.kind !== 'voice' && n.kind !== 'airhorn' && n.kind !== 'bottle' && n.kind !== 'radio' && !step) return;
+  if (n.radiusM < num(rt.hound, 'hearMinRadiusM', 4)) return; // whisper, crouch steps: ignored
+  if (n.kind === 'walkStep' && d > num(rt.hound, 'kennelWalkM', 6)) return;
+  if (n.kind === 'sprintStep' && d > num(rt.hound, 'kennelSprintM', 10)) return;
   const L = rt.cm.layout;
   const pen = L.spaces[h.pen]?.rect;
-  const shout = n.kind !== 'voice' || (n.band ?? 0) >= BAND.shout || n.radiusM >= 25;
+  const shout = n.kind === 'sprintStep' || (n.kind !== 'voice' && n.kind !== 'walkStep') || (n.kind === 'voice' && ((n.band ?? 0) >= BAND.shout || n.radiusM >= 25));
+  const src = n.source && rt.crew.players.has(n.source) ? n.source : null;
   h.lastNoiseAt = rt.cm.time;
   if (shout) {
     if (h.state === 'lunge') return;
@@ -225,10 +237,12 @@ function kennelHear(rt: Rt, h: HoundAgent, n: Noise): void {
     planTo(rt.cm, h, tx, tz);
     h.anim = ANIM.mAttack;
     rt.cue(h, 'lunge', 30);
+    if (src) monsterEvent(rt, h, 'charge', src);
     return;
   }
   if (h.state === 'lunge') return;
   const fresh = h.state !== 'alert';
+  if (fresh && src) monsterEvent(rt, h, 'alert', src);
   h.tx = n.x;
   h.tz = n.z;
   if (fresh) {

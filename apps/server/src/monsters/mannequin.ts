@@ -159,6 +159,7 @@ export function mannequinTick(rt: Rt, m: MannequinAgent, dt: number): void {
   if (m.observed) {
     if (m.state !== 'frozen') { m.state = 'frozen'; m.st = 0; }
     m.anim = ANIM.mFrozen;
+    m.watched = true;
     return;
   }
   // unobserved: hunt the nearest living player
@@ -169,6 +170,11 @@ export function mannequinTick(rt: Rt, m: MannequinAgent, dt: number): void {
     return;
   }
   const [tx, , tz] = target.pose.p;
+  // v1.2: its first move after being watched creaks (joints), a tell that it is coming
+  if (m.watched) {
+    m.watched = false;
+    rt.cue(m, 'creak', num(rt.mannequin, 'creakRadiusM', 12));
+  }
   if (!m.path || cm.time - m.planAt > 0.4) planTo(cm, m, tx, tz, monsterCanOpen(cm.layout));
   const r = follow(cm, m, dt, num(rt.mannequin, 'speed', 7), monsterCanOpen(cm.layout), num(rt.mannequin, 'doorPauseSec', 1.5), rt.openDoor);
   m.state = r === 'door' ? 'door' : 'move';

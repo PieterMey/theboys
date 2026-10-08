@@ -9,17 +9,18 @@ import type { Crew, PlayerPose, ServerContext, ServerPlayer } from '../core/type
 import { SYSTEM_ORDER } from '../core/types.ts';
 import { emitNoise, onNoise, onProxText } from '../players/noise.ts';
 import { isTaunt } from '../ai/text.ts';
-import { bindMonstersImpl, listener as listenerApi } from './api.ts';
-import type { HeardUtterance, ListenerIntent, MonstersImpl } from './api.ts';
+import { bindMonstersImpl, listener as listenerApi, onMonsterEvent } from './api.ts';
+import type { HeardUtterance, ListenerIntent, MonsterEvent, MonstersImpl } from './api.ts';
+import { coverNear } from './cover.ts';
 import { bindExternal, boundApis, holdingCrowbar, isAlive } from './ext.ts';
 import { inCab } from './geo.ts';
-import { forceWake, grabPosition, listenerHeardUtterance, listenerOf, tryFree } from './listener.ts';
+import { ambushProbe, forceGrab, forceIntent, forceWake, grabPosition, knockedSpot, listenerDoorClosed, listenerFlash, listenerHeardUtterance, listenerMelee, listenerOf, listenerStruggle, listenerVentTrip, tryFree, warnState } from './listener.ts';
 import { litAt, scheduleBlink } from './mannequin.ts';
 import { afterDeath, fillSnapshot, makeRt, runtimeStats, startContract, startHubRuntime, stopRuntime, tickRuntime } from './runtime.ts';
 import type { Rt } from './runtime.ts';
-import { bal, crewM, num } from './types.ts';
-import type { Agent, CrewMonsters, DecisionEntry, HoundAgent, ListenerAgent, MannequinAgent, SnatcherAgent } from './types.ts';
-import { applyVictimPose, describeSnatcher, pull as snatchPull, rattle as snatchRattle, readyNow, snatcherOf, struggle as snatchStruggle } from './snatcher.ts';
+import { bal, crewM, fairOn, num } from './types.ts';
+import type { Agent, CrewMonsters, DecisionEntry, HoundAgent, ListenerAction, ListenerAgent, MannequinAgent, SnatcherAgent } from './types.ts';
+import { applyVictimPose, describeSnatcher, pull as snatchPull, rattle as snatchRattle, readyNow, snatcherOf, snatchVictim, struggle as snatchStruggle } from './snatcher.ts';
 import { directorDeath, directorState, installDirector, resetDirector, runDirectorEvent } from '../director/index.ts';
 
 export function install(ctx: ServerContext): void | Promise<void> {
@@ -123,8 +124,45 @@ export function install(ctx: ServerContext): void | Promise<void> {
       const f = soundFlood(rt.cm.grid, x, z, radiusM, rt.cm.doorOpen);
       return fieldAt(rt.cm.grid, f, L.x, L.z) <= radiusM;
     },
+    // v1.2: G1 (crawl vents: never while a vent is busy) and E4
+    ventInUse: (crew, ventItemId) => {
+      const cm = crewM(crew);
+      if (!cm || cm.mode !== 'contract') return false;
+      if (snatchVictim(cm)) return true; // any active snatch, crew-wide (a rescuer never crawls away)
+      const L = cm.agents.find((a) => a.kind === 'listener') as ListenerAgent | undefined;
+      return !!L && listenerVentTrip(L, String(ventItemId));
+    },
+    isGrabbed: (crew, pid) => {
+      const cm = crewM(crew);
+      if (!cm || cm.mode !== 'contract') return null;
+      if (snatchVictim(cm) === pid) return 'snatcher';
+      const L = cm.agents.find((a) => a.kind === 'listener') as ListenerAgent | undefined;
+      if (!L) return null;
+      if (L.state === 'grab' && L.grabVictim === pid) return 'listener';
+      const rt = rtFor(crew);
+      return rt && knockedSpot(rt, L, pid) ? 'listener' : null;
+    },
   };
   bindMonstersImpl(impl);
+
+  // dev only: the last monster events + Listener decisions per crew (dbg.monsters.events; both are server-only APIs)
+  const evLog = new WeakMap<Crew, (MonsterEvent & { n: number })[]>();
+  const decLog = new WeakMap<Crew, { n: number; action: string; speaker: string | null; speakerId: string | null; valid: boolean; line: string }[]>();
+  let evSeq = 0;
+  if (ctx.env.dev) {
+    onMonsterEvent((crew, e) => {
+      let arr = evLog.get(crew);
+      if (!arr) evLog.set(crew, (arr = []));
+      arr.push({ ...e, n: ++evSeq });
+      if (arr.length > 300) arr.splice(0, arr.length - 300);
+    });
+    listenerApi.onDecision((crew, d) => {
+      let arr = decLog.get(crew);
+      if (!arr) decLog.set(crew, (arr = []));
+      arr.push({ n: ++evSeq, action: d.action, speaker: d.speaker, speakerId: d.speakerId ?? null, valid: d.valid, line: d.line });
+      if (arr.length > 100) arr.splice(0, arr.length - 100);
+    });
+  }
 
   // ---- external tracks (optional) ----
   const rebind = async () => {
@@ -138,13 +176,29 @@ export function install(ctx: ServerContext): void | Promise<void> {
           const agent = cm?.agents.find((a) => a.kind === killer) ?? null;
           onKilled(crew, pid, agent, p.pose.p[0], p.pose.p[2]);
         },
-        onMelee: (crew, attacker) => {
+        onMelee: (crew, attacker, args) => {
           const p = crew.players.get(attacker);
           const rt = rtFor(crew);
           const L = rt ? listenerOf(rt) : null;
-          return !!(p && rt && L && tryFree(rt, L, p));
+          // frees a grab; v1.2: a hit during hunt / stalk / notice staggers it (eye position + swing direction)
+          return !!(p && rt && L && rt.cm.mode === 'contract' && listenerMelee(rt, L, p, args[0], args[1]));
         },
         onUtterance: (crew, u) => { heard(crew, u as HeardUtterance); },
+        onDoor: (crew, id, open, by) => {
+          if (open || !by) return;
+          const rt = rtFor(crew);
+          const L = rt ? listenerOf(rt) : null;
+          if (rt && L && rt.cm.mode === 'contract') listenerDoorClosed(rt, L, id, by);
+        },
+        onItemEvent: (crew, e) => {
+          // v1.2 (SHOULD): a flashbulb fired toward the Listener makes it flinch and retreat
+          const ev = e as { kind?: string; type?: string; pid?: string; p?: unknown; dir?: unknown } | null;
+          if (!ev || ev.kind !== 'use' || ev.type !== 'flashbulb' || typeof ev.pid !== 'string') return;
+          const p = crew.players.get(ev.pid);
+          const rt = rtFor(crew);
+          const L = rt ? listenerOf(rt) : null;
+          if (p && rt && L && rt.cm.mode === 'contract') listenerFlash(rt, L, p, ev.p, ev.dir);
+        },
       });
     } catch (e) {
       log.warn(`external bind failed: ${e instanceof Error ? e.message : e}`);
@@ -228,7 +282,11 @@ export function install(ctx: ServerContext): void | Promise<void> {
       return;
     }
     const L = rt ? listenerOf(rt) : null;
-    if (!L || L.state !== 'grab' || L.grabVictim !== player.id) return;
+    if (!L) return;
+    // v1.2 knockdown: pinned where it knocked them down for knockdownSec
+    const kn = rt ? knockedSpot(rt, L, player.id) : null;
+    if (kn) { pose.p = [kn.x, pose.p[1], kn.z]; return; }
+    if (L.state !== 'grab' || L.grabVictim !== player.id) return;
     const [gx, gz] = grabPosition(L);
     pose.p = [gx, pose.p[1], gz];
   });
@@ -269,11 +327,15 @@ export function install(ctx: ServerContext): void | Promise<void> {
 
   ctx.registerReq('monsters.log', (crew) => ({ lines: impl.decisionLog(crew).map((e) => e.line) }));
 
-  // Snatcher: the victim mashes E (struggle), teammates hold E at the rescue spot (heartbeat every <= 250 ms)
+  // the victim mashes E (struggle): v1.2 Listener grab (1.0 = free), else the Snatcher drag; teammates hold E at the
+  // Snatcher rescue spot (heartbeat every <= 250 ms)
   ctx.registerReq('monsters.struggle', (crew, player) => {
     const rt = rtFor(crew);
-    const sn = snatcherOf(rt?.cm ?? null);
-    if (!rt || !sn) return { ok: false, struggle: 0 };
+    if (!rt) return { ok: false, struggle: 0 };
+    const L = listenerOf(rt);
+    if (L && L.state === 'grab' && L.grabVictim === player.id && fairOn(ctx)) return listenerStruggle(rt, L, player);
+    const sn = snatcherOf(rt.cm);
+    if (!sn) return { ok: false, struggle: 0 };
     return { ok: sn.victim === player.id, struggle: snatchStruggle(rt, sn, player) };
   });
   ctx.registerReq('monsters.pull', (crew, player, args) => {
@@ -355,6 +417,20 @@ export function install(ctx: ServerContext): void | Promise<void> {
     if (a.active !== undefined) ag.active = !!a.active;
     if (a.anim !== undefined) ag.anim = Number(a.anim);
     if (a.active && ag.kind === 'listener') (ag as ListenerAgent).dormant = false;
+    if (ag.kind === 'listener' && a.state) {
+      // tests: a clean slate for the new state ('ambush' = stand still facing `yaw` for holdSec, watching)
+      const L = ag as ListenerAgent;
+      const hold = Number((args as { holdSec?: number } | null)?.holdSec ?? 120);
+      L.targetPlayer = null;
+      L.pounceUntil = 0;
+      L.grabVictim = null;
+      L.ventFrom = L.ventTo = null;
+      L.ventAfter = null;
+      L.ventIds = null;
+      L.intent = a.state === 'ambush' ? 'ambush_room' : a.state === 'patrol' || a.state === 'search' ? 'patrol' : L.intent;
+      if (a.state === 'ambush') { L.targetSpace = -1; L.until = cm.time + hold; }
+      if (a.state === 'search') L.searchUntil = cm.time + hold;
+    }
     if (a.active && ag.kind === 'mannequin') (ag as MannequinAgent).spawned = true;
     if (ag.kind === 'hound') { const h = ag as HoundAgent; h.timer = 3; h.lastNoiseAt = -100; h.heardAt = -100; }
     if (a.outSec !== undefined) rtFor(crew)?.retreat(ag, Number(a.outSec));
@@ -434,6 +510,76 @@ export function install(ctx: ServerContext): void | Promise<void> {
     onKilled(crew, id, null, p.pose.p[0], p.pose.p[2]);
     return { ok: true };
   });
+  // ---- v1.2 test controls ----
+  // flip a monsters flag in memory (dev only; config/flags.json is untouched; dbg.reloadConfig restores it)
+  ctx.registerDbg('monsters.flag', (_crew, _p, args) => {
+    const a = (args ?? {}) as { name?: string; on?: boolean };
+    const allowed = ['listenerFairV12', 'mannequin', 'snatcher', 'director', 'listenerAi'];
+    if (!a.name || !allowed.includes(a.name)) return { ok: false, allowed };
+    ctx.flags[a.name] = a.on !== false;
+    return { ok: true, flags: Object.fromEntries(allowed.map((k) => [k, ctx.flags[k]])) };
+  });
+  // override monster balance knobs in memory: { section: 'listener', set: { noticeSec: 2 } } (dbg.reloadConfig restores)
+  ctx.registerDbg('monsters.tune', (_crew, _p, args) => {
+    const a = (args ?? {}) as { section?: string; set?: Record<string, unknown> };
+    const m = ((ctx.balance as Record<string, Record<string, unknown>>).monsters ??= {}) as Record<string, Record<string, unknown>>;
+    if (!a.section || !a.set) return { ok: false };
+    const s = (m[a.section] ??= {});
+    Object.assign(s, a.set);
+    return { ok: true, section: s };
+  });
+  // grab a player now (knockdown: true = force the knockdown, false = skip it)
+  ctx.registerDbg('monsters.grab', (crew, player, args) => {
+    const a = (args ?? {}) as { id?: string; knockdown?: boolean };
+    const rt = rtFor(crew);
+    const L = rt ? listenerOf(rt) : null;
+    const p = crew.players.get(a.id ?? player.id);
+    if (!rt || !L || !p || !p.alive || L.state === 'grab') return { ok: false };
+    forceGrab(rt, L, p, a.knockdown);
+    return { ok: true, agent: describe(L, rt.cm.time) };
+  });
+  ctx.registerDbg('monsters.events', (crew, _p, args) => {
+    const since = Number((args as { since?: number } | null)?.since ?? 0);
+    return { events: (evLog.get(crew) ?? []).filter((e) => e.n > since), decisions: (decLog.get(crew) ?? []).filter((e) => e.n > since) };
+  });
+  ctx.registerDbg('monsters.cover', (crew, _p, args) => {
+    const a = (args ?? {}) as { x?: number; z?: number; r?: number };
+    if (!crew.layout) return { boxes: [] };
+    return { boxes: coverNear(crew.layout, Number(a.x ?? 0), Number(a.z ?? 0), Number(a.r ?? 4)) };
+  });
+  ctx.registerDbg('monsters.intent', (crew, _p, args) => {
+    const a = (args ?? {}) as { action?: string; space?: number; player?: string | null };
+    const rt = rtFor(crew);
+    const L = rt ? listenerOf(rt) : null;
+    if (!rt || !L || !a.action) return { ok: false };
+    forceIntent(rt, L, a.action as ListenerAction, Number(a.space ?? -1), a.player ?? null);
+    return { ok: true, agent: describe(L, rt.cm.time) };
+  });
+  ctx.registerDbg('monsters.ambushProbe', (crew, _p, args) => {
+    const rt = rtFor(crew);
+    const L = rt ? listenerOf(rt) : null;
+    if (!rt || !L) return { ok: false };
+    return { ok: true, ...ambushProbe(rt, L, Number((args as { space?: number } | null)?.space ?? -1)) };
+  });
+  // tests: the Listener forgets a player (warnings, notices, knockdowns, what it heard / saw of them)
+  ctx.registerDbg('monsters.forget', (crew, _p, args) => {
+    const rt = rtFor(crew);
+    const L = rt ? listenerOf(rt) : null;
+    const id = (args as { id?: string } | null)?.id;
+    if (!rt || !L) return { ok: false };
+    for (const m of [L.warned, L.noticedAt, L.knocks, L.knocked, L.heardP, L.known] as Map<string, unknown>[]) {
+      if (id) m.delete(id);
+      else m.clear();
+    }
+    return { ok: true };
+  });
+  ctx.registerDbg('monsters.warn', (crew, _p, args) => {
+    const rt = rtFor(crew);
+    const L = rt ? listenerOf(rt) : null;
+    const id = (args as { id?: string } | null)?.id ?? '';
+    if (!rt || !L) return { ok: false };
+    return { ok: true, warn: warnState(rt, L, id), knocks: L.knocks.get(id) ?? 0 };
+  });
 
   void rebind().then(() => log.info(`installed (bound: ${Object.entries(boundApis()).filter(([k, v]) => k !== 'subscribed' && v.length).map(([k]) => k).join(', ') || 'none yet'})`));
 }
@@ -449,6 +595,10 @@ function describe(a: Agent, t = 0): Record<string, unknown> {
     Object.assign(base, {
       dormant: L.dormant, wakeAt: r2(L.wakeAt), intent: L.intent, targetSpace: L.targetSpace, targetPlayer: L.targetPlayer, grabVictim: L.grabVictim,
       memory: L.memory.map((l) => ({ text: l.text, speaker: l.speakerName, callsigns: l.callsigns, meaningful: l.meaningful, used: l.used })),
+      // v1.2
+      grabStruggle: r2(L.grabStruggle), grabSolo: L.grabSolo, grabLeft: L.state === 'grab' ? r2(L.grabUntil - t) : 0,
+      pouncing: L.pounceUntil > t, speed: r2(L.speed), knocks: Object.fromEntries(L.knocks), ventIds: L.ventIds,
+      warned: Object.fromEntries([...L.warned].map(([k, v]) => [k, r2(t - v)])),
     });
   } else if (a.kind === 'mannequin') {
     const m = a as MannequinAgent;

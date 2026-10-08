@@ -2,7 +2,8 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import WebSocket from 'ws';
 import { PROTOCOL_VERSION, decodeMsg, encodeMsg } from '../../packages/shared/src/envelope.ts';
 import type { ClientMsg, ServerMsg } from '../../packages/shared/src/envelope.ts';
@@ -13,11 +14,17 @@ export const REPO = resolve(import.meta.dirname, '../..');
 
 export interface Server { port: number; base: string; proc: ChildProcess; log: () => string; stop(): Promise<void> }
 
-/** dev server (NODE_ENV=development => dbg.* requests) on `port` */
+/** dev server (NODE_ENV=development => dbg.* requests) on `port`. Saves + session go to a temp dir unless SAVES_DIR /
+ *  SESSION_FILE are set (tests never touch the live saves/). */
 export async function startServer(port: number, extraEnv: Record<string, string> = {}): Promise<Server> {
+  const scratch = join(tmpdir(), 'dead-air-monsters-test');
   const proc = spawn(process.execPath, ['apps/server/src/index.ts', '--dev'], {
     cwd: REPO,
-    env: { ...process.env, PORT: String(port), NODE_ENV: 'development', AI_MODE: 'mock', ...extraEnv },
+    env: {
+      ...process.env, PORT: String(port), NODE_ENV: 'development', AI_MODE: 'mock',
+      SAVES_DIR: process.env.SAVES_DIR ?? join(scratch, 'saves'), SESSION_FILE: process.env.SESSION_FILE ?? join(scratch, `session-${port}.json`),
+      ...extraEnv,
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let out = '';

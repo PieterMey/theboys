@@ -14,7 +14,7 @@ import type { MonsterCue, SnatchEvent } from '@dead-air/shared/messages/monsters
 import { STANCE } from '@dead-air/shared/state.ts';
 import type { PlayerPose, ServerPlayer } from '../core/types.ts';
 import type { Rt } from './runtime.ts';
-import { makeAgentBase } from './runtime.ts';
+import { logCue, makeAgentBase, monsterEvent } from './runtime.ts';
 import { dist, inCab, planTo, walkField, yawTo } from './geo.ts';
 import { isAlive } from './ext.ts';
 import { num } from './types.ts';
@@ -66,6 +66,7 @@ export function snatchVictim(cm: CrewMonsters | null): string | null {
 
 function cueAt(rt: Rt, s: SnatcherAgent, cue: MonsterCue, x: number, y: number, z: number, radius: number): void {
   rt.ctx.emit(rt.crew, 'monsters.cue', { id: s.id, kind: s.kind, cue, p: [r2(x), r2(y), r2(z)], radius });
+  logCue(rt.cm, s.id, s.kind, x, z, radius);
 }
 
 function inVan(rt: Rt, p: ServerPlayer): boolean {
@@ -271,6 +272,7 @@ function startDrop(rt: Rt, s: SnatcherAgent, v: ServerPlayer): void {
   holdVictim(rt, s, v);
   cueAt(rt, s, 'snatch', vx, 1.2, vz, 26);
   rt.ctx.emit(rt.crew, 'monsters.snatch', snatchEv(rt, s, v, 'start'));
+  monsterEvent(rt, s, 'snatch', v.id, null, vx, vz);
   rt.ctx.log('monsters').info(`crew ${rt.crew.code}: SNATCHER dropped onto ${v.name} (route ${total.toFixed(1)} m to ${g.id})`);
 }
 
@@ -435,6 +437,7 @@ function rescue(rt: Rt, s: SnatcherAgent, v: ServerPlayer, by: ServerPlayer): vo
   const ev = snatchEv(rt, s, v, 'freed', by.id);
   ev.p = [r2(x), 0, r2(z)];
   rt.ctx.emit(rt.crew, 'monsters.snatch', ev);
+  monsterEvent(rt, s, 'rescued', v.id, by.id, x, z);
   cueAt(rt, s, 'shriek', g.x, 0.4, g.z, 28);
   s.rescues++;
   s.lastEndAt = rt.cm.time;
