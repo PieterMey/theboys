@@ -12,8 +12,9 @@ import type { Profile } from '@dead-air/shared/profile.ts';
 import { randomProfile } from '@dead-air/shared/profile.ts';
 import { los } from '@dead-air/shared/nav/index.ts';
 import type { ClientContext } from '../core/context.ts';
-import { badgeTexture, buildHelmet, buildPlaceholderBody, jointMaterial, nameplateTexture, suitMaterial } from './cosmetics.ts';
+import { badgeTexture, bodyMaterial, buildHelmet, buildPlaceholderBody, jointMaterial, nameplateTexture, suitMaterial } from './cosmetics.ts';
 import type { HelmetParts } from './cosmetics.ts';
+import { bakeChildMeshes } from './merge.ts';
 import type { RigLib, RigTemplate } from './rig.ts';
 import type { LevelServiceShape, V3 } from './types.ts';
 import { useLoose } from './types.ts';
@@ -86,7 +87,20 @@ function buildRigModel(tpl: RigTemplate, profile: Profile): { model: THREE.Objec
     if (!mesh.isMesh) return;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-    mesh.frustumCulled = false;
+    // v1.2 draw budget: the skinned body is culled against rig.ts's pose-proof sphere (main view AND every
+    // flashlight's shadow map); before, frustumCulled=false drew each body into all six shadow maps
+    const sm = mesh as THREE.SkinnedMesh;
+    mesh.frustumCulled = !!sm.isSkinnedMesh && !!sm.boundingSphere;
+    // the merged body (rig.ts mergeBodyParts): suit + joints in one material, one draw per pass
+    if (mesh.geometry.getAttribute('jmask')) {
+      let box = mesh.geometry.userData.suitBox as THREE.Box3 | undefined;
+      if (!(box instanceof THREE.Box3)) {
+        mesh.geometry.computeBoundingBox();
+        box = mesh.geometry.boundingBox ?? new THREE.Box3(new THREE.Vector3(), new THREE.Vector3(1, 1, 1));
+      }
+      mesh.material = bodyMaterial(primary, secondary, box);
+      return;
+    }
     const remap = (m: THREE.Material): THREE.Material => {
       const src = m as THREE.MeshStandardMaterial;
       const isMain = src.name === 'M_Main' || !/joint/i.test(src.name);
@@ -125,6 +139,8 @@ function buildRigModel(tpl: RigTemplate, profile: Profile): { model: THREE.Objec
       const chest = new THREE.Mesh(new THREE.PlaneGeometry(0.09, 0.045), badge.material);
       chest.castShadow = false;
       attachRigid(spine, chest, model, new THREE.Vector3(-0.07, sp.y + 0.05, sp.z + 0.135));
+      // v1.2 draw budget: back + chest patch baked into one mesh on the bone (one draw, no shadow)
+      bakeChildMeshes(spine);
     }
     model.scale.setScalar(saved);
   } else {
@@ -148,9 +164,20 @@ function buildPlaceholder(profile: Profile): { model: THREE.Object3D; head: THRE
   return { model: group, head, helmet };
 }
 
+/** the local player's pose for the mirror-self avatar (null = hide it: dead, hidden, spectating) */
+export type SelfPose = Omit<SnapPlayer, 'id'> | null;
+
 export interface AvatarSystem {
   avatars: Map<string, Avatar>;
-  update(dt: number, camPos: THREE.Vector3, localLight: { on: boolean; pos: THREE.Vector3; dir: THREE.Vector3 } | null): void;
+  update(dt: number, camPos: THREE.Vector3, localLight: { on: boolean; pos: THREE.Vector3; dir: THREE.Vector3 } | null, self?: SelfPose): void;
+  /**
+   * v1.2 mirror self: a local full-body avatar for `profile` on render layer `layer` only (mirror cameras see it, the
+   * main camera never does), castShadow false, no nameplate, no step sfx. Returns its stable root (rebuilt rigs are
+   * re-parented under it); null profile removes it.
+   */
+  setSelf(profile: Profile | null, layer: number): THREE.Group | null;
+  /** the mirror-self avatar (tests) */
+  self(): Avatar | null;
   setRig(lib: RigLib | null): void;
   /** build one avatar per body x helmet variant in front of the camera for a few frames (pipeline warm-up) */
   warm(camera: THREE.Camera, frames?: number): void;
@@ -172,6 +199,21 @@ export function createAvatars(ctx: ClientContext, scene: THREE.Scene, opts: { st
   let hideNameOf: string | null = null;
   /** extra local-only avatars (tests, locker-mirror previews): id -> pose + profile */
   const dummies = new Map<string, { s: SnapPlayer; profile: Profile }>();
+  /** v1.2 mirror self: a stable holder (what setSelf returns) + the current avatar inside it */
+  let selfHolder: THREE.Group | null = null;
+  let selfProfile: Profile | null = null;
+  let selfLayer = 13;
+  let selfAvatar: Avatar | null = null;
+  const bal = () => (ctx.balance.players ?? {}) as Record<string, unknown>;
+  const balNum = (k: string, d: number) => { const v = bal()[k]; return typeof v === 'number' && Number.isFinite(v) ? v : d; };
+  /** every object of the self avatar renders only on the self layer and never casts shadows */
+  const layerSelf = (o: THREE.Object3D) => {
+    o.traverse((c) => {
+      c.layers.set(selfLayer);
+      const m = c as THREE.Mesh;
+      if (m.isMesh) m.castShadow = false;
+    });
+  };
 
   const createAvatar = (id: string, profile: Profile): Avatar => {
     const root = new THREE.Group();
@@ -190,6 +232,7 @@ export function createAvatars(ctx: ClientContext, scene: THREE.Scene, opts: { st
     const plate = new THREE.Sprite(new THREE.SpriteNodeMaterial({ map: nameplateTexture(profile.name, profile.badge, profile.visor.color), transparent: true, depthWrite: false, depthTest: true }));
     plate.scale.set(0.9, 0.225, 1);
     plate.position.set(0, 2.12, 0);
+    plate.castShadow = false; // (the default; nameplates never go into a flashlight's shadow map)
     (plate.material as THREE.SpriteNodeMaterial).opacity = 0;
     plate.visible = false;
     plate.renderOrder = 10;
@@ -205,7 +248,7 @@ export function createAvatars(ctx: ClientContext, scene: THREE.Scene, opts: { st
   };
 
   const dispose = (a: Avatar) => {
-    scene.remove(a.root);
+    a.root.removeFromParent(); // the scene, or the mirror-self holder
     a.mixer?.stopAllAction();
     (a.nameplate.material as THREE.SpriteNodeMaterial).map?.dispose();
     a.nameplate.material.dispose();
@@ -282,9 +325,76 @@ export function createAvatars(ctx: ClientContext, scene: THREE.Scene, opts: { st
     return false;
   };
 
+  /** (re)build the mirror-self avatar inside its holder (profile change, rig loaded) */
+  const buildSelf = () => {
+    if (!selfHolder || !selfProfile) return;
+    if (selfAvatar) { dispose(selfAvatar); selfAvatar = null; }
+    const a = createAvatar('__self', selfProfile);
+    selfHolder.add(a.root); // out of the scene root, into the stable holder
+    a.nameplate.visible = false;
+    layerSelf(a.root);
+    selfAvatar = a;
+  };
+
+  /** pose + animate the mirror-self avatar (no steps, no nameplate, no line-of-sight work) */
+  const updateSelf = (dt: number, s: SelfPose) => {
+    if (!selfHolder) return;
+    if (!s || s.stance === STANCE.dead || s.stance === STANCE.hidden) {
+      selfHolder.visible = false;
+      return;
+    }
+    if (!selfAvatar || (selfProfile && selfAvatar.profileKey !== profileKey(selfProfile)) || (!selfAvatar.rig && lib && Object.keys(lib.bodies).length)) buildSelf();
+    const a = selfAvatar;
+    if (!a) return;
+    selfHolder.visible = true;
+    a.root.position.set(s.p[0], s.p[1], s.p[2]);
+    a.yaw = s.yaw;
+    a.pitch = s.pitch;
+    a.root.rotation.y = a.yaw;
+    a.stance = s.stance;
+    if (Number.isFinite(a.lastPos.x) && dt > 0) {
+      const d = Math.hypot(a.root.position.x - a.lastPos.x, a.root.position.z - a.lastPos.z);
+      a.speed += ((d > 2 ? 0 : d / dt) - a.speed) * Math.min(1, dt * 8);
+    }
+    a.lastPos.copy(a.root.position);
+    if (a.rig) {
+      playAnim(a, s.anim, a.speed);
+      a.mixer!.update(dt);
+      applyPitch(a);
+    } else if (a.phBody) {
+      const crouchK = s.stance === STANCE.crouch ? 0.72 : 1;
+      a.phBody.scale.y += (crouchK - a.phBody.scale.y) * Math.min(1, dt * 10);
+    }
+    a.nameplate.visible = false;
+    a.root.updateMatrixWorld(true);
+    a.helmet.lamp.getWorldPosition(a.lampWorld);
+    if (a.head) a.head.getWorldPosition(a.headWorld);
+  };
+
   const sys: AvatarSystem = {
     avatars,
     get: (id) => avatars.get(id),
+    self: () => selfAvatar,
+    setSelf(profile, layer) {
+      if (!profile) {
+        if (selfAvatar) { dispose(selfAvatar); selfAvatar = null; }
+        if (selfHolder) scene.remove(selfHolder);
+        selfHolder = null;
+        selfProfile = null;
+        return null;
+      }
+      selfLayer = Number.isInteger(layer) && layer >= 0 && layer < 32 ? layer : 13;
+      selfProfile = profile;
+      if (!selfHolder) {
+        selfHolder = new THREE.Group();
+        selfHolder.name = 'avatar:self';
+        selfHolder.visible = false; // shown by the next update with a living pose
+        scene.add(selfHolder);
+      }
+      if (!selfAvatar || selfAvatar.profileKey !== profileKey(profile)) buildSelf();
+      layerSelf(selfHolder);
+      return selfHolder;
+    },
     setRig(l) {
       lib = l;
       // rebuild placeholders as rigs
@@ -293,6 +403,7 @@ export function createAvatars(ctx: ClientContext, scene: THREE.Scene, opts: { st
         dispose(a);
         avatars.delete(id);
       }
+      if (selfAvatar && !selfAvatar.rig && lib) buildSelf();
     },
     setDummy(id, snap, profile) {
       dummies.set(id, { s: { id, ...snap }, profile });
@@ -333,12 +444,13 @@ export function createAvatars(ctx: ClientContext, scene: THREE.Scene, opts: { st
       warmLeft = frames;
       warmAt = performance.now();
     },
-    update(dt, camPos, localLight) {
+    update(dt, camPos, localLight, self) {
       const w = ctx.world;
       if (warmGroup && --warmLeft <= 0 && performance.now() - warmAt > 400) {
         warmGroup.parent?.remove(warmGroup);
         warmGroup = null;
       }
+      updateSelf(dt, self ?? null);
       const seen = new Set<string>();
       const nav = levelNav(ctx);
       const ids = [...w.players.keys(), ...dummies.keys()];
@@ -388,9 +500,11 @@ export function createAvatars(ctx: ClientContext, scene: THREE.Scene, opts: { st
           const inst = d > 2 ? 0 : d / dt;
           a.speed += (inst - a.speed) * Math.min(1, dt * 8);
           if (a.speed > 0.4 && d < 2) {
+            // the same stride lengths as the server's footsteps (balance.players); the step sound per floor and the
+            // 4 m cut-off for remote crouch steps live in the stepSfx callback (index.ts)
             const crouch = s.stance === STANCE.crouch;
-            const sprint = s.stance === STANCE.sprint || a.speed > 4.3;
-            const strideLen = crouch ? 0.6 : sprint ? 1.15 : 0.78;
+            const sprint = s.stance === STANCE.sprint || a.speed > balNum('noiseSprintSpeed', 4.3);
+            const strideLen = crouch ? balNum('strideCrouch', 0.6) : sprint ? balNum('strideSprint', 1.15) : balNum('strideWalk', 0.78);
             a.stride += d;
             if (a.stride >= strideLen) {
               a.stride = 0;

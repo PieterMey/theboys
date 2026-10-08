@@ -1,17 +1,17 @@
 // Unit tests for the desktop shell's pure modules (no Electron): host rights, game URLs, the unclean-exit marker,
 // the new config switches.   node --test apps/desktop/test/
 import { strict as assert } from 'node:assert';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, test } from 'node:test';
 
 const require = createRequire(import.meta.url);
-const { readHostRights, isLoopbackOrigin } = require('../src/host.cjs');
+const { readHostRights, readHostFile, resolveServer, isLoopbackOrigin } = require('../src/host.cjs');
 const { buildGameUrl, crewOfUrl, withParam, hasParam } = require('../src/gameurl.cjs');
 const { readMarker, writeMarker, removeMarker, assessPrevious } = require('../src/session.cjs');
-const { loadConfig } = require('../src/config.cjs');
+const { loadConfig, userTemplate, DEFAULT_SERVER } = require('../src/config.cjs');
 
 const TMP = mkdtempSync(join(tmpdir(), 'deadair-shell-test-'));
 after(() => rmSync(TMP, { recursive: true, force: true }));
@@ -195,5 +195,93 @@ describe('config switches (src/config.cjs)', () => {
     const { config } = loadConfig({ appDir: d, exeDir: d, userDataDir: join(d, 'u'), argv: [], env: {} });
     assert.equal(config.window.offscreen, false);
     assert.equal(config.window.width, 1280); // other window keys still apply
+  });
+});
+
+describe('game server: friends default to play.dead-air.io, the host PC follows host.json (v1.2)', () => {
+  /** an app dir (packaged config), an exe dir and a userData dir */
+  const dirs = (app = {}, user = null, exe = null) => {
+    const root = mkdtempSync(join(TMP, 'srv-'));
+    const appDir = join(root, 'app');
+    const exeDir = join(root, 'exe');
+    const userDataDir = join(root, 'user');
+    for (const d of [appDir, exeDir, userDataDir]) mkdirSync(d);
+    writeFileSync(join(appDir, 'config.json'), JSON.stringify(app));
+    if (user) writeFileSync(join(userDataDir, 'config.json'), JSON.stringify(user));
+    if (exe) writeFileSync(join(exeDir, 'config.json'), JSON.stringify(exe));
+    return { appDir, exeDir, userDataDir };
+  };
+  const hostAt = (userDataDir, body = good) => {
+    const f = join(userDataDir, 'host.json');
+    writeFileSync(f, JSON.stringify(body));
+    return f;
+  };
+  test('the packaged config and the defaults say https://play.dead-air.io, not explicit', () => {
+    const shipped = JSON.parse(readFileSync(join(import.meta.dirname, '../config.json'), 'utf8'));
+    assert.equal(shipped.serverUrl, 'https://play.dead-air.io');
+    assert.equal(DEFAULT_SERVER, 'https://play.dead-air.io');
+    const { config } = loadConfig({ ...dirs(shipped), argv: [], env: {} });
+    assert.equal(config.serverUrl, 'https://play.dead-air.io');
+    assert.equal(config.serverExplicit, false);
+    assert.equal(loadConfig({ ...dirs({}), argv: [], env: {} }).config.serverUrl, 'https://play.dead-air.io');
+  });
+  test('explicit: --server, DEADAIR_SERVER_URL / SERVER_URL, a user / exe-dir / --config file', () => {
+    const d = dirs({ serverUrl: 'https://play.dead-air.io' });
+    assert.equal(loadConfig({ ...d, argv: ['--server=http://127.0.0.1:3901'], env: {} }).config.serverExplicit, true);
+    assert.equal(loadConfig({ ...d, argv: [], env: { DEADAIR_SERVER_URL: 'http://127.0.0.1:3901' } }).config.serverExplicit, true);
+    assert.equal(loadConfig({ ...d, argv: [], env: { SERVER_URL: 'http://127.0.0.1:3901' } }).config.serverSource, 'env SERVER_URL');
+    const u = dirs({}, { serverUrl: 'https://friend.example' });
+    const cu = loadConfig({ ...u, argv: [], env: {} }).config;
+    assert.equal(cu.serverExplicit, true);
+    assert.equal(cu.serverUrl, 'https://friend.example');
+    assert.equal(loadConfig({ ...dirs({}, null, { serverUrl: 'http://192.168.1.5:3000' }), argv: [], env: {} }).config.serverExplicit, true);
+    const extra = join(TMP, `extra-${++n}.json`);
+    writeFileSync(extra, JSON.stringify({ serverUrl: 'http://127.0.0.1:3902' }));
+    assert.equal(loadConfig({ ...dirs({}), argv: [`--config=${extra}`], env: {} }).config.serverExplicit, true);
+    // a user config without serverUrl is not a choice; a bad explicit value falls back and is not one either
+    assert.equal(loadConfig({ ...dirs({}, { window: { fullscreen: true } }), argv: [], env: {} }).config.serverExplicit, false);
+    const bad = loadConfig({ ...dirs({}), argv: ['--server=ftp://x'], env: {} });
+    assert.equal(bad.config.serverExplicit, false);
+    assert.equal(bad.config.serverUrl, 'https://play.dead-air.io');
+  });
+  test('the host PC (valid host.json) plays on its local server with host rights, unless a server was chosen', () => {
+    const d = dirs({ serverUrl: 'https://play.dead-air.io' });
+    const f = hostAt(d.userDataDir);
+    const cfg = loadConfig({ ...d, argv: [], env: {} }).config;
+    const r = resolveServer(cfg, f);
+    assert.deepEqual({ origin: r.origin, via: r.via }, { origin: 'http://127.0.0.1:3000', via: 'host' });
+    assert.equal(readHostRights(f, r.origin).ok, true, 'host rights on the local server');
+    // chosen explicitly: that server wins, and host rights stay off for anything not on loopback
+    const explicit = loadConfig({ ...d, argv: ['--server=https://play.dead-air.io'], env: {} }).config;
+    const e = resolveServer(explicit, f);
+    assert.deepEqual({ origin: e.origin, via: e.via }, { origin: 'https://play.dead-air.io', via: 'config' });
+    assert.equal(readHostRights(f, e.origin).ok, false);
+  });
+  test('friends (no / bad / non-loopback host.json) stay on the default server', () => {
+    const d = dirs({ serverUrl: 'https://play.dead-air.io' });
+    const cfg = loadConfig({ ...d, argv: [], env: {} }).config;
+    assert.deepEqual(resolveServer(cfg, join(d.userDataDir, 'host.json')).origin, 'https://play.dead-air.io');
+    for (const body of [{ ...good, adminToken: 'bad&token' }, { ...good, v: 2 }, { ...good, server: 'https://play.dead-air.io' }, { ...good, server: 'http://192.168.1.5:3000' }, { ...good, server: 42 }]) {
+      const f = hostAt(d.userDataDir, body);
+      const r = resolveServer(cfg, f);
+      assert.equal(r.origin, 'https://play.dead-air.io', JSON.stringify(body));
+      assert.equal(r.via, 'default');
+    }
+    const g2 = hostAt(d.userDataDir, null);
+    writeFileSync(g2, 'not json');
+    assert.equal(resolveServer(cfg, g2).via, 'default');
+  });
+  test('readHostFile keeps the v1 checks (token, version, size) and normalizes the server', () => {
+    assert.deepEqual(readHostFile(hostFile(good)), { ok: true, token: TOKEN, crew: 'NFWZ', server: SERVER, why: '' });
+    assert.equal(readHostFile(hostFile({ ...good, adminToken: `${TOKEN}#X` })).ok, false);
+    assert.equal(readHostFile(hostFile({ ...good, server: 'http://127.0.0.1:3000/x?y' })).server, SERVER);
+  });
+  test('OPEN CONFIG never pins the default server (that would stop the host PC from following host.json)', () => {
+    const cfg = loadConfig({ ...dirs({ serverUrl: 'https://play.dead-air.io' }), argv: [], env: {} }).config;
+    const t = JSON.parse(userTemplate(cfg, 'http://127.0.0.1:3000'));
+    assert.equal('serverUrl' in t, false);
+    assert.match(String(t.$serverUrl), /127\.0\.0\.1:3000/);
+    const chosen = loadConfig({ ...dirs({}), argv: ['--server=http://127.0.0.1:3901'], env: {} }).config;
+    assert.equal(JSON.parse(userTemplate(chosen)).serverUrl, 'http://127.0.0.1:3901');
   });
 });

@@ -1,9 +1,13 @@
 // Owner: track ⑤ Players. UAL mannequin rig loading: char.mannequin_m/_f + anim.ual1/ual2 clips via anim.clipmap.
 // Clip hygiene at load (even though the build already did it): drop .scale tracks and .position tracks except
 // root/pelvis. Missing assets -> null (callers keep the procedural placeholder).
+// v1.2 draw budget: the mannequin's two skinned primitives (M_Main suit + M_Joints) are merged into ONE skinned mesh
+// (vertex attribute 'jmask': 0 suit, 1 joint; cosmetics.ts bodyMaterial shades both), and the body is frustum culled
+// against a fixed, pose-proof sphere instead of being drawn into every flashlight's shadow map.
 import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { deinterleaveGeometry, mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { assetUrl, getAssetManifest, loadAssetManifest } from '@dead-air/shared/assets.ts';
 import type { ClipMap, ClipRef } from '@dead-air/shared/assets.ts';
 import { ANIM } from '@dead-air/shared/anim.ts';
@@ -59,21 +63,7 @@ async function doLoad(onLog: (m: string) => void): Promise<RigLib | null> {
   ]);
   const lib: RigLib = { bodies: {}, clips: new Map(), clipmap };
   for (const [body, g] of [['m', gm], ['f', gf]] as const) {
-    if (!g) continue;
-    const scene = g.scene;
-    scene.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(scene, false);
-    const height = Math.max(0.5, box.max.y - box.min.y);
-    const scale = height > 1.5 && height < 2.1 ? 1 : 1.75 / height;
-    scene.traverse((o) => {
-      const sm = o as THREE.SkinnedMesh;
-      if (sm.isSkinnedMesh || (o as THREE.Mesh).isMesh) {
-        o.castShadow = true;
-        o.receiveShadow = true;
-        o.frustumCulled = false;
-      }
-    });
-    lib.bodies[body] = { body, scene, scale, height: height * scale };
+    if (g) lib.bodies[body] = prepareBody(body, g.scene, onLog);
   }
   // clips by file key, with hygiene
   const byFile = new Map<string, Map<string, THREE.AnimationClip>>();
@@ -113,6 +103,96 @@ async function doLoad(onLog: (m: string) => void): Promise<RigLib | null> {
   }
   onLog(`rig: bodies ${Object.keys(lib.bodies).join('+') || 'none'}, ${lib.clips.size} clips`);
   return lib.clips.size || Object.keys(lib.bodies).length ? lib : null;
+}
+
+/**
+ * A loaded mannequin scene -> its avatar template: the skinned parts merged (mergeBodyParts), measured (scale to
+ * PLAYER height), shadow flags, and the skinned body culled against a pose-proof sphere (setCullSphere; clones copy
+ * it). Exported for the unit tests (tests/players/avatar-merge.test.ts).
+ */
+export function prepareBody(body: BodyKind, scene: THREE.Object3D, onLog?: (m: string) => void): RigTemplate {
+  const merged = mergeBodyParts(scene);
+  scene.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(scene, false);
+  const height = Math.max(0.5, box.max.y - box.min.y);
+  const scale = height > 1.5 && height < 2.1 ? 1 : 1.75 / height;
+  scene.traverse((o) => {
+    const sm = o as THREE.SkinnedMesh;
+    if (sm.isSkinnedMesh || (o as THREE.Mesh).isMesh) {
+      o.castShadow = true;
+      o.receiveShadow = true;
+      o.frustumCulled = sm.isSkinnedMesh ? setCullSphere(sm, box) : false;
+    }
+  });
+  if (!merged) onLog?.(`rig: ${body} body parts kept separate (not mergeable)`);
+  return { body, scene, scale, height: height * scale };
+}
+
+const materialName = (m: THREE.Material | THREE.Material[]): string => (Array.isArray(m) ? m[0]?.name : m?.name) ?? '';
+const hasMaps = (m: THREE.Material | THREE.Material[]): boolean => (Array.isArray(m) ? m : [m]).some((x) => {
+  const s = x as THREE.MeshStandardMaterial;
+  return !!(s.map || s.normalMap || s.roughnessMap || s.metalnessMap || s.emissiveMap || s.aoMap || s.alphaMap);
+});
+
+/**
+ * v1.2 draw budget: the UAL mannequin's two skinned primitives (M_Main suit, M_Joints) -> ONE skinned mesh bound to
+ * the same skeleton, with a 0/1 'jmask' vertex attribute (cosmetics.ts bodyMaterial). geometry.userData.suitBox keeps
+ * the suit part's own bind-pose box (the suit pattern space). Returns false and leaves the scene untouched unless
+ * exactly two skinned parts share parent, placement, skeleton and attribute layout and carry no textures.
+ */
+export function mergeBodyParts(scene: THREE.Object3D): boolean {
+  const parts: THREE.SkinnedMesh[] = [];
+  scene.traverse((o) => { if ((o as THREE.SkinnedMesh).isSkinnedMesh) parts.push(o as THREE.SkinnedMesh); });
+  if (parts.length !== 2) return false;
+  const joint = parts.find((p) => /joint/i.test(materialName(p.material)));
+  const main = parts.find((p) => p !== joint);
+  const parent = main?.parent;
+  if (!joint || !main || !parent || joint.parent !== parent) return false;
+  const bonesA = main.skeleton?.bones ?? [], bonesB = joint.skeleton?.bones ?? [];
+  if (!bonesA.length || bonesA.length !== bonesB.length || bonesA.some((b, i) => b !== bonesB[i])) return false;
+  if (!main.bindMatrix.equals(joint.bindMatrix) || !main.position.equals(joint.position) || !main.quaternion.equals(joint.quaternion) || !main.scale.equals(joint.scale)) return false;
+  if (hasMaps(main.material) || hasMaps(joint.material)) return false;
+  const ga = main.geometry, gb = joint.geometry;
+  const keys = (g: THREE.BufferGeometry) => Object.keys(g.attributes).sort().join(',');
+  if (keys(ga) !== keys(gb) || !ga.index || !gb.index || Object.keys(ga.morphAttributes).length || Object.keys(gb.morphAttributes).length) return false;
+  const tagged = [ga, gb].map((src, i) => {
+    const g = src.clone();
+    deinterleaveGeometry(g);
+    g.setAttribute('jmask', new THREE.BufferAttribute(new Float32Array(g.getAttribute('position').count).fill(i), 1));
+    return g;
+  });
+  let geo: THREE.BufferGeometry | null = null;
+  try { geo = mergeGeometries(tagged, false); } catch { geo = null; }
+  if (!geo) return false;
+  ga.computeBoundingBox();
+  geo.userData.suitBox = (ga.boundingBox ?? new THREE.Box3()).clone();
+  const body = new THREE.SkinnedMesh(geo, main.material);
+  body.name = main.name || 'body';
+  body.position.copy(main.position);
+  body.quaternion.copy(main.quaternion);
+  body.scale.copy(main.scale);
+  body.bindMode = main.bindMode;
+  body.bind(main.skeleton, main.bindMatrix);
+  parent.add(body);
+  parent.remove(main);
+  parent.remove(joint);
+  return true;
+}
+
+/**
+ * A fixed bounding sphere in the skinned mesh's local space that every clip fits in: centre at half the body height,
+ * radius 1.3 body heights (lying dead in any direction, a knock-back with pelvis motion). The default (the rest pose,
+ * computed once) would clip animated limbs; no culling at all drew every body into every flashlight's shadow map.
+ * `modelBox` is the template scene's box (the scene root at the identity). Returns true (cull against it).
+ */
+function setCullSphere(sm: THREE.SkinnedMesh, modelBox: THREE.Box3): boolean {
+  const h = Math.max(0.5, modelBox.max.y - modelBox.min.y);
+  const c = modelBox.getCenter(new THREE.Vector3());
+  c.y = modelBox.min.y + h * 0.5;
+  sm.updateWorldMatrix(true, false);
+  const k = Math.max(1e-12, sm.matrixWorld.getMaxScaleOnAxis());
+  sm.boundingSphere = new THREE.Sphere(c.applyMatrix4(sm.matrixWorld.clone().invert()), (h * 1.3) / k);
+  return true;
 }
 
 /** UAL clip hygiene: keep rotations everywhere, translations only on root/pelvis, never scale */

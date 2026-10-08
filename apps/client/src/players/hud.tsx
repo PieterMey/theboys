@@ -1,11 +1,107 @@
-// Owner: track ⑤ Players. HUD widgets: stamina, crosshair + "click to look" hint, emote wheel, proximity chat,
-// spectator banner. State lives in ./social.ts signals.
-import { useEffect, useRef } from 'preact/hooks';
+// Owner: track ⑤ Players (v1.2 stance HUD + stealth hints: players-stealth). HUD widgets: stamina, crosshair + "click
+// to look" hint, emote wheel, proximity chat, spectator banner, stance (how far your steps carry), one-time hints.
+// State lives in ./social.ts signals.
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { HudProps } from '../core/ui/api.ts';
 import { EMOTE_LABEL, WHEEL, ui } from './social.ts';
+import { fmtMetres } from './stealth.ts';
 import './types.ts';
 
 const mono = 'ui-monospace, "Cascadia Mono", Consolas, monospace';
+
+const STANCE_COLOR = { crouch: '#7fd17f', walk: '#f0b43c', sprint: '#ff4a3d' } as const;
+/** loudest step the bar scales to: sprinting on grating, 12 x 1.4 */
+const RADIUS_FULL_M = 16.8;
+
+/**
+ * v1.2 stance HUD (bottom-left, stacked with voice's band meter): how far your footsteps carry right now. Green
+ * 'CROUCHED · STEPS SILENT', amber 'WALKING · 5 m', red 'SPRINTING · 12 m', plus why (METAL FLOOR / GRATING / TILES /
+ * CARPET / SOFT SOLES). Pulses on each of your footsteps; hidden while standing still (index.ts decides where).
+ */
+export function StanceHud(_p: HudProps) {
+  const v = ui.stance.value;
+  const pulse = ui.stepPulse.value;
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !pulse || typeof el.animate !== 'function') return;
+    try {
+      el.animate([{ opacity: 1, filter: 'brightness(1.6)' }, { opacity: 0.88, filter: 'brightness(1)' }], { duration: 260, easing: 'ease-out' });
+    } catch { /* no WAAPI */ }
+  }, [pulse]);
+  if (!ui.inGame.value || ui.spectating.value.on || !v.mode) return null;
+  const col = STANCE_COLOR[v.mode];
+  const label = v.mode === 'crouch' ? 'CROUCHED · STEPS SILENT' : `${v.mode === 'walk' ? 'WALKING' : 'SPRINTING'} · ${fmtMetres(v.radiusM)} m`;
+  const k = Math.max(0.04, Math.min(1, v.radiusM / RADIUS_FULL_M));
+  const chips = [v.tag, v.soles && v.tag !== 'SOFT SOLES' ? 'SOFT SOLES' : null].filter(Boolean) as string[];
+  return (
+    <div ref={ref} data-testid="stance-hud" data-mode={v.mode} data-radius={String(v.radiusM)} style={{
+      pointerEvents: 'none', font: `600 11px ${mono}`, letterSpacing: '0.12em', color: '#c9d1d9', background: 'rgba(4,6,8,0.55)',
+      border: '1px solid rgba(255,255,255,0.08)', borderLeft: `2px solid ${col}`, borderRadius: '3px', padding: '6px 8px', minWidth: '150px',
+      display: 'flex', flexDirection: 'column', gap: '4px', opacity: 0.88,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', whiteSpace: 'nowrap' }}>
+        <span style={{ color: col, fontWeight: 700 }}>{label}</span>
+        {chips.map((c) => (
+          <span key={c} style={{ fontSize: '9.5px', letterSpacing: '0.16em', color: '#e9e3d0', border: '1px solid rgba(233,227,208,0.28)', padding: '1px 5px 0', borderRadius: '2px' }}>{c}</span>
+        ))}
+      </div>
+      <div style={{ position: 'relative', height: '3px', background: 'rgba(255,255,255,0.06)', borderRadius: '2px', overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${Math.round(k * 100)}%`, background: col, opacity: v.mode === 'crouch' ? 0.55 : 0.9, transition: 'width 120ms linear' }} />
+      </div>
+    </div>
+  );
+}
+
+/** v1.2 crawl vents: a dark duct vignette with the time left (the 3D duct is behind it, players/vents.ts) */
+export function CrawlHud(_p: HudProps) {
+  const c = ui.crawl.value;
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!c) return;
+    const t = setInterval(() => setTick((x) => x + 1), 200);
+    return () => clearInterval(t);
+  }, [c?.until]);
+  if (!c) return null;
+  const left = Math.max(0, c.until - performance.now());
+  const k = 1 - left / Math.max(1, c.total);
+  return (
+    <div data-testid="crawl-hud" style={{
+      position: 'fixed', inset: 0, pointerEvents: 'none',
+      background: 'radial-gradient(ellipse 46% 40% at 50% 52%, rgba(0,0,0,0) 0%, rgba(0,0,0,0.55) 62%, rgba(0,0,0,0.94) 100%)',
+    }}>
+      <div style={{ position: 'absolute', left: 0, right: 0, bottom: '16%', textAlign: 'center', font: `600 12px ${mono}`, letterSpacing: '0.3em', color: 'rgba(214,206,186,0.82)', textShadow: '0 0 6px #000' }}>
+        CRAWLING · {Math.ceil(left / 1000)} s
+        <div style={{ width: '180px', height: '2px', margin: '8px auto 0', background: 'rgba(255,255,255,0.1)' }}>
+          <div style={{ width: `${Math.round(k * 100)}%`, height: '100%', background: 'rgba(214,206,186,0.7)' }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** v1.2 one-time stealth hint (crouch on the first contract, freeze on a growl, break line of sight when seen) */
+export function StealthHintHud(_p: HudProps) {
+  const h = ui.hint.value;
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof el.animate !== 'function') return;
+    try {
+      el.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: 320, easing: 'ease-out' });
+    } catch { /* no WAAPI */ }
+  }, [h?.id, h?.until]);
+  if (!h || !ui.inGame.value || ui.spectating.value.on) return null;
+  return (
+    <div style={{ position: 'fixed', left: 0, right: 0, bottom: '23%', textAlign: 'center', pointerEvents: 'none' }}>
+      <span ref={ref} data-testid="stealth-hint" data-hint={h.id} style={{
+        display: 'inline-block', maxWidth: '86vw', font: `600 13px ${mono}`, letterSpacing: '0.16em', color: '#f2e6c4',
+        background: 'rgba(6,7,8,0.74)', border: '1px solid rgba(240,180,60,0.4)', borderLeft: '3px solid #f0b43c',
+        padding: '8px 14px 7px', textShadow: '0 0 6px #000', boxShadow: '0 2px 18px rgba(0,0,0,0.5)',
+      }}>{h.text}</span>
+    </div>
+  );
+}
 
 export function StaminaHud(_p: HudProps) {
   const s = ui.stamina.value;

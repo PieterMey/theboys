@@ -12,6 +12,9 @@
 //      --steam-overlay --no-steam-overlay --devtools --fullscreen --windowed --crew=CODE --report=FILE
 //      --no-menu-throttle --no-safe-mode --offscreen-window
 // Profile (--profile=NAME / DEADAIR_PROFILE) is read earlier by main.cjs: it picks the userData folder.
+// Game server: https://play.dead-air.io by default (friends' copies). `serverExplicit` says whether a layer after the
+// packaged defaults (3-7) set serverUrl; when none did, the host's own PC plays on the server its host.json names
+// (main.cjs + src/host.cjs resolveServer: http://127.0.0.1:3000, with host rights).
 // GPU safety (gpu.*, after the 2026-10-07 host crashes):
 //   throttleHiddenMenu  while loading and in the main menu the page gets Chrome's background throttling; never in a
 //                       crew (voice + net keep running). On Windows a minimized window stops drawing either way and a
@@ -46,13 +49,18 @@ const path = require('node:path');
  *   crew: string,
  *   report: string,
  *   steamSelftest: boolean,
+ *   serverExplicit: boolean,
+ *   serverSource: string,
  * }} DesktopConfig
  */
+
+/** friends' copies play here (the host's tunnel); the host's PC overrides it through host.json (src/host.cjs) */
+const DEFAULT_SERVER = 'https://play.dead-air.io';
 
 /** @type {DesktopConfig} */
 const DEFAULTS = {
   mode: 'remote',
-  serverUrl: 'http://127.0.0.1:3000',
+  serverUrl: DEFAULT_SERVER,
   query: '',
   bundled: { port: 43117, checkBuild: true },
   window: { width: 1600, height: 900, fullscreen: false, rememberBounds: true, offscreen: false },
@@ -75,6 +83,8 @@ const DEFAULTS = {
   crew: '',
   report: '',
   steamSelftest: false,
+  serverExplicit: false,
+  serverSource: 'default',
 };
 
 /** @param {unknown} v @returns {v is Record<string, unknown>} */
@@ -195,7 +205,13 @@ function loadConfig(where) {
   const extra = argOf(argv, 'config');
   if (env.DEADAIR_CONFIG) files.push(env.DEADAIR_CONFIG);
   if (typeof extra === 'string') files.push(extra);
-  for (const f of files) c = merge(c, readJson(f, loaded, problems));
+  // serverUrl from any layer after the packaged defaults (DEFAULTS + <app>/config.json) is an explicit choice
+  let serverSource = 'default';
+  files.forEach((f, i) => {
+    const j = readJson(f, loaded, problems);
+    if (i > 0 && typeof j.serverUrl === 'string' && j.serverUrl.trim()) serverSource = `config ${f}`;
+    c = merge(c, j);
+  });
 
   // environment
   /** @type {Record<string, unknown>} */
@@ -203,7 +219,10 @@ function loadConfig(where) {
   const eSteam = /** @type {Record<string, unknown>} */ (e.steam);
   const eBundled = /** @type {Record<string, unknown>} */ (e.bundled);
   const serverEnv = env.DEADAIR_SERVER_URL || env.SERVER_URL;
-  if (serverEnv) e.serverUrl = serverEnv;
+  if (serverEnv) {
+    e.serverUrl = serverEnv;
+    serverSource = env.DEADAIR_SERVER_URL ? 'env DEADAIR_SERVER_URL' : 'env SERVER_URL';
+  }
   if (env.DEADAIR_MODE) e.mode = env.DEADAIR_MODE.toLowerCase();
   if (env.DEADAIR_QUERY !== undefined) e.query = env.DEADAIR_QUERY;
   if (envBool(env.DEADAIR_STEAM) !== undefined) eSteam.enabled = envBool(env.DEADAIR_STEAM);
@@ -224,7 +243,10 @@ function loadConfig(where) {
   const aWin = /** @type {Record<string, unknown>} */ (a.window);
   const aGpu = /** @type {Record<string, unknown>} */ (a.gpu);
   const server = argOf(argv, 'server');
-  if (typeof server === 'string') a.serverUrl = server;
+  if (typeof server === 'string') {
+    a.serverUrl = server;
+    serverSource = 'command line --server';
+  }
   if (argOf(argv, 'bundled') === true) a.mode = 'bundled';
   if (argOf(argv, 'remote') === true) a.mode = 'remote';
   const q = argOf(argv, 'url-query');
@@ -302,19 +324,27 @@ function loadConfig(where) {
     crew: normalizeCrew(c.crew),
     report: typeof c.report === 'string' ? c.report : '',
     steamSelftest: bool(c.steamSelftest, false),
+    // a bad explicit value fell back to the default: not a choice any more
+    serverExplicit: serverSource !== 'default' && !!serverUrl,
+    serverSource: serverUrl ? serverSource : 'default',
   };
   return { config, sources: loaded, problems };
 }
 
-/** A starter file for <userData>/config.json (written by "OPEN CONFIG" on the splash when none exists). */
-/** @param {DesktopConfig} cfg */
-function userTemplate(cfg) {
-  return `${JSON.stringify({
-    $comment: 'DEAD AIR per-user settings. Only keep the keys you want to change; see docs/STEAM.md in the repo.',
-    serverUrl: cfg.serverUrl,
-    window: { fullscreen: cfg.window.fullscreen },
-    steam: { overlay: cfg.steam.overlay },
-  }, null, 2)}\n`;
+/**
+ * A starter file for <userData>/config.json (written by "OPEN CONFIG" on the splash when none exists). The server is
+ * written only when it was chosen explicitly: a pinned default would stop the host's PC from following host.json.
+ * @param {DesktopConfig} cfg
+ * @param {string} [serverOrigin] the server this launch uses (shown as a hint when not pinned)
+ */
+function userTemplate(cfg, serverOrigin = cfg.serverUrl) {
+  /** @type {Record<string, unknown>} */
+  const t = { $comment: 'DEAD AIR per-user settings. Only keep the keys you want to change; see docs/STEAM.md in the repo.' };
+  if (cfg.serverExplicit) t.serverUrl = cfg.serverUrl;
+  else t.$serverUrl = `${serverOrigin} (rename this key to serverUrl to pin a server; unpinned, the host's PC follows its host.json)`;
+  t.window = { fullscreen: cfg.window.fullscreen };
+  t.steam = { overlay: cfg.steam.overlay };
+  return `${JSON.stringify(t, null, 2)}\n`;
 }
 
-module.exports = { DEFAULTS, loadConfig, normalizeServer, normalizeCrew, argOf, userTemplate };
+module.exports = { DEFAULTS, DEFAULT_SERVER, loadConfig, normalizeServer, normalizeCrew, argOf, userTemplate };

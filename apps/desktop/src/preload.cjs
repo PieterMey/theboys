@@ -44,6 +44,19 @@ if (trusted) {
     try { window.dispatchEvent(new Event('deadair:window')); } catch { /* ignore */ }
   });
 
+  // ---------- v1.2 hotkeys the shell maps (src/hotkeys.cjs): Left Ctrl -> { action: 'crouch', down } ----------
+  /** @typedef {{ action: string, down: boolean }} Hotkey */
+  /** @type {Set<(ev: Hotkey) => unknown>} */
+  const hotkeyHandlers = new Set();
+  ipcRenderer.on('desktop:hotkey', (_e, ev) => {
+    const action = String(ev?.action ?? '');
+    if (action !== 'crouch') return;
+    const hk = { action, down: ev?.down === true };
+    for (const h of [...hotkeyHandlers]) {
+      try { h({ ...hk }); } catch { /* the page's handler */ }
+    }
+  });
+
   // ---------- heartbeat: the shell asks every 60 s; frames per second over 1 s, canvas size, preset ----------
   ipcRenderer.on('desktop:stats?', (_e, id) => {
     let frames = 0;
@@ -145,6 +158,15 @@ if (trusted) {
     },
     /** '' or why the shell loaded this page on safe graphics (?preset=low): a GPU reset, or an unclean last exit. */
     safeGraphics: typeof info?.safeGraphics === 'string' ? info.safeGraphics : '',
+    /**
+     * v1.2: keys only the desktop app maps (the web page never reads Ctrl): Left Ctrl arrives as { action: 'crouch',
+     * down } (AltGr's synthetic Ctrl filtered; a release is sent when the window loses focus). Returns an unsubscribe.
+     */
+    onHotkey: (/** @type {(ev: Hotkey) => unknown} */ cb) => {
+      if (typeof cb !== 'function') return () => {};
+      hotkeyHandlers.add(cb);
+      return () => { hotkeyHandlers.delete(cb); };
+    },
   }));
 
   // ---------- readiness: UI mounted + canvas + smooth frames (no long tasks) ----------

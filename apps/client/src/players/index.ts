@@ -1,6 +1,8 @@
-// Owner: track ⑤ Players (apps/client/src/players/**). Client plugin entry; see apps/client/src/core/context.ts.
-// Provides services.input + services.players; first-person controller, remote avatars, view model, emotes,
-// pings, proximity text, spectator camera, pose source (20 Hz), footstep SFX, beforeunload guard.
+// Owner: track ⑤ Players (apps/client/src/players/**; v1.2 additions: players-stealth). Client plugin entry; see
+// apps/client/src/core/context.ts. Provides services.input + services.players; first-person controller, remote
+// avatars, view model, emotes, pings, proximity text, spectator camera, pose source (20 Hz), footstep SFX per floor,
+// beforeunload guard. v1.2: stance HUD + one-time stealth hints, the desktop app's Left-Ctrl crouch (input.ts),
+// mirror self (setMirrorSelf), the view model on the first-person render layer, ref-counted flashlight disables.
 import * as THREE from 'three/webgpu';
 import { STANCE } from '@dead-air/shared/state.ts';
 import { ANIM } from '@dead-air/shared/anim.ts';
@@ -11,14 +13,19 @@ import type { Profile } from '@dead-air/shared/profile.ts';
 import { los } from '@dead-air/shared/nav/index.ts';
 import type { ClientContext } from '../core/context.ts';
 import { SYS } from '../core/loop.ts';
-import { createInput, loadSettings, saveSettings } from './input.ts';
+import { RENDER_LAYERS } from '../render/api.ts';
+import { createInput, ctrlCrouchOn, desktopBridge, loadSettings, saveSettings } from './input.ts';
 import { applyCamera, createLocal, levelNav, stepLocal } from './local.ts';
 import { createAvatars, profileOf } from './avatars.ts';
+import type { SelfPose } from './avatars.ts';
 import { loadRigLib } from './rig.ts';
 import { createViewModel } from './viewmodel.ts';
 import { EMOTE_ANIM, WHEEL, createPingMarkers, pushChat, ui, wheelPick } from './social.ts';
 import { rayGrid } from './collide.ts';
-import { ChatHud, CrosshairHud, EmoteWheelHud, ScreenHintHud, StaminaHud } from './hud.tsx';
+import { ChatHud, CrawlHud, CrosshairHud, EmoteWheelHud, ScreenHintHud, StaminaHud, StanceHud, StealthHintHud } from './hud.tsx';
+import { createCrawl } from './vents.ts';
+import { HINT_TEXT, createHintStore, sameStance, stanceView, stepSfxFor, surfaceAt as floorUnder } from './stealth.ts';
+import type { HintId, StanceView } from './stealth.ts';
 import type { FlashlightInfo, LevelServiceShape, PlayersService, V3 } from './types.ts';
 import { useLoose } from './types.ts';
 
@@ -50,14 +57,25 @@ declare global {
       clearDummies(): void;
       /** test-only point light (adds a light: recompiles; never used in game) */
       testLight(p: V3, intensity: number, color?: string): void;
+      /** v1.2: stance HUD state, the crouch latch, the hint on screen, the mirror-self avatar's layers + shadows */
+      stealth(): { stance: StanceView; latched: boolean; hint: string | null; lightOff: string[]; ctrlCrouch: boolean; crawling: boolean };
+      mirrorSelf(): { on: boolean; layers: number[]; castShadow: boolean; meshes: number; visible: boolean; nameplate: boolean } | null;
+      /** show a stealth hint now (screenshots), ignoring the once-only store */
+      showHint(id: HintId): void;
+      /** services.players itself (setFlashlightEnabled / setMirrorSelf / settings in e2e tests) */
+      svc(): PlayersService;
+      /** the longest wall- and prop-free run along +X inside one closed space (walk tests): its first cell centre */
+      lane(): { x: number; z: number; len: number } | null;
     };
   }
 }
 
-const STEP_SURFACE: Record<string, string> = {
-  office: 'sfx.step_carpet', archive: 'sfx.step_carpet', boiler: 'sfx.step_metal', storage: 'sfx.step_concrete',
-  lab: 'sfx.step_concrete', cold: 'sfx.step_metal', van: 'sfx.step_metal',
-};
+/** services.level (env-world, v1.2): the floor under a point; 'water' = wet steps over the space's floor */
+interface LevelSurfaceLike { surfaceAt?(x: number, z: number): string }
+/** services.interaction (interaction-gear, v1.2): holds(type) once it lands; inventory() meanwhile */
+interface InteractionHoldsLike { holds?(type: string): boolean; inventory?(): (string | null)[] }
+/** services.render (env-render, v1.2): layers once mirrors / first-person layering exist */
+interface RenderLayersLike { layers?: { self?: number; firstPerson?: number } }
 
 export async function install(ctx: ClientContext): Promise<void> {
   const bal = () => (ctx.balance.players ?? {}) as Record<string, number>;
@@ -70,6 +88,12 @@ export async function install(ctx: ClientContext): Promise<void> {
   let testCam: { pos: THREE.Vector3; look: THREE.Vector3 } | null = null;
   let lastLayoutHash: string | null = null;
   let rigReady = false;
+  /** v1.2: reasons currently holding the flashlight off (setFlashlightEnabled) */
+  const lightOff = new Set<string>();
+  /** v1.2: mirror self requested by env-render */
+  let mirrorSelfOn = false;
+  /** v1.2: the view model moved to render's first-person layer */
+  let vmLayered = false;
   const log = (m: string) => console.info(`[players] ${m}`);
 
   // ---------------- services.input ----------------
@@ -100,26 +124,32 @@ export async function install(ctx: ClientContext): Promise<void> {
   setTimeout(finishReady, 15000);
 
   // ---------------- SFX ----------------
-  const sfxPlay = (key: string, pos?: V3, volume = 1) => {
+  const sfxPlay = (key: string, pos?: V3, volume = 1, rate = 1) => {
     const sfx = ctx.services.use('sfx');
     if (!sfx || !hasAsset(key)) return;
-    try { sfx.play(key, pos, { volume }); } catch { /* tolerate */ }
+    try { sfx.play(key, pos, rate === 1 ? { volume } : { volume, rate }); } catch { /* tolerate */ }
   };
-  const surfaceAt = (x: number, z: number): string => {
-    const L = ctx.world.layout;
-    if (!L) return 'sfx.step_concrete';
-    const cx = Math.floor(x), cz = Math.floor(z);
-    const sp = cx >= 0 && cz >= 0 && cx < L.W && cz < L.H ? L.owner[cz * L.W + cx] : -1;
-    const s = sp >= 0 ? L.spaces[sp] : undefined;
-    return (s && STEP_SURFACE[s.type]) || 'sfx.step_concrete';
+  /** v1.2: the floor under (x, z): env-world's level.surfaceAt when present, else the layout space's floorSurface */
+  const floorAt = (x: number, z: number) => {
+    const lvl = useLoose<LevelSurfaceLike>(ctx.services, 'level');
+    const fn = typeof lvl?.surfaceAt === 'function' ? (px: number, pz: number) => lvl.surfaceAt!(px, pz) : undefined;
+    return floorUnder(fn, ctx.world.layout, x, z);
   };
+  const hasFamily = (key: string) => assetVariants(key).length > 0;
+  /** footstep sound for a floor (concrete / metal / wood / carpet families, wet steps on water); remote crouch steps
+   *  further than remoteCrouchStepMaxM are not played (creeping teammates stay as quiet as they are to monsters) */
   const stepSfx = (pos: V3, kind: string, remote: boolean) => {
-    const vars = assetVariants(surfaceAt(pos[0], pos[2]));
+    if (remote && kind === 'crouchStep') {
+      const d = Math.hypot(pos[0] - camera.position.x, pos[2] - camera.position.z);
+      if (d > (bal().remoteCrouchStepMaxM ?? 4)) return;
+    }
+    const { key: family, rate } = stepSfxFor(floorAt(pos[0], pos[2]).sfx, hasFamily);
+    const vars = assetVariants(family);
     const list = vars.length ? vars : assetVariants('sfx.step_concrete');
     if (!list.length) return;
     const key = list[Math.floor(Math.random() * list.length)];
     const vol = (kind === 'crouchStep' ? 0.22 : kind === 'sprintStep' ? 0.85 : 0.5) * (remote ? 0.85 : 0.6);
-    sfxPlay(key, pos, vol);
+    sfxPlay(key, pos, vol, rate);
   };
 
   // ---------------- scene parts ----------------
@@ -142,6 +172,40 @@ export async function install(ctx: ClientContext): Promise<void> {
   const aliveFlag = () => ctx.world.crew?.players.find((p) => p.id === meId())?.alive;
   const isDead = () => forcedSpectate ?? (ctx.world.phase === 'contract' && aliveFlag() === false);
   const livingTeammates = () => (ctx.world.crew?.players ?? []).filter((p) => p.id !== meId() && p.alive && p.connected && avatars.get(p.id)).map((p) => p.id);
+
+  // ---------------- v1.2 crawl vents (stretch, flag crawlVents; server players/vents.ts) ----------------
+  const crawl = createCrawl(ctx, scene, {
+    meId,
+    freeze: (on) => { if (on) me.frozen.add('crawl'); else me.frozen.delete('crawl'); },
+    teleport: (x, z, yaw) => {
+      if (!Number.isFinite(x) || !Number.isFinite(z)) return;
+      me.pos.set(x, 0, z);
+      me.vel.set(0, 0, 0);
+      if (Number.isFinite(yaw)) me.yaw = yaw;
+      me.pitch = 0;
+    },
+    play: sfxPlay,
+  });
+
+  // ---------------- v1.2 one-time stealth hints (localStorage 'deadair.hints.v12'; meta's hints setting) ----------------
+  const hints = createHintStore();
+  let hintQueue: { id: HintId; at: number } | null = null;
+  let hintTimer: ReturnType<typeof setTimeout> | null = null;
+  const showHint = (id: HintId) => {
+    const ms = bal().hintMs ?? 6500;
+    const text = id === 'contract' && ctrlCrouchOn(settings) ? `C / LEFT CTRL: CROUCH · ${HINT_TEXT.contract.split(' · ').slice(1).join(' · ')}` : HINT_TEXT[id];
+    ui.hint.value = { id, text, until: performance.now() + ms };
+    if (hintTimer) clearTimeout(hintTimer);
+    hintTimer = setTimeout(() => { if (ui.hint.value?.id === id) ui.hint.value = null; }, ms);
+  };
+  /** show once ever (per browser), unless meta's hints setting is off */
+  const hintOnce = (id: HintId) => {
+    if (hints.once(id)) showHint(id);
+  };
+  /** the same, after `delayMs` and only once the arrival / loading screen is gone (frame() shows it) */
+  const queueHint = (id: HintId, delayMs: number) => {
+    if (!hints.seen(id)) hintQueue = { id, at: performance.now() + delayMs };
+  };
 
   let synced = false;
   const syncFromServer = (force: boolean, why: string) => {
@@ -170,7 +234,11 @@ export async function install(ctx: ClientContext): Promise<void> {
     me.stamina = 1;
   };
   ctx.bus.on('net:welcome', () => syncFromServer(true, 'welcome'));
-  ctx.bus.on('world:phase', () => syncFromServer(false, 'phase'));
+  ctx.bus.on('world:phase', ({ to }) => {
+    syncFromServer(false, 'phase');
+    input.resetCrouch(); // v1.2: a toggled crouch never carries into the next phase
+    if (to === 'contract') queueHint('contract', 3500);
+  });
 
   // ---------------- flashlight ----------------
   const setLight = (on: boolean) => {
@@ -297,7 +365,7 @@ export async function install(ctx: ClientContext): Promise<void> {
     if (id && joined()) {
       out.push({
         id, pos: [vm.lensPos.x, vm.lensPos.y, vm.lensPos.z], dir: [vm.beamDir.x, vm.beamDir.y, vm.beamDir.z],
-        on: me.light && me.lightEnabled && !me.dead && !me.hidden, local: true, tier: ixTier(id), battery: ctx.services.use('interaction')?.battery?.() ?? 1,
+        on: me.light && me.lightEnabled && !me.dead && !me.hidden && !crawl.active(), local: true, tier: ixTier(id), battery: ctx.services.use('interaction')?.battery?.() ?? 1,
       });
     }
     for (const a of avatars.avatars.values()) {
@@ -320,9 +388,14 @@ export async function install(ctx: ClientContext): Promise<void> {
     cameraPos: () => [camera.position.x, camera.position.y, camera.position.z],
     spectating: () => me.dead,
     setSpectate(on) { forcedSpectate = on; },
-    setFlashlightEnabled(enabled) {
-      me.lightEnabled = enabled;
-      if (!enabled && me.light) { me.light = false; ctx.bus.emit('action:flashlight', { down: true, on: false }); }
+    setFlashlightEnabled(enabled, reason = 'battery') {
+      // v1.2 (plan check #13): ref-counted per reason like freeze(): usable only while no reason holds it off
+      // (battery, night vision, a knockdown ...), so the end of a knockdown never relights a dead battery
+      const why = typeof reason === 'string' && reason ? reason : 'battery';
+      if (enabled) lightOff.delete(why);
+      else lightOff.add(why);
+      me.lightEnabled = lightOff.size === 0;
+      if (!me.lightEnabled && me.light) { me.light = false; ctx.bus.emit('action:flashlight', { down: true, on: false }); }
     },
     flashlightOn: () => me.light && me.lightEnabled && !me.dead,
     setFlashlight: (on) => setLight(on),
@@ -338,7 +411,8 @@ export async function install(ctx: ClientContext): Promise<void> {
     localPose: () => (meId() ? { p: [me.pos.x, me.pos.y, me.pos.z], yaw: me.yaw, pitch: me.pitch, stance: me.stance, anim: me.anim } : null),
     avatarObject: (id) => avatars.get(id)?.root,
     emote,
-    settings: () => ({ ...settings }),
+    // v1.2: ctrlCrouch reads true by default in the desktop app (its shell sends Left Ctrl as a crouch hotkey)
+    settings: () => ({ ...settings, ...(desktopBridge()?.onHotkey ? { ctrlCrouch: ctrlCrouchOn(settings) } : {}) }),
     setSettings(p) {
       Object.assign(settings, p);
       saveSettings(settings);
@@ -354,6 +428,18 @@ export async function install(ctx: ClientContext): Promise<void> {
       avatars.setDummy(id, { p: pose.p, yaw: pose.yaw, pitch: 0, stance: pose.stance ?? STANCE.stand, anim: pose.anim ?? ANIM.idle, light: pose.light ?? 0 }, profile);
     },
     locked: () => input.locked(),
+    /**
+     * v1.2 (env-render's live mirrors): the local player's own full-body avatar at the local pose, only on
+     * RENDER_LAYERS.self (mirror cameras draw it, the main camera never does), castShadow false, no nameplate, no
+     * step sfx. Returns its stable root; false removes it.
+     */
+    setMirrorSelf(on) {
+      mirrorSelfOn = !!on;
+      if (!on) return avatars.setSelf(null, 0);
+      const id = meId();
+      const layer = useLoose<RenderLayersLike>(ctx.services, 'render')?.layers?.self ?? RENDER_LAYERS.self;
+      return avatars.setSelf(id ? profileOf(ctx, id) : ctx.net.identity().profile, layer);
+    },
   };
   ctx.services.provide('players', playersService);
 
@@ -362,9 +448,72 @@ export async function install(ctx: ClientContext): Promise<void> {
   ctx.ui.registerHud('center', CrosshairHud, { id: 'players-crosshair', order: 10 });
   // untransformed slot: its position:fixed lines resolve against the viewport (spectator banner, click-to-look)
   ctx.ui.registerHud('top-left', ScreenHintHud, { id: 'players-screen-hints', order: 80 });
+  ctx.ui.registerHud('top-left', StealthHintHud, { id: 'players-stealth-hint', order: 81 });
+  ctx.ui.registerHud('top-left', CrawlHud, { id: 'players-crawl', order: 5 });
   ctx.ui.registerHud('center', EmoteWheelHud, { id: 'players-emotes', order: 20 });
+  // v1.2: next to voice's band meter (order 10): your voice, then your feet
+  ctx.ui.registerHud('bottom-left', StanceHud, { id: 'players-stance', order: 11 });
   ctx.ui.registerHud('bottom-left', ChatHud, { id: 'players-chat', order: 40 });
   ctx.bus.on('input:pointerlock', ({ locked }) => { ui.locked.value = locked; });
+
+  // ---------------- v1.2 stance HUD + hint triggers ----------------
+  const HIDDEN_STANCE: StanceView = { mode: null, radiusM: 0, tag: null, soles: false };
+  let stanceAt = 0;
+  let kennelOf: { hash: string; p: [number, number] | null } | null = null;
+  const kennelPos = (): [number, number] | null => {
+    const L = ctx.world.layout;
+    if (!L) return null;
+    if (kennelOf?.hash !== L.hash) {
+      const k = L.items.find((i) => i.kind === 'kennel');
+      kennelOf = { hash: L.hash, p: k ? [k.x, k.z] : null };
+    }
+    return kennelOf.p;
+  };
+  const holdsSoles = (): boolean => {
+    const ix = useLoose<InteractionHoldsLike>(ctx.services, 'interaction');
+    try {
+      if (typeof ix?.holds === 'function') return !!ix.holds('soles');
+      return !!ix?.inventory?.().includes('soles');
+    } catch {
+      return false;
+    }
+  };
+  /** the stance HUD reading (only while it can matter: contracts, and the hub's training kennel) */
+  const updateStance = (now: number) => {
+    if (now - stanceAt < 66) return;
+    stanceAt = now;
+    let v = HIDDEN_STANCE;
+    const phase = ctx.world.phase;
+    const kp = phase === 'hub' ? kennelPos() : null;
+    const where = phase === 'contract' || (!!kp && Math.hypot(me.pos.x - kp[0], me.pos.z - kp[1]) <= (bal().stanceHudKennelM ?? 8));
+    if (where && !me.dead && !me.hidden && !crawl.active() && inGame()) {
+      v = stanceView({
+        stance: me.stance, speed: me.speed, surface: floorAt(me.pos.x, me.pos.z).noise, soles: holdsSoles(),
+        v12: ctx.flags.stealthV12 !== false, bal: bal(),
+      });
+    }
+    if (!sameStance(v, ui.stance.value)) ui.stance.value = v;
+  };
+  /** last local footstep that was not a creep (the kennel hint needs your steps to be what it heard) */
+  let loudStep: { at: number; radiusM: number } | null = null;
+  ctx.bus.on('players:step', ({ kind }) => {
+    ui.stepPulse.value++;
+    if (kind !== 'crouchStep') loudStep = { at: performance.now(), radiusM: ui.stance.value.radiusM || 5 };
+  });
+  ctx.net.on('monsters.cue', (d) => {
+    if (d.cue !== 'growl' || me.dead || !inGame()) return;
+    const dist = Math.hypot(me.pos.x - d.p[0], me.pos.z - d.p[2]);
+    if (ctx.world.phase === 'hub' && d.id === 'kennel') {
+      // the training kennel growled at your footsteps (your last loud step just now, within its reach)
+      if (loudStep && performance.now() - loudStep.at < 1600 && dist <= loudStep.radiusM + 3) hintOnce('kennel');
+    } else if (ctx.world.phase === 'contract' && dist <= d.radius) hintOnce('growl');
+  });
+  // the victim-only 'spotted' event (monsters-fair, plan check #24c), never the crew-wide notice cue
+  (ctx.net.on as unknown as (e: string, fn: (d: unknown) => void) => () => void)('monsters.spotted', (d) => {
+    const victim = (d as { victim?: unknown; pid?: unknown } | null)?.victim ?? (d as { pid?: unknown } | null)?.pid;
+    if (typeof victim === 'string' && victim !== meId()) return;
+    if (!me.dead && ctx.world.phase === 'contract') hintOnce('spotted');
+  });
 
   // ---------------- per-frame ----------------
   const tmpLook = new THREE.Vector3();
@@ -398,6 +547,7 @@ export async function install(ctx: ClientContext): Promise<void> {
         me.dead = deadNow;
         if (deadNow) { me.light = false; specInit = false; cycleTarget(); }
         else { specTarget = null; me.pitch = 0; }
+        input.resetCrouch(); // v1.2: neither the dead nor the revived keep a toggled crouch
         ctx.bus.emit('players:spectate', { on: deadNow });
       }
       // emote wheel selection by mouse
@@ -460,9 +610,28 @@ export async function install(ctx: ClientContext): Promise<void> {
         camera.lookAt(testCam.look);
         camera.updateMatrixWorld();
       } else applyCamera(camera, me);
-      vm.update(dt, me, !me.dead && !me.hidden && !testCam, me.light && me.lightEnabled, bal().flashlightLag ?? 16);
-      avatars.update(dt, camera.position, { on: me.light && me.lightEnabled && !me.dead, pos: vm.lensPos, dir: vm.beamDir });
+      const now = performance.now();
+      // v1.2 crawl vents: the camera creeps down the duct (local only) until the server's exit teleport
+      const crawling = !testCam && crawl.update(now, camera.position, camera.quaternion);
+      if (crawling) camera.updateMatrixWorld();
+      // v1.2: the view model draws on the first-person layer once render has layers (mirrors never show it); until then
+      // it stays on layer 0 so it can never vanish
+      if (!vmLayered) {
+        const fp = useLoose<RenderLayersLike>(ctx.services, 'render')?.layers?.firstPerson;
+        if (typeof fp === 'number') { vm.setLayer(fp); vmLayered = true; log(`view model on render layer ${fp}`); }
+      }
+      vm.update(dt, me, !me.dead && !me.hidden && !testCam && !crawling, me.light && me.lightEnabled && !crawling, bal().flashlightLag ?? 16);
+      const selfPose: SelfPose = mirrorSelfOn && !me.dead && !me.hidden && !crawling
+        ? { p: [me.pos.x, me.pos.y, me.pos.z], yaw: me.yaw, pitch: me.pitch, stance: me.stance, anim: me.anim, light: 0 }
+        : null;
+      avatars.update(dt, camera.position, { on: me.light && me.lightEnabled && !me.dead, pos: vm.lensPos, dir: vm.beamDir }, selfPose);
       markers.update();
+      updateStance(now);
+      if (hintQueue && now >= hintQueue.at && inGame() && !me.dead && !document.querySelector('[data-loading-active]')) {
+        const id = hintQueue.id;
+        hintQueue = null;
+        if (ctx.world.phase === 'contract') hintOnce(id);
+      }
   }
 
   // ---------------- test hooks ----------------
@@ -500,6 +669,48 @@ export async function install(ctx: ClientContext): Promise<void> {
         scene.add(l);
       },
       inputState: () => ({ ...input.state(), svcSame: ctx.services.use('input')?.setInput === input.setInput }),
+      stealth: () => ({
+        stance: ui.stance.value, latched: input.crouchLatched(), hint: ui.hint.value?.id ?? null, lightOff: [...lightOff],
+        ctrlCrouch: ctrlCrouchOn(settings), crawling: crawl.active(),
+      }),
+      mirrorSelf: () => {
+        const a = avatars.self();
+        if (!a) return null;
+        const layers = new Set<number>();
+        let castShadow = false;
+        let meshes = 0;
+        let holder: THREE.Object3D = a.root;
+        while (holder.parent && holder.parent !== scene) holder = holder.parent;
+        holder.traverse((o) => {
+          for (let l = 0; l < 32; l++) if (o.layers.isEnabled(l)) layers.add(l);
+          const m = o as THREE.Mesh;
+          if (m.isMesh) { meshes++; if (m.castShadow) castShadow = true; }
+        });
+        return { on: mirrorSelfOn, layers: [...layers].sort((x, y) => x - y), castShadow, meshes, visible: holder.visible, nameplate: a.nameplate.visible };
+      },
+      showHint: (id) => showHint(id),
+      svc: () => playersService,
+      lane: () => {
+        const nav = levelNav(ctx);
+        if (!nav) return null;
+        const g = nav.grid;
+        const free = (cx: number, cz: number) => {
+          const own = g.owner[cz * g.W + cx];
+          if (own < 0 || g.spaces[own]?.open) return false;
+          return g.solidStart[cz * g.W + cx + 1] === g.solidStart[cz * g.W + cx];
+        };
+        let best: { x: number; z: number; len: number } | null = null;
+        for (let cz = 1; cz < g.H - 1; cz++) {
+          let run = 0;
+          for (let cx = 1; cx < g.W - 1; cx++) {
+            const here = free(cx, cz) && free(cx, cz - 1) && free(cx, cz + 1);
+            // a run continues only through an open vertical edge (no wall / door between the two cells)
+            run = here ? (run > 0 && g.v[cz * (g.W + 1) + cx] !== 0 ? 1 : run + 1) : 0;
+            if (run > (best?.len ?? 0)) best = { x: cx - run + 1 + 0.5, z: cz + 0.5, len: run };
+          }
+        }
+        return best;
+      },
       findWall: () => {
         const nav = levelNav(ctx);
         if (!nav) return null;

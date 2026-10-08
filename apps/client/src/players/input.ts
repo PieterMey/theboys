@@ -1,6 +1,8 @@
-// Owner: track ⑤ Players. Keyboard + mouse input with pointer lock, action map (PLAN §3.5) published on the bus
-// as 'action:*' events, test overrides (setInput/look/teleport bypass pointer lock). Never binds Ctrl/Meta:
-// handlers only look at KeyboardEvent.code / MouseEvent.button.
+// Owner: track ⑤ Players (v1.2: players-stealth). Keyboard + mouse input with pointer lock, action map (PLAN §3.5)
+// published on the bus as 'action:*' events, test overrides (setInput/look/teleport bypass pointer lock). Never binds
+// Ctrl/Meta: handlers only look at KeyboardEvent.code / MouseEvent.button. The desktop app's Left-Ctrl crouch arrives
+// as an abstract hotkey from its shell (window.deadAirDesktop.onHotkey: {action:'crouch', down}), never as a key here.
+// v1.2: the crouch latch resets on phase changes, death and revive (resetCrouch); alt-tabbing releases a held E.
 import type { InputState } from '@dead-air/shared/test-api.ts';
 import type { ClientContext } from '../core/context.ts';
 import type { PlayerSettings } from './types.ts';
@@ -9,6 +11,27 @@ import { ui } from './social.ts';
 const LS_SETTINGS = 'deadair.playerSettings';
 
 export const DEFAULT_SETTINGS: PlayerSettings = { sensitivity: 0.0022, crouchToggle: false, invertY: false, headBob: true };
+
+/** the desktop shell's hotkey event (apps/desktop/src/hotkeys.cjs): Left Ctrl mapped to crouch, AltGr filtered */
+export interface DesktopHotkey { action: string; down: boolean }
+export interface DesktopHotkeyBridge {
+  onHotkey?: (cb: (ev: DesktopHotkey) => unknown) => (() => void) | unknown;
+}
+
+/** window.deadAirDesktop (desktop app only; the browser has none) */
+export function desktopBridge(): DesktopHotkeyBridge | null {
+  try {
+    const d = (globalThis as { deadAirDesktop?: unknown }).deadAirDesktop;
+    return d && typeof d === 'object' ? (d as DesktopHotkeyBridge) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** desktop Left-Ctrl crouch: on by default when the shell provides the hotkey bridge, off in the browser */
+export function ctrlCrouchOn(s: PlayerSettings): boolean {
+  return typeof desktopBridge()?.onHotkey === 'function' && s.ctrlCrouch !== false;
+}
 
 export function loadSettings(defSens: number): PlayerSettings {
   const s: PlayerSettings = { ...DEFAULT_SETTINGS, sensitivity: defSens };
@@ -44,6 +67,10 @@ export interface InputCore {
   /** game input active (in-game screen) */
   setActive(on: boolean): void;
   active(): boolean;
+  /** v1.2: drop the crouch-toggle latch (phase change, own death, revive) */
+  resetCrouch(): void;
+  /** v1.2 test hook: the latch state */
+  crouchLatched(): boolean;
 }
 
 const MOVE_KEYS: Record<string, [number, number]> = {
@@ -74,6 +101,11 @@ export function createInput(ctx: ClientContext, settings: PlayerSettings): Input
 
   const bus = ctx.bus;
   const typing = () => chatOpen || isTextTarget(document.activeElement);
+  /** a crouch press from C or the desktop hotkey: flips the latch in toggle mode, else held until its release */
+  const crouchDown = (src: 'KeyC' | 'desk:crouch') => {
+    if (settings.crouchToggle) crouchLatched = !crouchLatched;
+    held.add(src);
+  };
 
   const canvas = (): HTMLElement | null => {
     const three = ctx.services.use('three');
@@ -139,9 +171,17 @@ export function createInput(ctx: ClientContext, settings: PlayerSettings): Input
   // MMB autoscroll off
   addEventListener('auxclick', (e) => { if (e.button === 1 && gameActive) e.preventDefault(); });
 
+  /** E is down (sent action:interact down, no up yet): alt-tab must release it (quiet doors never finish unattended) */
+  let interactHeld = false;
   const keyAction = (code: string, down: boolean, repeat: boolean) => {
     switch (code) {
-      case 'KeyE': if (!repeat) bus.emit('action:interact', { down }); return true;
+      case 'KeyE':
+        if (!repeat) {
+          if (!down && !interactHeld) return true; // its down was never sent (typing, menu) or blur already released it
+          interactHeld = down;
+          bus.emit('action:interact', { down });
+        }
+        return true;
       case 'KeyG': if (!repeat) bus.emit('action:drop', { down }); return true;
       case 'KeyQ': if (!repeat) bus.emit('action:radio', { down }); return true;
       case 'KeyV': if (!repeat) bus.emit('action:ptt', { down }); return true;
@@ -175,10 +215,7 @@ export function createInput(ctx: ClientContext, settings: PlayerSettings): Input
       return;
     }
     if (e.code === 'KeyC') {
-      if (!e.repeat) {
-        if (settings.crouchToggle) crouchLatched = !crouchLatched;
-        held.add('KeyC');
-      }
+      if (!e.repeat) crouchDown('KeyC');
       return;
     }
     if (e.code === 'KeyF') {
@@ -198,8 +235,29 @@ export function createInput(ctx: ClientContext, settings: PlayerSettings): Input
     // releasing held keys avoids stuck sprint / walkie when alt-tabbing
     if (held.has('KeyQ')) bus.emit('action:radio', { down: false });
     if (held.has('KeyV')) bus.emit('action:ptt', { down: false });
+    // v1.2: a held E (quiet door, drawer, lockpick) is released too, so nothing completes while alt-tabbed
+    if (interactHeld) {
+      interactHeld = false;
+      bus.emit('action:interact', { down: false });
+    }
     held.clear();
   });
+
+  // ---- v1.2 desktop app: Left Ctrl crouches exactly like C (the shell maps the key; the page never reads Ctrl) ----
+  const bridge = desktopBridge();
+  if (bridge && typeof bridge.onHotkey === 'function') {
+    try {
+      bridge.onHotkey((ev) => {
+        if (!ev || ev.action !== 'crouch') return;
+        if (!ev.down) {
+          held.delete('desk:crouch'); // releases always land, also while typing (no stuck crouch)
+          return;
+        }
+        if (!gameActive || typing() || settings.ctrlCrouch === false) return;
+        crouchDown('desk:crouch');
+      });
+    } catch { /* an older shell */ }
+  }
 
   const state = (): InputState => {
     let forward = 0, right = 0;
@@ -210,7 +268,7 @@ export function createInput(ctx: ClientContext, settings: PlayerSettings): Input
     forward = Math.max(-1, Math.min(1, forward));
     right = Math.max(-1, Math.min(1, right));
     let sprint = held.has('ShiftLeft') || held.has('ShiftRight');
-    let crouch = settings.crouchToggle ? crouchLatched : held.has('KeyC');
+    let crouch = settings.crouchToggle ? crouchLatched : held.has('KeyC') || held.has('desk:crouch');
     if (testUsed) {
       if (test.forward !== undefined && test.forward !== 0) forward = test.forward;
       if (test.right !== undefined && test.right !== 0) right = test.right;
@@ -265,6 +323,11 @@ export function createInput(ctx: ClientContext, settings: PlayerSettings): Input
       if (!on) held.clear();
     },
     active: () => gameActive,
+    resetCrouch() {
+      // only the toggle latch: a key that is physically held keeps crouching until its own release
+      crouchLatched = false;
+    },
+    crouchLatched: () => crouchLatched,
   };
   return input;
 }

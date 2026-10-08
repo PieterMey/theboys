@@ -42,7 +42,8 @@ export const TIPS: string[] = [
   'Dead? Spectate your crew and talk to them. A medkit revives you within 30 s.',
   'The van leaves at 04:00 with or without you.',
   'Use the van console to open doors and watch for blips near your crew.',
-  'Crouch (C) to move quietly. Sprinting is loud.',
+  'Crouch (C) to creep: the Hound and the Listener cannot hear it, and the Listener spots you later. Metal floors carry footsteps.',
+  'Sprinting is loud: 12 m of footsteps, more on metal and grating. Carpet and soft overshoes carry less.',
   'Press F3 for the performance panel.',
 ];
 

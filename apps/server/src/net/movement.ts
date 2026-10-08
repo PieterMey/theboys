@@ -5,6 +5,9 @@
 //   balance.net.validateClosedDoors) and moves out of the grid;
 // - sends 'net.correct' (rate-limited) with the last accepted position to that player only;
 // - never validates the dead (their pose is the spectator camera);
+// - v1.2 (players-stealth, plan check #7): a LIVING player (interaction's isAlive) who claims the dead stance is
+//   validated like stand and stored as stand: no free flight through walls, and the stored pose can never re-arm the
+//   revive grace below;
 // - safety valve: after rejectResyncCount consecutive rejections it accepts a walkable pose (resync), so a
 //   client that ignores corrections or a validation bug can never freeze a player.
 import { MOVE } from '@dead-air/shared/constants.ts';
@@ -12,8 +15,19 @@ import { STANCE } from '@dead-air/shared/state.ts';
 import { walkClear } from '@dead-air/shared/nav/index.ts';
 import type { EdgeGrid } from '@dead-air/shared/nav/index.ts';
 import type { Crew, PlayerPose, ServerContext, ServerPlayer } from '../core/types.ts';
+import { isAlive } from '../interaction/api.ts';
 import { doorView, gridFor } from './grid.ts';
 import { netBalance } from './balance.ts';
+
+/** alive per the interaction track (roster flag and not on its dead list); the roster flag if that throws */
+function livingPlayer(crew: Crew, player: ServerPlayer): boolean {
+  if (!player.alive) return false;
+  try {
+    return isAlive(crew, player.id);
+  } catch {
+    return player.alive;
+  }
+}
 
 interface MoveState {
   /** grace after join / phase change: until this time AND while gracePoses > 0, any walkable pose is accepted */
@@ -71,8 +85,13 @@ export function makePoseHook(ctx: ServerContext) {
   return function netValidatePose(crew: Crew, player: ServerPlayer, pose: PlayerPose): boolean | void {
     // y is never trusted far from the floor
     pose.p[1] = Math.max(-1, Math.min(6, pose.p[1]));
+    const living = livingPlayer(crew, player);
+    // a living player's dead claim (stale client right after a revive, or a cheat) walks like everyone else; a hidden
+    // claim is never taken on trust either (later pose hooks set hidden for real hiding spots: interaction's lockers and
+    // ducts, the Snatcher's duct)
+    if (living && (pose.stance === STANCE.dead || pose.stance === STANCE.hidden)) pose.stance = STANCE.stand;
     if (disabled.has(crew)) return;
-    if (pose.stance === STANCE.dead || !player.alive) return; // spectator camera: free
+    if (!living) return; // spectator camera: free
     const bal = netBalance(ctx);
     const ms = moveState(player);
     const prev = player.pose.p;

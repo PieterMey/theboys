@@ -6,6 +6,7 @@ import { sharedKTX2 } from '../level/materials.ts';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { assetUrl, getAssetManifest, loadAssetManifest } from '@dead-air/shared/assets.ts';
 import type { LocalPlayer } from './local.ts';
+import { bakeChildMeshes } from './merge.ts';
 
 export interface ViewModel {
   group: THREE.Group;
@@ -15,6 +16,11 @@ export interface ViewModel {
   update(dt: number, me: LocalPlayer, visible: boolean, lightOn: boolean, lag: number): void;
   /** swap the procedural model for the 'prop.flashlight' asset (vintage flashlight) when present */
   loadProp(renderer: THREE.WebGPURenderer, onLog: (m: string) => void): Promise<boolean>;
+  /**
+   * v1.2: render the view model on this layer only (render's RENDER_LAYERS.firstPerson: the main camera sees it, mirror
+   * cameras do not). Call only when services.render.layers exists, or the main camera would not draw it.
+   */
+  setLayer(layer: number): void;
 }
 
 export function createViewModel(scene: THREE.Scene): ViewModel {
@@ -29,13 +35,16 @@ export function createViewModel(scene: THREE.Scene): ViewModel {
   const grip = flat(0x0f1012);
   const chrome = flat(0x4a4e53);
   const lens = new THREE.MeshBasicNodeMaterial({ color: new THREE.Color(0xfff0cf).multiplyScalar(3), fog: false });
+  // v1.2 draw budget: the procedural torch and the glove are baked into one mesh per material (torch 7 -> 4 meshes,
+  // glove 7 -> 2); every view-model mesh costs two draws a frame while the AO pre-pass is on
+  const torch = new THREE.Group();
   const add = (g: THREE.BufferGeometry, m: THREE.Material, z: number) => {
     const mesh = new THREE.Mesh(g, m);
     mesh.rotation.x = Math.PI / 2; // cylinders along -Z (forward)
     mesh.position.z = z;
     mesh.castShadow = false;
     mesh.receiveShadow = false;
-    inner.add(mesh);
+    torch.add(mesh);
     return mesh;
   };
   add(new THREE.CylinderGeometry(0.017, 0.017, 0.15, 20), grip, 0.04);
@@ -46,10 +55,12 @@ export function createViewModel(scene: THREE.Scene): ViewModel {
   const lensMesh = new THREE.Mesh(new THREE.CircleGeometry(0.027, 24), lens);
   lensMesh.position.z = -0.1065;
   lensMesh.rotation.y = Math.PI; // face -Z
-  inner.add(lensMesh);
+  torch.add(lensMesh);
   const sw = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.008, 0.02), chrome);
   sw.position.set(0, 0.018, -0.01);
-  inner.add(sw);
+  torch.add(sw);
+  bakeChildMeshes(torch);
+  inner.add(torch);
   // gloved hand round the grip (look pass, ③): palm + four wrapped fingers + thumb in worn work-glove leather.
   // Lit (the lens light points away from it, so it never blows out) with a faint floor so it is never a black hole.
   const gloveMat = new THREE.MeshStandardNodeMaterial({ color: 0x2a2520, roughness: 0.82, metalness: 0, emissive: new THREE.Color(0x0b0a09), emissiveIntensity: 1 });
@@ -77,14 +88,21 @@ export function createViewModel(scene: THREE.Scene): ViewModel {
   cuff.position.set(0.03, -0.012, 0.1);
   glove.add(cuff);
   for (const c of glove.children) { c.castShadow = false; c.receiveShadow = false; }
+  bakeChildMeshes(glove);
   inner.add(glove);
   inner.rotation.set(0.05, 0.1, 0);
   inner.scale.setScalar(0.85);
   group.visible = false;
   scene.add(group);
 
-  const procedural = [...inner.children];
+  /** the procedural torch (hidden once the prop loads) and the glove (always) */
+  const procedural = [torch, glove];
   let lensMats: THREE.MeshStandardMaterial[] = [];
+  /** v1.2 render layer of every view-model object (null = default layer 0) */
+  let layer: number | null = null;
+  const applyLayer = (o: THREE.Object3D) => {
+    if (layer !== null) o.traverse((c) => c.layers.set(layer!));
+  };
   const lagQ = new THREE.Quaternion();
   let init = false;
   const offset = new THREE.Vector3();
@@ -166,6 +184,7 @@ export function createViewModel(scene: THREE.Scene): ViewModel {
         holder.position.set(0, 0, -0.01);
         for (const c of procedural) c.visible = c === procedural[procedural.length - 1]; // keep the glove
         inner.add(holder);
+        applyLayer(holder);
         lensMats = glassMats;
         lensLocal.set(0, 0, -0.01 - 0.085);
         onLog(`view model: prop.flashlight (axis ${axis}${sign > 0 ? '+' : '-'}, len ${len.toFixed(3)} m)`);
@@ -174,6 +193,11 @@ export function createViewModel(scene: THREE.Scene): ViewModel {
         onLog(`view model prop failed: ${e instanceof Error ? e.message : e}`);
         return false;
       }
+    },
+    setLayer(l) {
+      if (!Number.isInteger(l) || l < 0 || l > 31) return;
+      layer = l;
+      applyLayer(group);
     },
   };
   return vm;

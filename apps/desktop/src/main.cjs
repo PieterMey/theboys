@@ -32,9 +32,10 @@ const { app, BrowserWindow, WebContentsView, Menu, ipcMain, protocol, session, s
 const { loadConfig, normalizeCrew, argOf, userTemplate } = require('./config.cjs');
 const { createSteam } = require('./steam.cjs');
 const { startBundled, localBuild } = require('./bundled.cjs');
-const { readHostRights, isLoopbackOrigin } = require('./host.cjs');
+const { readHostRights, resolveServer, isLoopbackOrigin } = require('./host.cjs');
 const { buildGameUrl, crewOfUrl, withParam, hasParam } = require('./gameurl.cjs');
 const { readMarker, writeMarker, removeMarker, assessPrevious, pidAlive } = require('./session.cjs');
+const { createHotkeyMapper } = require('./hotkeys.cjs');
 
 const APP_NAME = 'DEAD AIR';
 const APP_USER_MODEL_ID = 'com.deadair.game';
@@ -123,16 +124,20 @@ function boot() {
     exeDir: app.isPackaged ? path.dirname(process.execPath) : APP_DIR,
     userDataDir: USER_DATA,
   });
-  const serverOrigin = cfg.serverUrl;
+  // -------------------------------------------------------------- game server + host rights (src/host.cjs)
+  // <userData>\host.json = %APPDATA%\DEAD AIR\host.json for the default profile; a test profile only ever reads its
+  // own folder (...\profiles\<name>\host.json), never the real token. Friends play on the default server
+  // (https://play.dead-air.io); the host's PC plays on the server its host.json names unless a server was chosen.
+  const hostFile = path.join(USER_DATA, 'host.json');
+  const server = resolveServer(cfg, hostFile);
+  const serverOrigin = server.origin;
   const serverHost = new URL(serverOrigin).host;
   log.info(`DEAD AIR desktop ${VERSION} shell ${SHELL_BUILD} (electron ${process.versions.electron}, chrome ${process.versions.chrome}) mode=${cfg.mode} server=${serverOrigin}${PROFILE ? ` profile=${PROFILE}` : ''} packaged=${app.isPackaged}`);
   log.info(`config: ${sources.length ? sources.join(', ') : '(defaults)'}`);
+  log.info(`server: ${serverOrigin} via ${server.via} (${server.why})`);
   for (const p of problems) log.warn(`config: ${p}`);
 
-  // -------------------------------------------------------------- host rights (src/host.cjs)
-  // <userData>\host.json = %APPDATA%\DEAD AIR\host.json for the default profile; a test profile only ever reads its
-  // own folder (...\profiles\<name>\host.json), never the real token
-  const host = readHostRights(path.join(USER_DATA, 'host.json'), serverOrigin);
+  const host = readHostRights(hostFile, serverOrigin);
   if (host.ok) {
     redactions.add(host.token);
     redactions.add(encodeURIComponent(host.token));
@@ -149,7 +154,7 @@ function boot() {
   /** @type {Record<string, any>} */
   const report = {
     version: VERSION, shell: SHELL_BUILD, electron: process.versions.electron, chrome: process.versions.chrome, node: process.versions.node,
-    pid: process.pid, packaged: app.isPackaged, profile: PROFILE, mode: cfg.mode, server: serverOrigin, userData: USER_DATA,
+    pid: process.pid, packaged: app.isPackaged, profile: PROFILE, mode: cfg.mode, server: serverOrigin, serverVia: server.via, userData: USER_DATA,
     configSources: sources, configProblems: problems, timings: {}, events: [],
     hostRights: host.ok, previousUnclean: prev.unclean,
   };
@@ -669,7 +674,7 @@ function boot() {
     else if (what === 'reload') reloadGame();
     else if (what === 'config') {
       const f = path.join(USER_DATA, 'config.json');
-      try { if (!fs.existsSync(f)) fs.writeFileSync(f, userTemplate(cfg)); } catch (err) { log.warn(`config template: ${errMsg(err)}`); }
+      try { if (!fs.existsSync(f)) fs.writeFileSync(f, userTemplate(cfg, serverOrigin)); } catch (err) { log.warn(`config template: ${errMsg(err)}`); }
       shell.showItemInFolder(f);
     }
   });
@@ -810,7 +815,18 @@ function boot() {
 
     const wc = w.webContents;
     wc.setVisualZoomLevelLimits(1, 1).catch(() => {});
+    // v1.2: Left Ctrl crouches in the desktop app (src/hotkeys.cjs; AltGr's synthetic Ctrl filtered). The key still
+    // reaches the page, which never reads Ctrl itself; the page gets an abstract 'crouch' hotkey instead.
+    const hotkeys = createHotkeyMapper();
+    /** @param {{ action: string, down: boolean }[]} evs */
+    const sendHotkeys = (evs) => {
+      for (const ev of evs) {
+        try { if (!wc.isDestroyed()) wc.send('desktop:hotkey', ev); } catch { /* page gone */ }
+      }
+    };
+    w.on('blur', () => sendHotkeys(hotkeys.reset()));
     wc.on('before-input-event', (e, input) => {
+      sendHotkeys(hotkeys.map(input));
       if (input.type !== 'keyDown' || input.isAutoRepeat) return;
       if (input.key === 'F11' || (input.key === 'Enter' && input.alt)) {
         e.preventDefault();

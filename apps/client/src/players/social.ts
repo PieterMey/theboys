@@ -6,6 +6,7 @@ import { ANIM } from '@dead-air/shared/anim.ts';
 import type { EmoteKind } from '@dead-air/shared/messages/players.ts';
 import type { ClientContext } from '../core/context.ts';
 import type { V3 } from './types.ts';
+import type { StanceView } from './stealth.ts';
 
 export const EMOTE_ANIM: Record<EmoteKind, number> = {
   wave: ANIM.emoteWave, point: ANIM.emotePoint, beckon: ANIM.emoteBeckon, thumbs: ANIM.emoteThumbs,
@@ -25,6 +26,14 @@ export const ui = {
   locked: signal(false),
   inGame: signal(false),
   spectating: signal<{ on: boolean; target: string | null }>({ on: false, target: null }),
+  /** v1.2 stance HUD: set only when it changes (mode null = hidden) */
+  stance: signal<StanceView>({ mode: null, radiusM: 0, tag: null, soles: false }),
+  /** v1.2: +1 per local footstep (the stance HUD pulses) */
+  stepPulse: signal(0),
+  /** v1.2 one-time stealth hint on screen */
+  hint: signal<{ id: string; text: string; until: number } | null>(null),
+  /** v1.2 crawl vents: you are in a duct until performance.now() reaches `until` (null = not crawling) */
+  crawl: signal<{ until: number; total: number } | null>(null),
 };
 
 interface Marker { mesh: THREE.Group; until: number; born: number; mat: THREE.MeshBasicNodeMaterial; ring: THREE.MeshBasicNodeMaterial }

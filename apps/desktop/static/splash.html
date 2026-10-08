@@ -206,6 +206,19 @@
   }
   ensureTicker();
 
+  // rotating tips (a still frame on errors: the ticker above stops, and so do these)
+  const TIPS = [
+    'Wear a headset. The monsters hear what your friends hear.',
+    'Left Ctrl or C crouches. Creeping is silent to the Hound and the Listener.',
+    'Metal floors and grating carry your footsteps further. Carpet carries them less.',
+  ];
+  let tipIdx = 0;
+  setInterval(() => {
+    if ($('root').classList.contains('is-error') || $('root').classList.contains('fade')) return;
+    tipIdx = (tipIdx + 1) % TIPS.length;
+    $('tip').textContent = TIPS[tipIdx];
+  }, 7000);
+
   const api = window.deadAirSplash;
   if (api) {
     api.onStatus(render);
