@@ -13,7 +13,7 @@
     ]
   },
   "budget": {
-    "maxClips": 31,
+    "maxClips": 64,
     "maxSecondsPerClip": 4,
     "maxSecondsPerLoop": 8,
     "maxCreditsFraction": 0.25,
@@ -280,6 +280,165 @@
       {
         "key": "vo.pa_van_leaving",
         "text": "The van is now departing. Thank you for your service. Your next of kin have been notified in advance."
+      }
+    ]
+  },
+  "proposed": {
+    "note": "env-audio v1.2 (STRETCH): prompts only, NOT generated. fetch-assets --generate reads \"clips\" only; a prompt moves into clips only with the user's explicit OK (costs credits). The procedural synth kinds (apps/client/src/audio/synth.ts) and theme beds (beds.ts) play until then.",
+    "clips": [
+      {
+        "key": "sfx.knock_door_far",
+        "text": "One-shot: three slow, deliberate knuckle knocks on a heavy wooden door heard from the other side of the door, dull and muffled, small empty corridor, starts immediately, no music, no voices",
+        "duration_seconds": 2,
+        "loop": false,
+        "prompt_influence": 0.6
+      },
+      {
+        "key": "sfx.handle_rattle",
+        "text": "One-shot: someone slowly tries a locked metal lever door handle from the other side, a few short rattles and a latch click, empty building at night, close mic, no music, no voices",
+        "duration_seconds": 2,
+        "loop": false,
+        "prompt_influence": 0.6
+      },
+      {
+        "key": "sfx.chair_scrape_wood",
+        "text": "One-shot: a single short scrape of a wooden chair being pushed back a few centimetres on a tiled floor, one movement only, empty room, no music, no voices",
+        "duration_seconds": 1,
+        "loop": false,
+        "prompt_influence": 0.6
+      },
+      {
+        "key": "sfx.glass_creak",
+        "text": "One-shot: stressed window glass creaking and ticking under strain in the cold, slow tonal creak with tiny crackles, close mic, quiet room, no music",
+        "duration_seconds": 2,
+        "loop": false,
+        "prompt_influence": 0.6
+      },
+      {
+        "key": "sfx.glass_squeak_finger",
+        "text": "One-shot: a wet fingertip squeaking slowly across a fogged bathroom mirror, two short squeaks, close mic, tiled room, no music, no voices",
+        "duration_seconds": 1.5,
+        "loop": false,
+        "prompt_influence": 0.6
+      },
+      {
+        "key": "sfx.glass_crack_spread",
+        "text": "One-shot: a mirror cracking, one sharp crack followed by the fracture slowly spreading with small glassy ticks, close mic, tiled room, no shattering, no music",
+        "duration_seconds": 2,
+        "loop": false,
+        "prompt_influence": 0.6
+      },
+      {
+        "key": "sfx.frost_crackle",
+        "text": "One-shot: frost crystals forming on cold glass and metal, fine crackling and ticking getting denser, faint low cold draught underneath, close mic, no music",
+        "duration_seconds": 3.5,
+        "loop": false,
+        "prompt_influence": 0.6
+      },
+      {
+        "key": "sfx.relay_click",
+        "text": "One-shot: an old electrical relay inside a ceiling light fitting clicking once with a tiny metallic ring, close mic, quiet room, no music",
+        "duration_seconds": 0.6,
+        "loop": false,
+        "prompt_influence": 0.6
+      },
+      {
+        "key": "sfx.filament_pop",
+        "text": "One-shot: a light bulb filament burning out, a soft pop and a short fizz inside the glass, close mic, quiet room, no music",
+        "duration_seconds": 0.8,
+        "loop": false,
+        "prompt_influence": 0.6
+      },
+      {
+        "key": "sfx.wet_footstep",
+        "text": "One-shot: a single slow wet bare footstep on a concrete floor, a soft squelch and a few water drops, close mic, empty room, no music, no voices",
+        "duration_seconds": 1,
+        "loop": false,
+        "prompt_influence": 0.6
+      },
+      {
+        "key": "sfx.music_box_far",
+        "text": "One-shot: a small old music box playing a slow, sad, unrecognisable original melody in a minor key, slightly out of tune and winding down, heard from another room, no other music, no voices",
+        "duration_seconds": 4,
+        "loop": false,
+        "prompt_influence": 0.6
+      },
+      {
+        "key": "sfx.phone_bell_old",
+        "text": "One-shot: an old two-gong electromechanical telephone bell ringing once, heard from another room in an empty office building, muffled, no music, no voices",
+        "duration_seconds": 3,
+        "loop": false,
+        "prompt_influence": 0.6
+      },
+      {
+        "key": "sfx.radio_tuning",
+        "text": "One-shot: an old analogue radio being tuned slowly between stations, shifting static, heterodyne whistles and brief carrier hums, no voices, no music",
+        "duration_seconds": 3,
+        "loop": false,
+        "prompt_influence": 0.6
+      },
+      {
+        "key": "sfx.tv_static_crt",
+        "text": "One-shot: an old CRT television switched on to dead channel static, hiss with a faint high-pitched whine and a low mains buzz, in a dark room, no voices, no music",
+        "duration_seconds": 3,
+        "loop": false,
+        "prompt_influence": 0.6
+      },
+      {
+        "key": "sfx.clock_chime_far",
+        "text": "One-shot: an old mantel clock striking three times in an empty building, bell-like gong tones decaying, heard from down a corridor, no music, no voices",
+        "duration_seconds": 4,
+        "loop": false,
+        "prompt_influence": 0.6
+      },
+      {
+        "key": "sfx.pipe_groan",
+        "text": "One-shot: old steam pipes groaning low and long in the wall of a basement, metallic creak with one ticking knock at the end, no music, no voices",
+        "duration_seconds": 3.5,
+        "loop": false,
+        "prompt_influence": 0.6
+      },
+      {
+        "key": "sfx.bed_waterworks_loop",
+        "text": "Seamless loop: a damp pumping station hall, steady distant water flow, sparse echoing drips and a slow heavy pump thump, no music, no voices",
+        "duration_seconds": 8,
+        "loop": true,
+        "prompt_influence": 0.5
+      },
+      {
+        "key": "sfx.bed_hospital_vent_loop",
+        "text": "Seamless loop: hospital corridor ventilation at night, a steady airy HVAC hush with a faint low fan tone, no music, no voices, no beeps",
+        "duration_seconds": 8,
+        "loop": true,
+        "prompt_influence": 0.5
+      },
+      {
+        "key": "sfx.bed_cold_storage_loop",
+        "text": "Seamless loop: a cold storage warehouse, refrigeration compressor humming steadily with a low motor whine and a faint fan rush, no music, no voices",
+        "duration_seconds": 8,
+        "loop": true,
+        "prompt_influence": 0.5
+      },
+      {
+        "key": "sfx.bed_comms_relays_loop",
+        "text": "Seamless loop: an old telephone exchange equipment room, faint mains hum with sparse bursts of stepping relay clicks, no music, no voices, no ringing",
+        "duration_seconds": 8,
+        "loop": true,
+        "prompt_influence": 0.5
+      },
+      {
+        "key": "sfx.bed_industry_rumble_loop",
+        "text": "Seamless loop: an empty foundry at night, deep low machinery rumble and distant metal creaks, no music, no voices",
+        "duration_seconds": 8,
+        "loop": true,
+        "prompt_influence": 0.5
+      },
+      {
+        "key": "sfx.bed_lot_wind_loop",
+        "text": "Seamless loop: night wind gusting across an empty car park, soft gusts and a distant chain-link fence rattle, no music, no voices, no traffic",
+        "duration_seconds": 8,
+        "loop": true,
+        "prompt_influence": 0.5
       }
     ]
   }

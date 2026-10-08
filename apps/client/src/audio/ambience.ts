@@ -1,13 +1,11 @@
-// Owner: track ④ Voice/audio. Procedural ambience (no assets): low tension drone, fluorescent hum per nearby
-// fixture (follows 'flicker' / 'off' / 'broken' fixture states and bus 'audio:flicker'), heartbeat (setFear 0..1),
-// radio static generator. All synthesized on the shared graph (ambBus).
+// Owner: env-audio (v1.2; was track ④ Voice/audio). Procedural ambience (no assets) on the shared graph (ambBus):
+// the low tension drone, the heartbeat (fear 0..1: the maximum over sfx.fear sources, fear.ts) and the radio static
+// generator with its crackle. The fixture hums moved to hums.ts (power-aware), the theme beds to beds.ts.
 import type { AudioGraph, V3 } from './graph.ts';
-import { setPannerPos } from './graph.ts';
 import { crackleRng, crackleStep } from './crackle.ts';
 
-export interface FixtureLike { space: number; pos: V3; state: 'on' | 'off' | 'flicker' | 'broken' }
-
-interface Hum { osc: OscillatorNode[]; g: GainNode; panner: PannerNode; fx: FixtureLike; flickerUntil: number }
+/** a fixture as the level service lists it (kept for older callers; hums.ts has the v1.2 shape) */
+export interface FixtureLike { space: number; pos: V3; state: 'on' | 'off' | 'flicker' | 'broken'; kind?: string }
 
 export class Ambience {
   private g: AudioGraph;
@@ -23,9 +21,6 @@ export class Ambience {
   private nextCrackle = 0;
   private crackling = false;
   private crackleRnd = crackleRng();
-  private hums = new Map<string, Hum>();
-  private humBus: GainNode;
-  private flickers = new Map<number, number>();
 
   constructor(g: AudioGraph) {
     this.g = g;
@@ -62,9 +57,6 @@ export class Ambience {
     const hp = new BiquadFilterNode(ac, { type: 'highpass', frequency: 3000 });
     n.connect(hp).connect(this.crackleGain).connect(g.ambBus);
     n.start();
-    this.humBus = ac.createGain();
-    this.humBus.gain.value = 0.5;
-    this.humBus.connect(g.ambBus);
   }
 
   setDrone(on: boolean, level = 0.22): void {
@@ -73,16 +65,14 @@ export class Ambience {
   }
   drone(): boolean { return this.droneOn; }
 
-  setFear(v: number): void { this.fear = Math.max(0, Math.min(1, v)); }
+  /** heartbeat drive 0..1 (index.ts feeds the smoothed maximum over the fear sources) */
+  setFear(v: number): void { this.fear = Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0; }
+  fearLevel(): number { return this.fear; }
 
   /** radio static level 0..1 (e.g. near the Listener / dead air) */
   setStatic(v: number): void {
     const t = this.g.ac.currentTime;
-    this.staticGain.gain.setTargetAtTime(Math.max(0, Math.min(1, v)) * 0.08, t, 0.08);
-  }
-
-  flicker(space: number, ms: number): void {
-    this.flickers.set(space, performance.now() + ms);
+    this.staticGain.gain.setTargetAtTime((Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0) * 0.08, t, 0.08);
   }
 
   private beat(at: number, strength: number): void {
@@ -99,11 +89,12 @@ export class Ambience {
       eg.gain.exponentialRampToValueAtTime(0.0005, t + 0.22);
       o.start(t);
       o.stop(t + 0.25);
+      o.onended = () => { try { eg.disconnect(); } catch { /* ignore */ } };
     }
   }
 
-  /** called ~20-30 Hz with the listener position and nearby fixtures */
-  update(listener: V3 | null, fixtures: readonly FixtureLike[] | null): void {
+  /** called ~25 Hz: heartbeat + crackle scheduling on the audio clock */
+  update(): void {
     const ac = this.g.ac;
     const now = ac.currentTime;
     // heartbeat scheduler (look-ahead)
@@ -133,47 +124,6 @@ export class Ambience {
       this.crackling = false;
       this.crackleGain.gain.cancelScheduledValues(now);
       this.crackleGain.gain.setTargetAtTime(0, now, 0.02);
-    }
-    // fluorescent hums: the 6 nearest lit fixtures within 12 m
-    if (!listener || !fixtures) return;
-    const near = fixtures
-      .map((f, i) => ({ f, i, d: Math.hypot(f.pos[0] - listener[0], f.pos[2] - listener[2]) }))
-      .filter((x) => x.d < 12 && x.f.state !== 'off' && x.f.state !== 'broken')
-      .sort((a, b) => a.d - b.d)
-      .slice(0, 6);
-    const keep = new Set<string>();
-    for (const { f, i } of near) {
-      const key = `${i}:${f.pos[0].toFixed(1)},${f.pos[2].toFixed(1)}`;
-      keep.add(key);
-      let h = this.hums.get(key);
-      if (!h) {
-        const g = new GainNode(ac, { gain: 0 });
-        const panner = new PannerNode(ac, { panningModel: 'equalpower', distanceModel: 'inverse', refDistance: 1, maxDistance: 12, rolloffFactor: 1.5, positionX: f.pos[0], positionY: f.pos[1], positionZ: f.pos[2] });
-        const osc = [100, 200, 300, 120].map((fr, j) => {
-          const o = new OscillatorNode(ac, { type: j === 0 ? 'sawtooth' : 'sine', frequency: fr + (i % 3) * 0.3 });
-          const og = new GainNode(ac, { gain: [0.02, 0.012, 0.006, 0.008][j] });
-          o.connect(og).connect(g);
-          o.start();
-          return o;
-        });
-        g.connect(panner).connect(this.humBus);
-        h = { osc, g, panner, fx: f, flickerUntil: 0 };
-        this.hums.set(key, h);
-      }
-      h.fx = f;
-      setPannerPos(h.panner, ac, f.pos, 0.1);
-      const flick = f.state === 'flicker' || (this.flickers.get(f.space) ?? 0) > performance.now();
-      if (flick) {
-        // stuttering buzz synced to the flicker
-        const on = Math.sin(now * 23.3 + i) + Math.sin(now * 7.1 + i * 2) > 0.3;
-        h.g.gain.setTargetAtTime(on ? 1.4 : 0.05, now, 0.01);
-      } else h.g.gain.setTargetAtTime(1, now, 0.2);
-    }
-    for (const [key, h] of this.hums) {
-      if (keep.has(key)) continue;
-      h.g.gain.setTargetAtTime(0, now, 0.2);
-      this.hums.delete(key);
-      setTimeout(() => { for (const o of h.osc) { try { o.stop(); } catch { /* ignore */ } } h.g.disconnect(); }, 1200);
     }
   }
 }

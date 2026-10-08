@@ -1,7 +1,9 @@
-// Owner: track ④ Voice/audio. The shared Web Audio graph on the ONE AudioContext (ctx.audio):
+// Owner: env-audio (v1.2; was track ④ Voice/audio). The shared Web Audio graph on the ONE AudioContext (ctx.audio):
 //   voiceBus -> voiceComp (DynamicsCompressor) -> master -> destination
-//   sfxBus -> master;  ambBus -> master;  reverb (one shared ConvolverNode, generated IR) -> master
+//   sfxBus -> master;  ambBus -> master
+//   reverb (send here) -> hall IR + small dry room IR (generated, cross-faded by the listener's room) -> wet -> master
 // Plus the listener updater (camera / local player pose) and small deterministic noise helpers (no Math.random).
+// Voice, AI lures and the menu import these exports: keep every name and signature (additive changes only).
 import type { ClientContext } from '../core/context.ts';
 
 export type V3 = [number, number, number];
@@ -17,6 +19,12 @@ export interface AudioGraph {
   reverb: GainNode;
   /** shared white-noise buffer (2 s, deterministic) */
   noise: AudioBuffer;
+  /** v1.2: hall vs small-dry-room IR blend 0..1 (1 = the v1.1 hall, the default), equal power, smoothed over tc s */
+  setReverbMix?(hall: number, tc?: number): void;
+  /** v1.2: reverb return level (1 = the v1.1 level) */
+  setReverbWet?(k: number, tc?: number): void;
+  /** v1.2: the current blend / return targets */
+  reverbState?(): { mix: number; wet: number };
 }
 
 let graph: AudioGraph | null = null;
@@ -51,6 +59,29 @@ function makeImpulse(ac: AudioContext, sec: number, decay: number): AudioBuffer 
   return buf;
 }
 
+/** small dry room: a handful of early reflections (first ~25 ms) and a short, dark, steep tail */
+function makeRoomImpulse(ac: AudioContext, sec: number): AudioBuffer {
+  const sr = ac.sampleRate;
+  const len = Math.max(1, Math.floor(sr * sec));
+  const buf = ac.createBuffer(2, len, sr);
+  for (let c = 0; c < 2; c++) {
+    const d = buf.getChannelData(c);
+    const rnd = makeNoise(0x7654321 + c * 104729);
+    // early reflections: walls 1.5-4 m away
+    for (let k = 0; k < 9; k++) {
+      const at = Math.floor(sr * (0.002 + 0.023 * ((rnd() + 1) / 2)));
+      if (at < len) d[at] += (0.55 - k * 0.04) * (rnd() > 0 ? 1 : -1);
+    }
+    let lp = 0;
+    for (let i = 0; i < len; i++) {
+      const t = i / len;
+      lp += (rnd() - lp) * (0.4 - 0.3 * t);
+      d[i] += lp * Math.pow(1 - t, 5.5) * (i < sr * 0.003 ? 0.3 : 1);
+    }
+  }
+  return buf;
+}
+
 export function getGraph(ac: AudioContext): AudioGraph {
   if (graph && graph.ac === ac) return graph;
   const master = ac.createGain();
@@ -73,14 +104,40 @@ export function getGraph(ac: AudioContext): AudioGraph {
   const reverb = ac.createGain();
   const conv = ac.createConvolver();
   conv.buffer = makeImpulse(ac, 1.9, 3.2);
+  // v1.2: a second (small dry room) IR, cross-faded with the hall by the listener's room (index.ts / acoustics.ts)
+  const roomConv = ac.createConvolver();
+  roomConv.buffer = makeRoomImpulse(ac, 0.5);
+  const hallG = ac.createGain();
+  hallG.gain.value = 1;
+  const roomG = ac.createGain();
+  roomG.gain.value = 0;
   const wet = ac.createGain();
   wet.gain.value = 0.8;
-  reverb.connect(conv).connect(wet).connect(master);
+  reverb.connect(conv).connect(hallG).connect(wet);
+  reverb.connect(roomConv).connect(roomG).connect(wet);
+  wet.connect(master);
   const noise = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
   const nd = noise.getChannelData(0);
   const rnd = makeNoise(0xdeadbeef);
   for (let i = 0; i < nd.length; i++) nd[i] = rnd();
-  graph = { ac, master, voiceBus, voiceComp, sfxBus, ambBus, reverb, noise };
+  const rv = { mix: 1, wet: 1 };
+  const clamp01 = (v: number, hi = 1) => Math.max(0, Math.min(hi, v));
+  graph = {
+    ac, master, voiceBus, voiceComp, sfxBus, ambBus, reverb, noise,
+    setReverbMix(hall: number, tc = 0.6) {
+      if (!Number.isFinite(hall)) return;
+      rv.mix = clamp01(hall);
+      const t = ac.currentTime;
+      targetTo(hallG.gain, Math.sqrt(rv.mix), t, tc);
+      targetTo(roomG.gain, Math.sqrt(1 - rv.mix), t, tc);
+    },
+    setReverbWet(k: number, tc = 0.6) {
+      if (!Number.isFinite(k)) return;
+      rv.wet = clamp01(k, 2);
+      targetTo(wet.gain, 0.8 * rv.wet, ac.currentTime, tc);
+    },
+    reverbState: () => ({ mix: rv.mix, wet: rv.wet }),
+  };
   return graph;
 }
 

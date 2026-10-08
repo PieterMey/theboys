@@ -1,6 +1,9 @@
-// Owner: env-audio (v1.2). Contract stub (plan check #24a, #13): the synthesized-sound names and options env-paranormal
-// (E4) and env-audio (E5) share, plus the v1.2 sfx members. E5 implements them in audio/index.ts and sfx.ts; until then
-// consumers call them with ?.:  ctx.services.use('sfx')?.synth?.('knock', p, { seed, pattern: 'wood' }).
+// Owner: env-audio (v1.2). Contract (plan check #24a, #13): the synthesized-sound names and options env-paranormal
+// (E4) and env-audio (E5) share, plus the v1.2 sfx members (implemented in audio/index.ts, synth.ts, sfx.ts).
+// Consumers call them with ?. (a missing provider is a no-op):
+//   ctx.services.use('sfx')?.synth?.('knock', p, { seed, pattern: 'wood' });
+//   ctx.services.use('sfx')?.play('sfx.door_creak', p, { occlude: true });   // ambience / paranormal only
+//   ctx.services.use('sfx')?.fear?.('paranormal', 0.6, 4000);                // only what the player perceives
 import type { Vec3 } from '@dead-air/shared/state.ts';
 import type { SfxHandle } from './sfx.ts';
 
@@ -15,7 +18,7 @@ export type SynthKind =
   | 'frost' // frost crackle + low wind
   | 'relay_tink' | 'filament_pop'
   | 'wet_step'
-  // SHOULD (E5); synth() returns null for kinds that are not built
+  // SHOULD (E5); synth() returns null for kinds that are not built (all of them are built in v1.2)
   | 'music_box' | 'phone_bell' | 'radio_sweep' | 'tv_static' | 'clock_chime' | 'pipe_groan';
 
 export type KnockPattern = 'wood' | 'metal' | 'locker';
@@ -24,26 +27,23 @@ export interface SynthOpts {
   /** deterministic variation (no Math.random where clients must agree): pass the event seed */
   seed?: number;
   volume?: number;
+  /** pitch + speed like a playbackRate (0.5..2, default 1) */
   rate?: number;
   /** knock: material pattern (default 'wood') */
   pattern?: KnockPattern;
-  /** knock: number of hits */
+  /** knock: number of hits (1-8); handle_rattle: rattles; glass_squeak: squeaks; clock_chime: strikes (1-12) */
   count?: number;
-  /** sustained kinds (frost, tv_static, radio_sweep, pipe_groan): duration in ms */
+  /** sustained kinds (frost, tv_static, radio_sweep, pipe_groan, phone_bell, music_box): duration in ms */
   ms?: number;
-  /** spatial falloff radius (m) */
+  /** spatial falloff radius (m); default per kind */
   radius?: number;
-  /** occlusion + per-sound reverb send (config/balance/audio.json); ambience and paranormal only, never monsters */
+  /** occlusion + per-sound reverb send (config/balance/audio.json). synth sounds are ambience / paranormal, so a
+   *  positional synth() call occludes unless this is false. */
   occlude?: boolean;
   /** non-positional (UI / 2D) */
   ui?: boolean;
-}
-
-declare module './sfx.ts' {
-  interface SfxPlayOpts {
-    /** v1.2 (E5): occlusion + reverb send for this sound (ambience, paranormal); ignored until E5 implements it */
-    occlude?: boolean;
-  }
+  /** v1.2 addition: a new sound with the same id stops the previous one */
+  id?: string;
 }
 
 declare module '../core/services.ts' {

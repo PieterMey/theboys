@@ -1,1 +1,26 @@
-{ "_doc": "env-audio v1.2: occlusion + reverb only for sounds played with occlude:true (ambience, paranormal)", "occlusionPerWallDb": -6, "occlusionLowpassHz": [20000, 2400, 1200, 700, 450], "occludeMonsters": false }
+{
+  "_doc": "env-audio v1.2 (apps/client/src/audio/config.ts has the defaults and docs). occlusion gain + reverb send only for sounds played with occlude:true (ambience, paranormal, synth); monsters, items and UI keep the v1.1 lowpass (legacyLowpassHz) unless occludeMonsters is signed off by gameplay",
+  "occlusionPerWallDb": -6,
+  "occlusionLowpassHz": [20000, 2400, 1200, 700, 450],
+  "closedDoorWallFrac": 0.6,
+  "occludeMonsters": false,
+  "legacyLowpassHz": [20000, 2400, 1200, 700, 450],
+  "reverb": {
+    "base": 0.16, "min": 0.02, "max": 0.55,
+    "sizeRefM3": 180, "sizeExp": 0.22, "sizeMin": 0.55, "sizeMax": 1.7,
+    "corridor": 1.15, "outdoor": 0.3, "echoes": 1.6,
+    "distRefM": 1.5, "distRolloffM": 14, "distBoost": 0.6, "distBoostM": 10,
+    "throughWall": 0.5,
+    "surface": { "tile": 1.25, "metal": 1.3, "grate": 1.15, "concrete": 1.15, "lino": 1, "rubber": 0.8, "wood": 0.8, "carpet": 0.55, "asphalt": 0.6, "dirt": 0.45, "water": 1.35 },
+    "theme": { "facility": 1, "hospital": 1.1, "waterworks": 1.2, "industry": 1.15, "records": 0.75, "hospitality": 0.8, "cold_storage": 1.15, "comms": 0.85, "transport": 1.1, "retail": 0.85, "parish": 1.3, "baths": 1.35, "greenhouse": 0.9, "laundry": 1.1 },
+    "irSmallM3": 70, "irHallM3": 600, "irOutdoor": 0.35, "irCorridor": 0.6,
+    "wet": 1, "wetOutdoor": 0.45, "wetEchoes": 1.35
+  },
+  "hum": {
+    "radiusM": 13, "max": 8, "attackSec": 0.02, "releaseSec": 0.025, "cutSec": 0.2, "bus": 0.5,
+    "kinds": { "tube": 1, "highbay": 1.6, "buzz": 0.45, "tick": 0.12 },
+    "switchTink": 0.22, "tinkRadiusM": 12, "occlude": true
+  },
+  "beds": { "level": 1, "fadeSec": 2.5, "eventRadiusM": 12 },
+  "fear": { "attackSec": 0.3, "releaseSec": 2.2 }
+}
