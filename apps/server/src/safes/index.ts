@@ -10,9 +10,10 @@ import type { TrackInstall } from '../core/boot.ts';
 import type { Crew, ServerContext, ServerPlayer } from '../core/types.ts';
 import type { LevelLayout, LayoutSpace } from '@dead-air/shared/layout.ts';
 import { makeRng } from '@dead-air/shared/rng.ts';
+import { ITEM_DEFS } from '@dead-air/shared/interactables.ts';
 import * as IX from '../interaction/api.ts';
 import { emitNoise } from '../players/noise.ts';
-import { awardXp } from '../meta/api.ts';
+import { awardXp, recordStat } from '../meta/api.ts';
 
 export interface Safe {
   id: string;
@@ -44,7 +45,24 @@ type AnyEmit = (crew: Crew, e: string, d: unknown, opts?: { to?: string[]; excep
 const DEF: Record<string, number> = {
   countMin: 1, countMax: 2, minDistFrac: 0.55, poolSize: 6, dialMax: 40, minStep: 6, rewardMin: 120, rewardMax: 200,
   xp: 30, wrongNoiseM: 10, maxDialPerSec: 30, maxUseDistM: 3, wallInsetM: 0.42, doorClearM: 1.4, itemClearM: 1.2,
+  safeGearChance: 0.35,
 };
+/** v1.2 safe gear weights (only types interaction implements, i.e. with ITEM_DEFS) */
+const SAFE_GEAR: Record<string, number> = { lockpick: 3, masterkey: 2, nvg: 1, battery: 3, flashbulb: 2, soles: 2 };
+
+/** v1.2: one piece of gear from a cracked safe (chance, weights), its own stream per safe so placement never moves */
+export function safeGear(layout: LevelLayout, s: Pick<Safe, 'id'>, weights: Record<string, number>, chance: number): string | null {
+  const rng = makeRng(`${layout.seed}:${layout.hash}:${s.id}`, 'safes.gear');
+  if (!rng.chance(Math.max(0, Math.min(1, chance)))) return null;
+  const list = Object.entries(weights).filter(([t, w]) => !!ITEM_DEFS[t] && Number(w) > 0);
+  const total = list.reduce((a, [, w]) => a + Number(w), 0);
+  let r = rng.next() * total;
+  for (const [t, w] of list) {
+    r -= Number(w);
+    if (r < 0) return t;
+  }
+  return list.length ? list[list.length - 1]![0] : null;
+}
 
 export const install: TrackInstall = (ctx: ServerContext) => {
   const log = ctx.log('safes');
@@ -57,6 +75,10 @@ export const install: TrackInstall = (ctx: ServerContext) => {
   const str = (k: string, d: string): string => {
     const v = (ctx.balance.safes as Record<string, unknown> | undefined)?.[k];
     return typeof v === 'string' && v ? v : d;
+  };
+  const gearWeights = (): Record<string, number> => {
+    const v = (ctx.balance.safes as Record<string, unknown> | undefined)?.safeGear;
+    return v && typeof v === 'object' ? (v as Record<string, number>) : SAFE_GEAR;
   };
   const emit = ctx.emit as unknown as AnyEmit;
   const req = ctx.registerReq as unknown as AnyReq;
@@ -181,12 +203,16 @@ export const install: TrackInstall = (ctx: ServerContext) => {
       IX.updateInteractable(crew, s.id, { enabled: false, prompt: 'Company safe (empty)' });
       const opts = { value: s.value, name: str('rewardName', 'Company bearer bonds') };
       const type = str('rewardType', 'loot.medium');
-      const it = IX.giveItem(crew, player.id, type, opts) ?? IX.spawnItem(crew, type, [s.x + s.face[0] * 0.6, 0, s.z + s.face[1] * 0.6], opts);
+      const it = IX.giveItem(crew, player.id, type, { ...opts, via: 'safe' }) ?? IX.spawnItem(crew, type, [s.x + s.face[0] * 0.6, 0, s.z + s.face[1] * 0.6], opts);
+      // v1.2 (flag gearV12): the bonds, and safeGearChance of one piece of v1.2 gear (deterministic per safe)
+      const gear = ctx.flags.gearV12 !== false ? safeGear(crew.layout!, s, gearWeights(), num('safeGearChance')) : null;
+      if (gear) IX.giveItem(crew, player.id, gear, { via: 'safe' });
+      try { recordStat(crew, player.id, 'safesCracked'); } catch { /* meta absent */ }
       let xp = 0;
       try { xp = awardXp(crew, player.id, num('xp'), 'Cracked a company safe') ? num('xp') : 0; } catch { /* meta absent */ }
       emit(crew, 'safes.fx', { id: s.id, fx: 'open', p: [s.x, 0.8, s.z] });
-      log.info(`${player.name} cracked ${s.id} in ${crew.code} (+${s.value} scrip item ${it?.id ?? '?'})`);
-      return { ok: true, stage: s.stage, open: true, value: s.value, name: opts.name, xp };
+      log.info(`${player.name} cracked ${s.id} in ${crew.code} (+${s.value} scrip item ${it?.id ?? '?'}${gear ? ` + ${gear}` : ''})`);
+      return { ok: true, stage: s.stage, open: true, value: s.value, name: opts.name, xp, ...(gear ? { gear, gearName: ITEM_DEFS[gear]?.name ?? gear } : {}) };
     }
     s.stage = 0;
     emitNoise(crew, { x: s.x, z: s.z, radiusM: num('wrongNoiseM'), kind: 'safeClunk', source: player.id });

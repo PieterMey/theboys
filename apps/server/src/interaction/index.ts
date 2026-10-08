@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import type { Crew, ServerContext, ServerPlayer } from '../core/types.ts';
 import { SYSTEM_ORDER } from '../core/types.ts';
 import type { LevelLayout } from '@dead-air/shared/layout.ts';
+import type { ContainerInfo } from '@dead-air/shared/procgen/containers.ts';
 import type { Phase, Vec3 } from '@dead-air/shared/state.ts';
 import * as E from './engine.ts';
 
@@ -53,6 +54,9 @@ export async function install(ctx: ServerContext): Promise<void> {
   ctx.registerReq('interaction.drop', (crew, player, a) => done(crew, E.dropActive(crew, player, typeof a?.slot === 'number' ? a.slot : undefined)));
   ctx.registerReq('interaction.slot', (crew, player, a) => done(crew, E.selectSlot(crew, player, Number(a?.slot))));
   ctx.registerReq('interaction.consoleDoor', (crew, player, a) => done(crew, E.consoleDoor(crew, player, Number(a?.id), typeof a?.open === 'boolean' ? a.open : undefined)));
+  // v1.2: server-timed hold-E (quiet doors / drawers, lockpicks, security-door holds) and night vision
+  ctx.registerReq('interaction.ease', (crew, player, a) => done(crew, E.easeReq(crew, player, String(a?.id ?? ''), a?.on === true)));
+  ctx.registerReq('interaction.nv', (crew, player, a) => done(crew, E.setNightVision(crew, player, a?.on === true)));
 
   // ---------------- hooks
   ctx.hooks.join.push(function interactionJoin(crew, player) {
@@ -81,7 +85,7 @@ export async function install(ctx: ServerContext): Promise<void> {
     return p ?? me;
   };
   ctx.registerDbg('interaction.loadLayout', async (crew, _p, args) => {
-    const a = (args ?? {}) as { name?: string; phase?: Phase; seed?: string; players?: number; risk?: number };
+    const a = (args ?? {}) as { name?: string; dir?: string; phase?: Phase; seed?: string; players?: number; risk?: number };
     let layout: LevelLayout | null = null;
     if (a.seed !== undefined) {
       const lvl = await tryImport('../level/index.ts');
@@ -90,7 +94,9 @@ export async function install(ctx: ServerContext): Promise<void> {
     }
     if (!layout) {
       const name = String(a.name ?? 'facility_s1_p2').replace(/[^a-z0-9_]/gi, '');
-      const file = join(ctx.env.ROOT, 'tests/fixtures/layouts', `${name}.json`);
+      // 'layouts' (default) or a frozen reference set such as 'identity-v11'
+      const dir = String(a.dir ?? 'layouts').replace(/[^a-z0-9_-]/gi, '');
+      const file = join(ctx.env.ROOT, 'tests/fixtures', dir, `${name}.json`);
       if (!existsSync(file)) throw new Error(`no fixture ${name}`);
       layout = JSON.parse(readFileSync(file, 'utf8')) as LevelLayout;
     }
@@ -103,18 +109,20 @@ export async function install(ctx: ServerContext): Promise<void> {
     return { ...E.publicState(s), thrown: s.thrown, deaths: s.deaths, powerPush: s.powerPush, blackoutPush: s.blackoutPush, switches: s.switches, adapters: { noise: !!E.adapters.noise, obj: !!E.adapters.obj, meta: !!E.adapters.meta } };
   });
   ctx.registerDbg('interaction.give', (crew, p, args) => {
-    const a = (args ?? {}) as { type?: string; pid?: string; count?: number; value?: number; name?: string; lock?: number };
+    const a = (args ?? {}) as { type?: string; pid?: string; count?: number; value?: number; name?: string; lock?: number; via?: string };
+    const via = (['handout', 'buy', 'craft', 'safe', 'container', 'api'] as const).find((v) => v === a.via);
     const it = E.giveItemTo(crew, target(crew, p, a.pid).id, String(a.type ?? 'bottle'), {
       ...(a.count !== undefined ? { count: a.count } : {}), ...(a.value !== undefined ? { value: a.value } : {}),
-      ...(a.name ? { name: a.name } : {}), ...(a.lock !== undefined ? { lock: a.lock } : {}),
+      ...(a.name ? { name: a.name } : {}), ...(a.lock !== undefined ? { lock: a.lock } : {}), ...(via ? { via } : {}),
     });
     E.flush(crew);
     return it;
   });
   ctx.registerDbg('interaction.spawn', (crew, _p, args) => {
-    const a = (args ?? {}) as { type?: string; x?: number; z?: number; y?: number; count?: number; value?: number };
+    const a = (args ?? {}) as { type?: string; x?: number; z?: number; y?: number; count?: number; value?: number; name?: string; mats?: Record<string, number> };
     const it = E.spawnWorldItem(crew, String(a.type ?? 'bottle'), [Number(a.x ?? 0), Number(a.y ?? 0), Number(a.z ?? 0)], {
       ...(a.count !== undefined ? { count: a.count } : {}), ...(a.value !== undefined ? { value: a.value } : {}),
+      ...(a.name ? { name: String(a.name) } : {}), ...(a.mats && typeof a.mats === 'object' ? { mats: { ...a.mats } } : {}),
     });
     E.flush(crew);
     return it;
@@ -156,6 +164,28 @@ export async function install(ctx: ServerContext): Promise<void> {
   ctx.registerDbg('interaction.litAt', (crew, _p, args) => {
     const a = (args ?? {}) as { x?: number; z?: number };
     return { lit: E.litAtXZ(crew, Number(a.x ?? 0), Number(a.z ?? 0)) };
+  });
+  // v1.2 (dev only): a containersOf test double until E1's lands (list = ContainerInfo[]; [] / null = back to containersOf),
+  // the private drawer contents, the van stash and the van materials (take: true empties them like takeVanMaterials)
+  ctx.registerDbg('interaction.containers', (crew, _p, args) => {
+    const a = (args ?? {}) as { list?: ContainerInfo[] | null };
+    const n = E.overrideContainers(crew, Array.isArray(a.list) ? a.list : null);
+    E.flush(crew);
+    return { n };
+  });
+  ctx.registerDbg('interaction.stock', (crew, _p, args) => {
+    const a = (args ?? {}) as { id?: string; type?: string; name?: string; value?: number };
+    return { ok: E.stockContainerItem(crew, String(a.id ?? ''), { type: String(a.type ?? 'page'), ...(a.name ? { name: String(a.name) } : {}), ...(a.value !== undefined ? { value: Number(a.value) } : {}) }) };
+  });
+  ctx.registerDbg('interaction.peek', (crew) => {
+    const s = E.slice(crew);
+    return { contents: E.containerPeek(crew), vanMats: { ...s.vanMats }, easing: s.easing, pending: s.pendingSpawns.length };
+  });
+  ctx.registerDbg('interaction.vanMaterials', (crew, _p, args) => {
+    const take = (args as { take?: boolean } | null)?.take === true;
+    const r = E.vanMaterialsOf(crew, take);
+    E.flush(crew);
+    return r;
   });
   ctx.registerDbg('interaction.consoleAnywhere', (_crew, p, args) => {
     const sl = ((p.slices[E.TRACK] ??= {}) as { consoleAnywhere?: boolean });

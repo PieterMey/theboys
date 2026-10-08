@@ -1,13 +1,23 @@
 // Owner: track (b) Interaction. Per-crew interaction engine: interactable registry, doors, items + inventories,
 // throws, melee, glowsticks, hiding, light switches, death / bodies / badges / revive. All state lives in
 // crew.slices.interaction (an InteractionState plus private fields), so ① Net can read slices.interaction.doors[id].open.
+// v1.2 (G3): server-timed hold-E ("ease": quiet doors and drawers, lockpicks, security-door holds), openable containers
+// with server-private contents, crafting materials in a per-player salvage pouch (deposited into the van stash), new
+// gear (battery, lockpicks, master keycard, overshoes, night vision, flashbulb, curio), the item event bus
+// (onItemEvent) and the van upgrades' server effects.
 import type { Crew, ServerContext, ServerPlayer } from '../core/types.ts';
 import type { LayoutDoor, LayoutItem, LevelLayout } from '@dead-air/shared/layout.ts';
 import type { InteractableInfo } from '@dead-air/shared/interactables.ts';
-import { GEAR_PACKS, INTERACT_RADIUS, INV_SLOTS, ITEM_DEFS, LOOT_NAMES, LOOT_TIER_TYPES, itemDef } from '@dead-air/shared/interactables.ts';
+import { GEAR_PACKS, INTERACT_RADIUS, INV_SLOTS, ITEM_DEFS, LOOT_NAMES, LOOT_TIER_TYPES, itemDef, itemLabel } from '@dead-air/shared/interactables.ts';
 import type {
-  BodyState, DeathCause, DoorState, InteractionPatch, InteractionState, IxFxKind, IxResult, ItemState,
+  BodyState, ContainerState, DeathCause, DoorState, FlashState, InteractionPatch, InteractionState, IxFxKind, IxResult, ItemEvent, ItemState,
 } from '@dead-air/shared/messages/interaction.ts';
+import { GEAR_V12, PAGE_TYPE, POOL_STACK, POOL_TYPES, POUCH_TYPE, isMaterial, v12Id } from '@dead-air/shared/catalog.ts';
+import { containersOf } from '@dead-air/shared/procgen/containers.ts';
+import type { ContainerInfo } from '@dead-air/shared/procgen/containers.ts';
+import { stealthStance } from '../players/api.ts';
+import { CONTAINER_LOOT_DEFAULT, MATERIALS_DEFAULT, planFinds, planMaterials, rollContainers } from './spawns.ts';
+import type { ContainerLootCfg, MaterialsCfg, SpawnSpec } from './spawns.ts';
 import { buildEdgeGrid, los } from '@dead-air/shared/nav/index.ts';
 import type { EdgeGrid } from '@dead-air/shared/nav/index.ts';
 import { NOISE_M, PLAYER, WORLD } from '@dead-air/shared/constants.ts';
@@ -63,6 +73,40 @@ export interface IxSlice extends InteractionState {
   idolNext: Record<string, number>;
   idolN: number;
   rng: Rng | null;
+  // ---- v1.2 (private: never in publicState)
+  /** pid -> the server-timed hold-E in progress (quiet ease, lockpick, security-door force, master-keycard ease) */
+  easing: Record<string, EaseRun>;
+  /** pid -> server ms of the last ease start (anti-spam) */
+  lastEase: Record<string, number>;
+  /** container id (host prop id) -> layout info */
+  containerInfo: Map<string, ContainerInfo>;
+  /** container id -> contents (rolled once per layout; spawned as world items on opening) */
+  contents: Map<string, SpawnSpec[]>;
+  /** tapped containers: their contents appear once the drawer has slid open */
+  pendingSpawns: { at: number; cid: string; by: string }[];
+  /** materials deposited at the van this contract (MaterialType -> units) */
+  vanMats: Record<string, number>;
+  /** item ids that were in someone's inventory this contract (ItemEvent.fresh) */
+  heldOnce: Set<string>;
+  /** badge owner pid -> hp + filer of the scheduled badge respawn (stretcher upgrade) */
+  respawnInfo: Record<string, { hp: number; by: string | null }>;
+  /** dev-only test double for containersOf (dbg.interaction.containers) */
+  containerOverride: ContainerInfo[] | null;
+}
+
+/** a server-timed hold-E (v1.2): commits at t0 + ms unless cancelled */
+export interface EaseRun {
+  /** interactable id ('door:12', 'cont:prop:41') */
+  id: string;
+  target: 'door' | 'container';
+  /** door id / container id */
+  ref: number | string;
+  /** soft = quiet ease, pick = lockpick (loud, unlocks only), force = security-door hold (loud),
+   *  key = master keycard on a locked door (one charge, then a quiet open) */
+  mode: 'soft' | 'pick' | 'force' | 'key';
+  to: boolean;
+  t0: number;
+  ms: number;
 }
 
 // ---------------------------------------------------------------- module state (bound at install)
@@ -74,6 +118,8 @@ const reviveFns: ReviveFn[] = [];
 const meleeFns: MeleeFn[] = [];
 const doorFns: DoorFn[] = [];
 const depositFns: DepositFn[] = [];
+/** v1.2 item event bus (api.onItemEvent) */
+const itemEventFns = new Set<(crew: Crew, e: ItemEvent) => void>();
 
 interface NoiseApi { emitNoise?: (crew: Crew, n: { x: number; z: number; radiusM: number; kind: string; source: string | null }) => void }
 interface ObjApi { state?: (crew: Crew) => { power?: Record<number, boolean>; blackout?: boolean } | null | undefined }
@@ -93,6 +139,18 @@ export function addReviveFn(fn: ReviveFn): void { reviveFns.push(fn); }
 export function addMeleeFn(fn: MeleeFn): void { meleeFns.push(fn); }
 export function addDoorFn(fn: DoorFn): void { doorFns.push(fn); }
 export function addDepositFn(fn: DepositFn): void { depositFns.push(fn); }
+export function addItemEventFn(fn: (crew: Crew, e: ItemEvent) => void): () => void {
+  itemEventFns.add(fn);
+  return () => { itemEventFns.delete(fn); };
+}
+/** publish an item event (server only, never sent to clients); subscriber errors are logged, never thrown */
+export function emitItem(crew: Crew, e: ItemEvent): void {
+  for (const fn of itemEventFns) safe('onItemEvent', () => fn(crew, e));
+}
+/** kinds this track handles itself (hasInteractHandler) */
+export function ownsKind(kind: string): boolean {
+  return OWN_KINDS.has(kind) || kind === 'container' || kind === 'item';
+}
 
 const now = (): number => (ctx ? ctx.now() : performance.timeOrigin + performance.now());
 
@@ -102,6 +160,15 @@ function bal(): Record<string, unknown> {
 export function num(key: string, d: number): number {
   const v = bal()[key];
   return typeof v === 'number' && Number.isFinite(v) ? v : d;
+}
+/** feature flag (config/flags.json; absent = on) */
+export function flag(name: string): boolean {
+  return ctx?.flags[name] !== false;
+}
+/** an object-valued balance key merged over its defaults */
+function objBal<T extends object>(key: string, d: T): T {
+  const v = bal()[key];
+  return v && typeof v === 'object' && !Array.isArray(v) ? ({ ...d, ...(v as object) } as T) : d;
 }
 
 function safe<T>(what: string, fn: () => T): T | undefined {
@@ -116,7 +183,10 @@ function safe<T>(what: string, fn: () => T): T | undefined {
 // ---------------------------------------------------------------- slice + patches
 
 function emptyState(): InteractionState {
-  return { doors: {}, items: {}, inventories: {}, lights: {}, dead: [], hidden: {}, active: {}, ints: {}, glows: {}, bodies: {}, respawns: {}, hp: {}, flares: {} };
+  return {
+    doors: {}, items: {}, inventories: {}, lights: {}, dead: [], hidden: {}, active: {}, ints: {}, glows: {}, bodies: {}, respawns: {}, hp: {}, flares: {},
+    containers: {}, nv: {}, pouches: {}, flashes: {},
+  };
 }
 
 export function slice(crew: Crew): IxSlice {
@@ -126,6 +196,8 @@ export function slice(crew: Crew): IxSlice {
       ...emptyState(), layoutKey: null, grid: null, doorGeom: new Map(), switches: {}, broken: new Set(), powerPush: {},
       blackoutPush: null, thrown: [], patch: {}, nextId: 1, deaths: [], lastAct: {}, lastHand: {}, tickN: 0,
       walkiesGiven: false, extrasPending: 0, layoutItems: new Map(), idolNext: {}, idolN: 0, rng: null,
+      easing: {}, lastEase: {}, containerInfo: new Map(), contents: new Map(), pendingSpawns: [], vanMats: {}, heldOnce: new Set(),
+      respawnInfo: {}, containerOverride: null,
     };
     crew.slices[TRACK] = s;
   }
@@ -137,12 +209,16 @@ export function publicState(s: IxSlice): InteractionState {
   return {
     doors: s.doors, items: s.items, inventories: s.inventories, lights: s.lights, dead: s.dead, hidden: s.hidden,
     active: s.active, ints: s.ints, glows: s.glows, bodies: s.bodies, respawns: s.respawns, hp: s.hp, flares: s.flares,
+    containers: contsOf(s), nv: nvOf(s), pouches: pouchesOf(s), flashes: flashesOf(s),
   };
 }
 
 const layoutKey = (L: LevelLayout | null): string | null => (L ? `${L.kind}:${L.seed}:${L.hash}` : null);
 
-function markDoor(s: IxSlice, id: number): void { (s.patch.doors ??= {})[id] = { ...s.doors[id] }; }
+function markDoor(s: IxSlice, id: number): void {
+  const d = s.doors[id];
+  (s.patch.doors ??= {})[id] = { ...d, ...(d?.ease ? { ease: { ...d.ease } } : {}) };
+}
 function markItem(s: IxSlice, id: string): void { (s.patch.items ??= {})[id] = s.items[id] ? { ...s.items[id] } : null; }
 function markInv(s: IxSlice, pid: string): void {
   (s.patch.inventories ??= {})[pid] = s.inventories[pid] ? [...s.inventories[pid]] : null;
@@ -157,6 +233,20 @@ function markBody(s: IxSlice, pid: string): void { (s.patch.bodies ??= {})[pid] 
 function markRespawn(s: IxSlice, pid: string): void { (s.patch.respawns ??= {})[pid] = s.respawns[pid] ?? null; }
 function markHp(s: IxSlice, pid: string): void { (s.patch.hp ??= {})[pid] = s.hp[pid] ?? null; }
 function markDead(s: IxSlice): void { s.patch.dead = [...s.dead]; }
+function contsOf(s: IxSlice): Record<string, ContainerState> { return (s.containers ??= {}); }
+function markContainer(s: IxSlice, cid: string): void {
+  const c = contsOf(s)[cid];
+  (s.patch.containers ??= {})[cid] = c ? { ...c, ...(c.ease ? { ease: { ...c.ease } } : {}) } : null;
+}
+function nvOf(s: IxSlice): Record<string, boolean> { return (s.nv ??= {}); }
+function markNv(s: IxSlice, pid: string): void { (s.patch.nv ??= {})[pid] = nvOf(s)[pid] ? true : null; }
+function pouchesOf(s: IxSlice): Record<string, Record<string, number>> { return (s.pouches ??= {}); }
+function markPouch(s: IxSlice, pid: string): void {
+  const p = pouchesOf(s)[pid];
+  (s.patch.pouches ??= {})[pid] = p && Object.keys(p).length ? { ...p } : null;
+}
+function flashesOf(s: IxSlice): Record<string, FlashState> { return (s.flashes ??= {}); }
+function markFlash(s: IxSlice, id: string): void { const f = flashesOf(s)[id]; (s.patch.flashes ??= {})[id] = f ? { ...f } : null; }
 
 /** Send pending changes to the crew (call at the end of a request / tick / API mutation batch). */
 export function flush(crew: Crew): void {
@@ -168,7 +258,7 @@ export function flush(crew: Crew): void {
   ctx?.emit(crew, 'interaction.patch', p);
 }
 
-function fx(crew: Crew, kind: IxFxKind, d: { p?: Vec3; pid?: string; id?: string; door?: number; open?: boolean; item?: string } = {}): void {
+function fx(crew: Crew, kind: IxFxKind, d: { p?: Vec3; pid?: string; id?: string; door?: number; open?: boolean; item?: string; soft?: boolean; count?: number; dir?: Vec3 } = {}): void {
   ctx?.emit(crew, 'interaction.fx', { kind, ...d });
 }
 
@@ -233,6 +323,19 @@ function rebuild(crew: Crew, s: IxSlice): void {
   s.thrown.length = 0;
   for (const [id, it] of Object.entries(s.items)) if (it.where !== 'held') delete s.items[id];
   for (const pid of Object.keys(s.hidden)) delete s.hidden[pid];
+  // v1.2: eases, containers, flashes, night vision, pouches and the van stash belong to one layout
+  clearObj(s.easing);
+  clearObj(contsOf(s));
+  s.containerInfo.clear();
+  s.contents.clear();
+  s.pendingSpawns.length = 0;
+  clearObj(flashesOf(s));
+  clearObj(nvOf(s));
+  clearObj(pouchesOf(s));
+  clearObj(s.vanMats);
+  clearObj(s.respawnInfo);
+  s.heldOnce.clear();
+  for (const it of Object.values(s.items)) s.heldOnce.add(it.id);
   if (L) {
     try {
       s.grid = buildEdgeGrid(L);
@@ -266,10 +369,44 @@ function rebuild(crew: Crew, s: IxSlice): void {
       if (INTERACT_RADIUS[kind]) info.r = INTERACT_RADIUS[kind];
       s.ints[it.id] = info;
     }
+    registerContainers(s, L);
     spawnWorldItems(crew, s, L);
     recomputeLights(crew, s, false);
   }
   s.patch = { reset: publicState(s) };
+}
+
+// ---------------------------------------------------------------- v1.2 containers (registry; contents in spawnWorldItems)
+
+const CONTAINER_NAME: Record<string, string> = {
+  cabinet: 'cabinet', desk: 'desk', filing: 'filing cabinet', tool_chest: 'tool chest', morgue_drawers: 'morgue drawer',
+  counter: 'counter', drawer_chest: 'chest of drawers', nightstand: 'nightstand',
+};
+export const containerName = (kind: string): string => CONTAINER_NAME[kind] ?? kind.replace(/_/g, ' ');
+
+/** E1's containersOf (or the dev-only test double) */
+function containerList(s: IxSlice, L: LevelLayout): readonly ContainerInfo[] {
+  if (s.containerOverride) return s.containerOverride;
+  try {
+    return containersOf(L);
+  } catch (e) {
+    ctx?.log(TRACK).warn('containersOf failed:', e instanceof Error ? e.message : e);
+    return [];
+  }
+}
+
+/** one interactable per container (flag containers, facilities only): id 'cont:<prop id>', ref = container id */
+function registerContainers(s: IxSlice, L: LevelLayout): void {
+  if (L.kind !== 'facility' || !flag('containers')) return;
+  for (const c of containerList(s, L)) {
+    if (!c || typeof c.id !== 'string' || s.containerInfo.has(c.id)) continue;
+    s.containerInfo.set(c.id, c);
+    const id = v12Id('container', c.id);
+    s.ints[id] = {
+      id, kind: 'container', p: [Number(c.p[0]) || 0, Number(c.p[1]) || 0.8, Number(c.p[2]) || 0], prompt: `Search the ${containerName(c.kind)}`,
+      enabled: true, r: INTERACT_RADIUS.container ?? 0.32, ref: c.id,
+    };
+  }
 }
 
 function newItem(s: IxSlice, type: string, extra: Partial<ItemState> = {}): ItemState {
@@ -287,16 +424,22 @@ function spawnWorldItems(crew: Crew, s: IxSlice, L: LevelLayout): void {
   }
   s.extrasPending = 1;
   // objectives (a) owns salvage when it handles 'loot' (its own registry + deposit); otherwise we roll the budget
-  if (hasHandler('loot')) return;
-  const core = ctx?.balance.core ?? {};
-  const risk = Math.max(1, Math.min(3, Number(L.metrics?.risk ?? 1) | 0));
-  // same multiplier objectives / meta use: the connected crew (fallback: the layout's generation size)
-  const connected = [...crew.players.values()].filter((p) => p.connected).length;
-  const players = Math.max(1, Math.min(6, connected || Number(L.metrics?.players ?? 2) | 0));
-  const riskMult = Number((core.riskLootMult as Record<string, number> | undefined)?.[risk] ?? 1);
-  const playerMult = Number((core.playerMult as Record<string, number> | undefined)?.[players] ?? 1);
-  const budget = Number(core.lootBudgetBase ?? 650) * riskMult * playerMult;
+  const salvage = !hasHandler('loot');
+  const budget = salvage ? lootBudget(crew, L) : 0;
   const tierVals = (bal().lootTierValues as [number, number][] | undefined) ?? [[8, 35], [35, 90], [150, 300]];
+  // v1.2 containers: contents rolled once, kept private; containerBudgetFrac of the salvage budget goes into drawers as
+  // tier 0-1 salvage and the floor gets the rest (flag off: no containers, the whole budget on the floor as in v1.1)
+  let spent = 0;
+  if (s.containerInfo.size) {
+    const roll = rollContainers(L, [...s.containerInfo.values()], budget * Math.max(0, num('containerBudgetFrac', 0.15)), {
+      cfg: objBal<ContainerLootCfg>('containerLoot', CONTAINER_LOOT_DEFAULT), materials: flag('materials'), gearV12: flag('gearV12'),
+      salvage, tierValues: tierVals, matCfg: matCfg(),
+    });
+    for (const [cid, list] of roll.contents) s.contents.set(cid, list);
+    spent = roll.spent;
+  }
+  if (!salvage) return;
+  const floorBudget = budget - spent;
   const rng = makeRng(`${L.seed}:${L.hash}`, 'interaction.loot');
   const slots = rng.shuffle(L.items.filter((i) => i.kind === 'loot'));
   const used = new Set<string>();
@@ -304,16 +447,16 @@ function spawnWorldItems(crew: Crew, s: IxSlice, L: LevelLayout): void {
   let heavy = 0;
   let total = 0;
   for (const sl of slots) {
-    if (total >= budget) break;
+    if (total >= floorBudget) break;
     let tier = Math.max(0, Math.min(2, Number(sl.data?.tier ?? 0) | 0));
     if (tier === 2 && heavy >= maxHeavy) tier = 1;
     const [lo, hi] = tierVals[tier] ?? [10, 30];
     let value = rng.int(lo, hi);
-    if (total + value > budget * 1.08) {
+    if (total + value > floorBudget * 1.08) {
       if (tier === 0) continue;
       tier = 0;
       value = rng.int(tierVals[0][0], tierVals[0][1]);
-      if (total + value > budget * 1.08) continue;
+      if (total + value > floorBudget * 1.08) continue;
     }
     if (tier === 2) heavy++;
     total += value;
@@ -321,6 +464,28 @@ function spawnWorldItems(crew: Crew, s: IxSlice, L: LevelLayout): void {
     newItem(s, LOOT_TIER_TYPES[tier], { value, tier, name: rng.pick(LOOT_NAMES[tier]), p: [sl.x, 0, sl.z], rot: sl.rot ?? 0 });
   }
 }
+
+/** crew size for spawn maths: the connected crew (fallback: the layout's generation size), 1..6 */
+function crewSize(crew: Crew, L: LevelLayout): number {
+  const connected = [...crew.players.values()].filter((p) => p.connected).length;
+  return Math.max(1, Math.min(6, connected || Number(L.metrics?.players ?? 2) | 0));
+}
+const riskOf = (L: LevelLayout): number => Math.max(1, Math.min(3, Number(L.metrics?.risk ?? 1) | 0));
+
+/** the site's salvage budget: core lootBudgetBase x riskLootMult x playerMult (same maths objectives / meta use) */
+function lootBudget(crew: Crew, L: LevelLayout): number {
+  const core = ctx?.balance.core ?? {};
+  const riskMult = Number((core.riskLootMult as Record<string, number> | undefined)?.[riskOf(L)] ?? 1);
+  const playerMult = Number((core.playerMult as Record<string, number> | undefined)?.[crewSize(crew, L)] ?? 1);
+  return Number(core.lootBudgetBase ?? 650) * riskMult * playerMult;
+}
+
+function matCfg(): MaterialsCfg {
+  return objBal<MaterialsCfg>('materials', MATERIALS_DEFAULT);
+}
+
+/** v1.2 gear types gated by flag gearV12 in spawns (finds, extras, drawers, safes) */
+const V12_SPAWN = new Set<string>([...GEAR_V12, 'loot.curio']);
 
 /** tool extras in loot slots nobody uses (ours or objectives' loot) */
 function spawnExtras(crew: Crew, s: IxSlice): void {
@@ -344,38 +509,45 @@ function spawnExtras(crew: Crew, s: IxSlice): void {
   let k = 0;
   for (const [type, n] of Object.entries(extras)) {
     if (!ITEM_DEFS[type]) continue;
+    if (V12_SPAWN.has(type) && !flag('gearV12')) continue;
     for (let i = 0; i < n && k < free.length; i++, k++) {
       const sl = free[k];
       const extra: Partial<ItemState> = { p: [sl.x, 0, sl.z], rot: sl.rot ?? 0 };
       if (type === 'bottle') extra.count = 1;
       if (type === 'glowstick') extra.count = 3;
+      if (type === 'battery') extra.count = 1;
       const it = newItem(s, type, extra);
+      markItem(s, it.id);
+    }
+  }
+  // v1.2 crafting materials on the slots still free
+  if (flag('materials')) {
+    for (const sp of planMaterials(L, free.slice(k), crewSize(crew, L), riskOf(L), matCfg())) {
+      const it = newItem(s, sp.type, { p: sp.p, rot: sp.rot ?? 0, count: sp.count ?? 1 });
       markItem(s, it.id);
     }
   }
 }
 
-/** v1.1 special finds: rare, only in the deepest rooms (adrenaline syringe, lucky charm, cursed idol) */
+/** special finds: rare, only in the deepest rooms (v1.1: syringe, charm, idol; v1.2: lockpicks, overshoes, night vision,
+ *  master keycard, a curio), placed by planFinds (spawns.ts) */
 function spawnFinds(s: IxSlice, L: LevelLayout, free: LayoutItem[]): Set<string> {
-  const used = new Set<string>();
-  if (ctx?.flags.specialFinds === false) return used;
-  const finds = (bal().specialFinds as Record<string, number> | undefined) ?? { syringe: 0.45, charm: 0.3, 'loot.idol': 0.35 };
-  const maxD = Math.max(0, ...L.spaces.map((sp) => sp.dist ?? 0));
-  const minD = maxD * num('findsMinDistFrac', 0.6);
-  const deep = free.filter((sl) => (L.spaces[sl.space]?.dist ?? 0) >= minD && L.spaces[sl.space]?.kind !== 'corridor').slice();
-  const rng = makeRng(`${L.seed}:${L.hash}`, 'interaction.finds');
-  rng.shuffle(deep);
-  for (const [type, chance] of Object.entries(finds)) {
-    if (!ITEM_DEFS[type] || !deep.length) continue;
-    if (!rng.chance(Math.max(0, Math.min(1, Number(chance) || 0)))) continue;
-    const sl = deep.shift()!;
-    used.add(sl.id);
-    const extra: Partial<ItemState> = { p: [sl.x, 0, sl.z], rot: sl.rot ?? 0 };
-    if (type === 'loot.idol') {
-      const [lo, hi] = (bal().idolValue as [number, number] | undefined) ?? [350, 500];
-      Object.assign(extra, { value: rng.int(lo, hi), tier: 2, name: 'Cursed idol' });
-    }
-    const it = newItem(s, type, extra);
+  if (ctx?.flags.specialFinds === false) return new Set<string>();
+  const { specs, used } = planFinds(L, free, {
+    finds: (bal().specialFinds as Record<string, number> | undefined) ?? { syringe: 0.45, charm: 0.3, 'loot.idol': 0.35 },
+    findRooms: bal().findRooms as Record<string, string[]> | undefined,
+    minDistFrac: num('findsMinDistFrac', 0.6),
+    idolValue: (bal().idolValue as [number, number] | undefined) ?? [350, 500],
+    curioValue: (bal().curioValue as [number, number] | undefined) ?? [60, 140],
+    gearV12: flag('gearV12'),
+  });
+  for (const sp of specs) {
+    const extra: Partial<ItemState> = { p: sp.p, rot: sp.rot ?? 0 };
+    if (sp.value !== undefined) extra.value = sp.value;
+    if (sp.tier !== undefined) extra.tier = sp.tier;
+    if (sp.name !== undefined) extra.name = sp.name;
+    if (sp.count !== undefined) extra.count = sp.count;
+    const it = newItem(s, sp.type, extra);
     markItem(s, it.id);
   }
   return used;
@@ -455,6 +627,12 @@ export function litAtXZ(crew: Crew, x: number, z: number): boolean {
     if (f.until < tNow || (f.p[0] - x) ** 2 + (f.p[2] - z) ** 2 > fr * fr) continue;
     if (losClear(s, f.p[0], f.p[2], x, z)) return true;
   }
+  // v1.2 flashbulb: a fired flash lights its cone (flashRangeM, flashConeDeg, LOS) while it lasts. Night vision never
+  // counts as light.
+  for (const f of Object.values(flashesOf(s))) {
+    if (f.until < tNow) continue;
+    if (inCone(f.p[0], f.p[2], f.dir[0], f.dir[2], x, z, num('flashRangeM', 14), num('flashConeDeg', 25)) && losClear(s, f.p[0], f.p[2], x, z)) return true;
+  }
   const range0 = num('flashlightRangeM', 12);
   const cone0 = num('flashlightConeDeg', 25);
   for (const pl of crew.players.values()) {
@@ -476,6 +654,16 @@ export function litAtXZ(crew: Crew, x: number, z: number): boolean {
 }
 
 // ---------------------------------------------------------------- geometry helpers
+
+/** (x, z) inside a horizontal cone from (ox, oz) along (dx, dz), range m, half-angle deg (within 0.5 m always) */
+function inCone(ox: number, oz: number, dx: number, dz: number, x: number, z: number, range: number, deg: number): boolean {
+  const vx = x - ox, vz = z - oz;
+  const d = Math.hypot(vx, vz);
+  if (d > range) return false;
+  if (d < 0.5) return true;
+  const hl = Math.hypot(dx, dz) || 1;
+  return (vx * dx + vz * dz) / (d * hl) >= Math.cos((deg * Math.PI) / 180);
+}
 
 export const doorOpenFn = (s: IxSlice) => (id: number): boolean => s.doors[id]?.open ?? false;
 
@@ -579,6 +767,7 @@ function putInInv(s: IxSlice, pid: string, it: ItemState): boolean {
   it.where = 'held';
   it.holder = pid;
   delete it.p;
+  s.heldOnce.add(it.id);
   markInv(s, pid);
   markItem(s, it.id);
   return true;
@@ -600,10 +789,22 @@ function dropToWorld(s: IxSlice, it: ItemState, p: Vec3): void {
   markItem(s, it.id);
 }
 
-export function giveItemTo(crew: Crew, pid: string, type: string, extra: Partial<ItemState> = {}): ItemState | null {
+export type AcquireVia = NonNullable<ItemEvent['via']>;
+
+export function giveItemTo(crew: Crew, pid: string, type: string, extraIn: Partial<ItemState> & { via?: AcquireVia } = {}): ItemState | null {
   const s = slice(crew);
   const pl = crew.players.get(pid);
   if (!pl) return null;
+  const { via: viaIn, ...rest } = extraIn ?? {};
+  const via: AcquireVia = viaIn ?? 'api';
+  let extra: Partial<ItemState> = rest;
+  // v1.2 crafting materials never take a slot: straight into the salvage pouch
+  if (isMaterial(type)) {
+    const n = Math.max(1, Math.round(Number(extra.count ?? 1)) || 1);
+    addToPouch(s, pid, { [type]: n });
+    emitItem(crew, { kind: 'acquire', pid, type, id: `pouch:${pid}`, count: n, via });
+    return { id: `pouch:${pid}`, type, value: 0, where: 'held', holder: pid, count: n };
+  }
   const pack = GEAR_PACKS[type];
   if (pack) {
     // a shop pack (meta hands out one unit per purchase): the real item, merged into a stack the player already has
@@ -614,6 +815,7 @@ export function giveItemTo(crew: Crew, pid: string, type: string, extra: Partial
       if (have) {
         have.count = (have.count ?? 1) + n;
         markItem(s, have.id);
+        emitItem(crew, { kind: 'acquire', pid, type, id: have.id, count: n, via });
         return have;
       }
       extra = { ...extra, count: n };
@@ -623,9 +825,26 @@ export function giveItemTo(crew: Crew, pid: string, type: string, extra: Partial
   if (!putInInv(s, pid, it)) {
     it.where = 'world';
     it.p = dropPoint(s, pl, 0.4);
+    s.heldOnce.add(it.id);
     markItem(s, it.id);
   }
+  emitItem(crew, { kind: 'acquire', pid, type, id: it.id, count: it.count ?? 1, ...(it.name ? { name: it.name } : {}), ...(it.value ? { value: it.value } : {}), via });
   return it;
+}
+
+/** add units to pid's salvage pouch (materials only) */
+function addToPouch(s: IxSlice, pid: string, mats: Record<string, number>): number {
+  const pouch = (pouchesOf(s)[pid] ??= {});
+  let units = 0;
+  for (const [k, v] of Object.entries(mats ?? {})) {
+    const n = Math.round(Number(v) || 0);
+    if (!isMaterial(k) || n <= 0) continue;
+    pouch[k] = (pouch[k] ?? 0) + n;
+    units += n;
+  }
+  if (!Object.keys(pouch).length) delete pouchesOf(s)[pid];
+  markPouch(s, pid);
+  return units;
 }
 
 export function spawnWorldItem(crew: Crew, type: string, p: Vec3, extra: Partial<ItemState> = {}): ItemState {
@@ -637,11 +856,16 @@ export function spawnWorldItem(crew: Crew, type: string, p: Vec3, extra: Partial
 
 // ---------------------------------------------------------------- doors
 
-export function setDoor(crew: Crew, id: number, open: boolean, by: string | null, opts: { force?: boolean } = {}): boolean {
+export function setDoor(
+  crew: Crew, id: number, open: boolean, by: string | null,
+  opts: { force?: boolean; soft?: boolean; noiseM?: number; noiseKind?: string } = {},
+): boolean {
   const s = slice(crew);
   const st = s.doors[id];
   const g = s.doorGeom.get(id);
   if (!st || !g || g.kind === 'open' || g.kind === 'blocked') return false;
+  // v1.2: every door change (a tap, the console, a monster, a director slam, the API) cancels a hold-E on it
+  if (st.ease) clearDoorEase(s, id);
   if (st.open === open && !(open && st.locked)) return true;
   if (open && st.locked) {
     if (!opts.force && by !== null && g.kind === 'locked' && !hasKeycard(s, by, g.lock)) return false;
@@ -656,10 +880,40 @@ export function setDoor(crew: Crew, id: number, open: boolean, by: string | null
     markInt(s, info.id);
   }
   const sec = g.kind === 'security' || g.kind === 'vault';
-  fx(crew, sec ? 'security' : 'door', { p: [g.cx, 1.1, g.cz], door: id, open, pid: by ?? undefined });
-  noise(crew, g.cx, g.cz, sec ? NOISE_M.securityDoor : NOISE_M.door, sec ? 'securityDoor' : 'door', by);
+  fx(crew, sec ? 'security' : 'door', { p: [g.cx, 1.1, g.cz], door: id, open, pid: by ?? undefined, ...(opts.soft ? { soft: true } : {}) });
+  if (opts.soft) {
+    // an eased door: below every monster's hearing threshold (Hound 4 m, Listener 5 m)
+    const r = num('doorSoftNoiseM', 1);
+    if (r > 0) noise(crew, g.cx, g.cz, r, 'doorSoft', by);
+  } else if (opts.noiseM !== undefined) noise(crew, g.cx, g.cz, opts.noiseM, opts.noiseKind ?? 'door', by);
+  else noise(crew, g.cx, g.cz, sec ? NOISE_M.securityDoor : NOISE_M.door, sec ? 'securityDoor' : 'door', by);
   for (const fn of doorFns) safe('onDoor', () => fn(crew, id, open, by));
   return true;
+}
+
+/** drop a door's ease (and the easer's run) without committing */
+function clearDoorEase(s: IxSlice, id: number): void {
+  const st = s.doors[id];
+  if (!st?.ease) return;
+  const by = st.ease.by;
+  delete st.ease;
+  markDoor(s, id);
+  const run = s.easing[by];
+  if (run && run.target === 'door' && run.ref === id) delete s.easing[by];
+}
+
+/** the master keycard a player carries (with charges left), if any */
+function masterKeyOf(s: IxSlice, pid: string): ItemState | null {
+  return itemsOfPid(s, pid).find((it) => it.type === 'masterkey' && (it.count ?? 1) > 0) ?? null;
+}
+
+/** spend one unit of a held item (lockpick, master keycard charge) with its use + consume events */
+function spendOne(crew: Crew, s: IxSlice, pid: string, it: ItemState, p?: Vec3): number {
+  const left = Math.max(0, (it.count ?? 1) - 1);
+  emitItem(crew, { kind: 'use', pid, type: it.type, id: it.id, ...(p ? { p } : {}) });
+  consumeOne(s, it);
+  emitItem(crew, { kind: 'consume', pid, type: it.type, id: it.id, count: 1 });
+  return left;
 }
 
 function hasKeycard(s: IxSlice, pid: string, lock: number): boolean {
@@ -671,22 +925,357 @@ function handDoor(crew: Crew, s: IxSlice, pl: ServerPlayer, id: number, hold: bo
   const g = s.doorGeom.get(id);
   if (!st || !g) return { ok: false, msg: 'Nothing there' };
   if (g.kind === 'vault') return { ok: false, msg: 'The vault opens from the keypad' };
+  const dp: Vec3 = [g.cx, 1.1, g.cz];
+  const t = now();
+  const cool = () => t - (s.lastHand[id] ?? 0) < num('handDoorCooldownMs', 350);
   if (st.locked) {
     if (g.kind === 'locked' && hasKeycard(s, pl.id, g.lock)) {
       st.locked = false;
       markDoor(s, id);
-      fx(crew, 'unlock', { p: [g.cx, 1.1, g.cz], door: id, pid: pl.id });
+      fx(crew, 'unlock', { p: dp, door: id, pid: pl.id });
+    } else if (g.kind === 'locked' && masterKeyOf(s, pl.id)) {
+      // v1.2 master keycard: any keycard-locked door opens at once (one charge). Never the vault or rubble.
+      if (cool()) return { ok: false };
+      const left = spendOne(crew, s, pl.id, masterKeyOf(s, pl.id)!, dp);
+      st.locked = false;
+      markDoor(s, id);
+      fx(crew, 'masterkey', { p: dp, door: id, pid: pl.id, count: left });
+      s.lastHand[id] = t;
+      setDoor(crew, id, true, pl.id, { force: true });
+      return { ok: true, msg: `Master keycard: ${left} charge${left === 1 ? '' : 's'} left` };
+    } else if (g.kind === 'locked' && hasType(s, pl.id, 'lockpick')) {
+      fx(crew, 'deny', { p: dp, door: id, pid: pl.id });
+      return { ok: false, msg: 'Hold E: pick the lock (loud)' };
     } else {
-      fx(crew, 'deny', { p: [g.cx, 1.1, g.cz], door: id, pid: pl.id });
+      fx(crew, 'deny', { p: dp, door: id, pid: pl.id });
       return { ok: false, msg: 'Locked: needs the keycard' };
     }
   }
-  if (g.kind === 'security' && !hold) return { ok: false, msg: 'Hold E to force the security door' };
-  const t = now();
-  if (t - (s.lastHand[id] ?? 0) < num('handDoorCooldownMs', 350)) return { ok: false };
+  if (g.kind === 'security' && !hold) {
+    // v1.2 master keycard: a security door moves at a tap, with a 5 m 'door' noise instead of the 12 m clank (one charge)
+    const mk = masterKeyOf(s, pl.id);
+    if (!mk) return { ok: false, msg: 'Hold E to force the security door' };
+    if (cool()) return { ok: false };
+    const left = spendOne(crew, s, pl.id, mk, dp);
+    fx(crew, 'masterkey', { p: dp, door: id, pid: pl.id, count: left });
+    s.lastHand[id] = t;
+    setDoor(crew, id, !st.open, pl.id, { force: true, noiseM: num('masterkeySecurityNoiseM', 5), noiseKind: 'door' });
+    return { ok: true, msg: `Master keycard: ${left} charge${left === 1 ? '' : 's'} left` };
+  }
+  // v1.2: with easeDoors on, the security-door hold is timed by the server (interaction.ease); a hold flag alone is
+  // never trusted
+  if (g.kind === 'security' && flag('easeDoors')) return { ok: false, msg: 'Hold E to force the security door' };
+  if (cool()) return { ok: false };
   s.lastHand[id] = t;
   setDoor(crew, id, !st.open, pl.id, { force: true });
   return { ok: true };
+}
+
+// ---------------------------------------------------------------- v1.2 hold-E: quiet ease, lockpick, security force
+
+/** ease time per door kind (ms) */
+function easeMsFor(kind: string): number {
+  if (kind === 'fire') return num('easeFireMs', 2600);
+  if (kind === 'exit') return num('easeExitMs', 2200);
+  return num('easeDoorMs', 1800);
+}
+
+export type EaseResult = IxResult & { t0?: number; ms?: number; off?: boolean; done?: boolean };
+
+/** 'interaction.ease' {id, on}: on = E has been held easeTapMs; off = released (commits only if the time is up) */
+export function easeReq(crew: Crew, pl: ServerPlayer, id: string, on: boolean): EaseResult {
+  const s = slice(crew);
+  if (!on) {
+    const run = s.easing[pl.id];
+    if (!run || (id && run.id !== id)) return { ok: true, done: false };
+    if (now() >= run.t0 + run.ms) {
+      commitEase(crew, s, pl.id, run);
+      return { ok: true, done: true };
+    }
+    cancelEase(s, pl.id);
+    return { ok: true, done: false };
+  }
+  if (!pl.alive || s.dead.includes(pl.id)) return { ok: false, msg: 'You are dead' };
+  if (s.hidden[pl.id]) return { ok: false, msg: 'You are hiding' };
+  const info = s.ints[String(id)];
+  if (!info) return { ok: false, msg: 'Nothing there' };
+  if (info.kind !== 'door' && info.kind !== 'container') return { ok: false, msg: 'Nothing to ease' };
+  const why = canReach(s, pl, info);
+  if (why) return { ok: false, msg: why };
+  const t = now();
+  if (t - (s.lastEase[pl.id] ?? 0) < num('easeRestartMs', 150)) return { ok: false };
+  if (s.easing[pl.id]) cancelEase(s, pl.id);
+  return info.kind === 'door' ? easeDoorStart(crew, s, pl, info, t) : easeContainerStart(s, pl, info, t);
+}
+
+function easeDoorStart(crew: Crew, s: IxSlice, pl: ServerPlayer, info: InteractableInfo, t: number): EaseResult {
+  const did = Number(info.ref);
+  const st = s.doors[did];
+  const g = s.doorGeom.get(did);
+  if (!st || !g || g.kind === 'open' || g.kind === 'blocked') return { ok: false, msg: 'Nothing there' };
+  if (g.kind === 'vault') return { ok: false, msg: 'The vault opens from the keypad' };
+  if (st.ease) return { ok: false, msg: st.ease.by === pl.id ? undefined : 'Someone is already at that door' };
+  if (t - (s.lastHand[did] ?? 0) < num('handDoorCooldownMs', 350)) return { ok: false };
+  const soft = flag('easeDoors');
+  let mode: EaseRun['mode'];
+  let ms: number;
+  if (st.locked) {
+    if (g.kind !== 'locked') return { ok: false, msg: 'Locked' };
+    if (hasKeycard(s, pl.id, g.lock)) {
+      if (!soft) return { ok: false, off: true };
+      // the keycard beeps first, then the door eases open
+      st.locked = false;
+      markDoor(s, did);
+      fx(crew, 'unlock', { p: [g.cx, 1.1, g.cz], door: did, pid: pl.id });
+      mode = 'soft';
+      ms = easeMsFor(g.kind);
+    } else if (masterKeyOf(s, pl.id)) {
+      if (!soft) return { ok: false, off: true };
+      mode = 'key';
+      ms = easeMsFor(g.kind);
+    } else if (hasType(s, pl.id, 'lockpick')) {
+      mode = 'pick';
+      ms = num('lockpickMs', 5000);
+    } else {
+      fx(crew, 'deny', { p: [g.cx, 1.1, g.cz], door: did, pid: pl.id });
+      return { ok: false, msg: 'Locked: needs the keycard' };
+    }
+  } else if (g.kind === 'security') {
+    if (!soft) return { ok: false, off: true };
+    mode = 'force';
+    ms = num('securityHoldMs', 2000);
+  } else {
+    if (!soft) return { ok: false, off: true };
+    mode = 'soft';
+    ms = easeMsFor(g.kind);
+  }
+  const to = mode === 'pick' ? st.open : !st.open;
+  s.easing[pl.id] = { id: info.id, target: 'door', ref: did, mode, to, t0: t, ms };
+  s.lastEase[pl.id] = t;
+  st.ease = { by: pl.id, to, t0: t, ms, kind: mode === 'pick' ? 'pick' : mode === 'force' ? 'force' : 'soft' };
+  markDoor(s, did);
+  return { ok: true, t0: t, ms };
+}
+
+function easeContainerStart(s: IxSlice, pl: ServerPlayer, info: InteractableInfo, t: number): EaseResult {
+  if (!flag('easeDoors') || !flag('containers')) return { ok: false, off: true };
+  const cid = String(info.ref);
+  if (!s.containerInfo.has(cid)) return { ok: false, msg: 'Nothing there' };
+  const cs = contsOf(s)[cid];
+  if (cs?.open) return { ok: false, msg: 'Already searched' };
+  if (cs?.ease) return { ok: false, msg: cs.ease.by === pl.id ? undefined : 'Someone is already searching it' };
+  const ms = num('easeContainerMs', 1200);
+  s.easing[pl.id] = { id: info.id, target: 'container', ref: cid, mode: 'soft', to: true, t0: t, ms };
+  s.lastEase[pl.id] = t;
+  contsOf(s)[cid] = { ...(cs ?? { open: 0 }), ease: { by: pl.id, to: true, t0: t, ms, kind: 'soft' } };
+  markContainer(s, cid);
+  return { ok: true, t0: t, ms };
+}
+
+/** drop pid's hold-E without committing (release, death, hiding, sprint, out of reach, disconnect) */
+export function cancelEase(s: IxSlice, pid: string): void {
+  const run = s.easing[pid];
+  if (!run) return;
+  delete s.easing[pid];
+  if (run.target === 'door') {
+    const st = s.doors[Number(run.ref)];
+    if (st?.ease?.by === pid) {
+      delete st.ease;
+      markDoor(s, Number(run.ref));
+    }
+  } else {
+    const cid = String(run.ref);
+    const cs = contsOf(s)[cid];
+    if (cs?.ease?.by === pid) {
+      delete cs.ease;
+      if (!cs.open) delete contsOf(s)[cid];
+      markContainer(s, cid);
+    }
+  }
+}
+
+function commitEase(crew: Crew, s: IxSlice, pid: string, run: EaseRun): void {
+  delete s.easing[pid];
+  if (run.target === 'container') {
+    const cs = contsOf(s)[String(run.ref)];
+    if (cs?.ease?.by === pid) delete cs.ease;
+    openContainer(crew, s, pid, String(run.ref), true);
+    return;
+  }
+  const did = Number(run.ref);
+  const st = s.doors[did];
+  const g = s.doorGeom.get(did);
+  if (!st || !g) return;
+  if (st.ease?.by === pid) {
+    delete st.ease;
+    markDoor(s, did);
+  }
+  const dp: Vec3 = [g.cx, 1.1, g.cz];
+  const t = now();
+  switch (run.mode) {
+    case 'pick': {
+      // lockpicks: the lock gives (6 m of scraping), one pick is used up, the door stays where it was
+      const pick = itemsOfPid(s, pid).find((it) => it.type === 'lockpick');
+      if (!pick || !st.locked) return;
+      spendOne(crew, s, pid, pick, dp);
+      st.locked = false;
+      markDoor(s, did);
+      const info = s.ints[`door:${did}`];
+      if (info) { info.prompt = doorPrompt(g.kind, st.open, false); markInt(s, info.id); }
+      fx(crew, 'pick', { p: dp, door: did, pid });
+      noise(crew, g.cx, g.cz, num('lockpickNoiseM', 6), 'lockpick', pid);
+      return;
+    }
+    case 'key': {
+      const mk = masterKeyOf(s, pid);
+      if (!mk || !st.locked) return;
+      const left = spendOne(crew, s, pid, mk, dp);
+      st.locked = false;
+      fx(crew, 'masterkey', { p: dp, door: did, pid, count: left });
+      s.lastHand[did] = t;
+      setDoor(crew, did, run.to, pid, { force: true, soft: true });
+      stat(crew, pid, 'doorsEased');
+      return;
+    }
+    case 'force':
+      s.lastHand[did] = t;
+      setDoor(crew, did, run.to, pid, { force: true });
+      return;
+    default:
+      s.lastHand[did] = t;
+      if (setDoor(crew, did, run.to, pid, { force: true, soft: true })) stat(crew, pid, 'doorsEased');
+  }
+}
+
+/** per tick: cancel holds whose player died / hid / left / sprinted / walked off; commit the ones whose time is up */
+function tickEase(crew: Crew, s: IxSlice, t: number): void {
+  for (const [pid, run] of Object.entries(s.easing)) {
+    const pl = crew.players.get(pid);
+    let cancel = !pl || !pl.connected || !pl.alive || s.dead.includes(pid) || !!s.hidden[pid];
+    if (!cancel && pl) {
+      const info = s.ints[run.id];
+      // sprinting (the server's judged stance, or merely the claim: a client can only make itself louder)
+      const sprint = pl.pose.stance === STANCE.sprint || stealthStance(crew, pid) === STANCE.sprint;
+      cancel = !info || sprint || canReach(s, pl, info) !== null;
+    }
+    if (cancel) cancelEase(s, pid);
+    else if (t >= run.t0 + run.ms) commitEase(crew, s, pid, run);
+  }
+}
+
+// ---------------------------------------------------------------- v1.2 containers: open, contents, stock
+
+/** the main part (its slot holds the contents) */
+function mainPart(c: ContainerInfo): ContainerInfo['parts'][number] | undefined {
+  return c.parts?.find((p) => p.idx === c.main) ?? c.parts?.[c.main] ?? c.parts?.[0];
+}
+
+function tapContainer(crew: Crew, s: IxSlice, pl: ServerPlayer, inf: InteractableInfo): IxResult {
+  if (!flag('containers')) return { ok: false, msg: 'Nothing happens' };
+  const cid = String(inf.ref);
+  if (!s.containerInfo.has(cid)) return { ok: false, msg: 'Nothing there' };
+  const cs = contsOf(s)[cid];
+  if (cs?.open) return { ok: false, msg: 'Already searched' };
+  openContainer(crew, s, pl.id, cid, false);
+  return { ok: true };
+}
+
+/** open a container's main part: tap = a 'drawer' noise (containerNoiseM by kind) and the contents 300 ms later;
+ *  soft (an eased open) = 'drawerSoft' 1 m and the contents at once. Searched containers stay open. */
+function openContainer(crew: Crew, s: IxSlice, by: string, cid: string, soft: boolean): void {
+  const c = s.containerInfo.get(cid);
+  if (!c) return;
+  const prev = contsOf(s)[cid];
+  if (prev?.ease) {
+    const run = s.easing[prev.ease.by];
+    if (run && run.target === 'container' && run.ref === cid) delete s.easing[prev.ease.by];
+  }
+  const mask = 1 << Math.max(0, Math.min(15, Math.round(c.main ?? 0)));
+  contsOf(s)[cid] = { open: (prev?.open ?? 0) | mask, by };
+  markContainer(s, cid);
+  const id = v12Id('container', cid);
+  const info = s.ints[id];
+  if (info) {
+    info.enabled = false;
+    info.prompt = `Searched ${containerName(c.kind)}`;
+    markInt(s, id);
+  }
+  const p: Vec3 = [c.p[0], c.p[1], c.p[2]];
+  if (soft) {
+    const r = num('drawerSoftNoiseM', 1);
+    if (r > 0) noise(crew, p[0], p[2], r, 'drawerSoft', by);
+  } else {
+    const table = (bal().containerNoiseM as Record<string, number> | undefined) ?? {};
+    noise(crew, p[0], p[2], Number(table[c.kind] ?? table.default ?? 5), 'drawer', by);
+  }
+  fx(crew, 'container', { p, pid: by, id: cid, open: true, item: c.kind, ...(soft ? { soft: true } : {}) });
+  stat(crew, by, 'drawersSearched');
+  if (soft) spawnContents(crew, s, cid);
+  else s.pendingSpawns.push({ at: now() + num('containerSpawnDelayMs', 300), cid, by });
+}
+
+/** the container's private contents become world items in its open part, 0.12 m apart along its width */
+function spawnContents(crew: Crew, s: IxSlice, cid: string): void {
+  const c = s.containerInfo.get(cid);
+  const list = s.contents.get(cid) ?? [];
+  s.contents.delete(cid);
+  if (!c || !list.length) return;
+  const slot = mainPart(c)?.slot ?? [c.p[0], Math.max(0.05, c.p[1] - 0.1), c.p[2]];
+  const rot = c.rot ?? 0;
+  const ax = Math.cos(rot), az = -Math.sin(rot);
+  const gap = num('containerItemGapM', 0.12);
+  list.forEach((sp, i) => {
+    const off = (i - (list.length - 1) / 2) * gap;
+    const extra: Partial<ItemState> = { p: [slot[0] + ax * off, Math.max(0, slot[1]), slot[2] + az * off], rot };
+    if (sp.value !== undefined) extra.value = sp.value;
+    if (sp.tier !== undefined) extra.tier = sp.tier;
+    if (sp.name !== undefined) extra.name = sp.name;
+    if (sp.count !== undefined) extra.count = sp.count;
+    const it = newItem(s, sp.type, extra);
+    markItem(s, it.id);
+  });
+  void crew;
+}
+
+/** a private item into a closed container (fieldguide pages): false if unknown, open or the flag is off */
+export function stockContainerItem(crew: Crew, cid: string, spec: { type: string; name?: string; value?: number }): boolean {
+  const s = slice(crew);
+  if (!flag('containers') || !spec || typeof spec.type !== 'string' || !spec.type) return false;
+  const id = s.containerInfo.has(cid) ? cid : cid.startsWith('cont:') ? cid.slice(5) : cid;
+  if (!s.containerInfo.has(id) || contsOf(s)[id]?.open) return false;
+  const list = s.contents.get(id) ?? [];
+  list.push({ type: spec.type, ...(spec.name !== undefined ? { name: String(spec.name) } : {}), ...(spec.value !== undefined ? { value: Number(spec.value) || 0 } : {}) });
+  s.contents.set(id, list);
+  return true;
+}
+
+/** dev-only: container ids with their private contents (tests) */
+export function containerPeek(crew: Crew): Record<string, SpawnSpec[]> {
+  const s = slice(crew);
+  return Object.fromEntries([...s.containerInfo.keys()].map((cid) => [cid, (s.contents.get(cid) ?? []).map((x) => ({ ...x }))]));
+}
+
+/** dev-only test double for containersOf (until E1's lands): re-registers containers and re-rolls their contents */
+export function overrideContainers(crew: Crew, list: ContainerInfo[] | null): number {
+  const s = slice(crew);
+  const L = crew.layout;
+  s.containerOverride = list && list.length ? list : null;
+  for (const id of Object.keys(s.ints)) if (s.ints[id]?.kind === 'container') { delete s.ints[id]; markInt(s, id); }
+  for (const cid of Object.keys(contsOf(s))) { delete contsOf(s)[cid]; markContainer(s, cid); }
+  s.containerInfo.clear();
+  s.contents.clear();
+  if (!L) return 0;
+  registerContainers(s, L);
+  for (const id of Object.keys(s.ints)) if (s.ints[id]?.kind === 'container') markInt(s, id);
+  if (s.containerInfo.size) {
+    const tierVals = (bal().lootTierValues as [number, number][] | undefined) ?? [[8, 35], [35, 90], [150, 300]];
+    const roll = rollContainers(L, [...s.containerInfo.values()], lootBudget(crew, L) * Math.max(0, num('containerBudgetFrac', 0.15)), {
+      cfg: objBal<ContainerLootCfg>('containerLoot', CONTAINER_LOOT_DEFAULT), materials: flag('materials'), gearV12: flag('gearV12'),
+      salvage: !hasHandler('loot'), tierValues: tierVals, matCfg: matCfg(),
+    });
+    for (const [cid, l] of roll.contents) s.contents.set(cid, l);
+  }
+  return s.containerInfo.size;
 }
 
 /** Console operator toggles a security door. */
@@ -731,6 +1320,7 @@ function lockerFront(s: IxSlice, lockerId: string): Vec3 | null {
 
 function hide(crew: Crew, s: IxSlice, pl: ServerPlayer, lockerId: string): IxResult {
   for (const [pid, l] of Object.entries(s.hidden)) if (l === lockerId && pid !== pl.id) return { ok: false, msg: 'Someone is already in there' };
+  cancelEase(s, pl.id);
   s.hidden[pl.id] = lockerId;
   markHidden(s, pl.id);
   const f = lockerFront(s, lockerId);
@@ -750,7 +1340,27 @@ export function unhidePid(crew: Crew, pid: string): boolean {
   markHidden(s, pid);
   const pl = crew.players.get(pid);
   if (pl && pl.pose.stance === STANCE.hidden) pl.pose.stance = STANCE.stand;
-  fx(crew, 'locker', { p: s.ints[lockerId]?.p, pid, id: lockerId, open: false });
+  if (s.ints[lockerId]?.kind === 'locker') fx(crew, 'locker', { p: s.ints[lockerId]?.p, pid, id: lockerId, open: false });
+  return true;
+}
+
+/** v1.2 programmatic hide (players' crawl vents: 'duct:<vent id>'; a locker id hides in that locker): stance hidden,
+ *  use / act / drop blocked, flashlight off, monsters and litAt ignore the player until unhide() */
+export function hideInSpot(crew: Crew, pid: string, spotId: string): boolean {
+  const s = slice(crew);
+  const pl = crew.players.get(pid);
+  if (!pl || !pl.alive || s.dead.includes(pid) || typeof spotId !== 'string' || !spotId) return false;
+  if (s.hidden[pid] === spotId) return true;
+  if (s.ints[spotId]?.kind === 'locker') {
+    if (s.hidden[pid]) unhidePid(crew, pid);
+    return hide(crew, s, pl, spotId).ok;
+  }
+  if (s.hidden[pid]) unhidePid(crew, pid);
+  cancelEase(s, pid);
+  s.hidden[pid] = spotId;
+  markHidden(s, pid);
+  pl.pose.stance = STANCE.hidden;
+  pl.pose.light = 0;
   return true;
 }
 
@@ -779,39 +1389,68 @@ export function setSwitch(crew: Crew, space: number | 'all', on: boolean): void 
 
 // ---------------------------------------------------------------- items: pickup / drop / act
 
-/** stackable v1.1 gear merges into the stack you already carry when picked up */
-const MERGE_ON_PICKUP = new Set(['flare', 'sensor']);
+/** stackable gear (every POOL_STACK type) merges into the stack you already carry when picked up */
+const MERGE_ON_PICKUP = new Set(Object.keys(POOL_STACK));
 
 function pickup(crew: Crew, s: IxSlice, pl: ServerPlayer, it: ItemState): IxResult {
   if (it.where !== 'world') return { ok: false, msg: 'Gone' };
+  const fresh = !s.heldOnce.has(it.id);
+  const p0: Vec3 | undefined = it.p ? [it.p[0], it.p[1], it.p[2]] : undefined;
+  const space = p0 ? spaceAtXZ(crew, p0[0], p0[2]) : -1;
+  const fxp: Vec3 = [pl.pose.p[0], 1, pl.pose.p[2]];
+  const where = { ...(p0 ? { p: p0 } : {}), ...(space >= 0 ? { space } : {}) };
+  // v1.2 crafting materials and dropped pouches go into the salvage pouch (no slot)
+  if (isMaterial(it.type) || it.type === POUCH_TYPE) {
+    const units = addToPouch(s, pl.id, it.type === POUCH_TYPE ? (it.mats ?? {}) : { [it.type]: Math.max(1, it.count ?? 1) });
+    deleteItem(s, it.id);
+    fx(crew, 'pickup', { p: fxp, pid: pl.id, item: it.type, id: it.id, count: units });
+    emitItem(crew, { kind: 'pickup', pid: pl.id, type: it.type, id: it.id, count: units, fresh: it.type !== POUCH_TYPE && fresh, ...(it.name ? { name: it.name } : {}), ...where });
+    return { ok: true, msg: it.type === POUCH_TYPE ? `${it.name ?? 'Salvage pouch'}: +${units} into your pouch` : `${itemLabel(it)} · into your pouch` };
+  }
+  // v1.2 field-note pages are filed, never carried: gone from the world first, then the event (fieldguide files it)
+  if (it.type === PAGE_TYPE) {
+    deleteItem(s, it.id);
+    fx(crew, 'pickup', { p: fxp, pid: pl.id, item: it.type, id: it.id });
+    emitItem(crew, { kind: 'pickup', pid: pl.id, type: it.type, id: it.id, fresh, ...(it.name ? { name: it.name } : {}), ...where });
+    return { ok: true };
+  }
   if (MERGE_ON_PICKUP.has(it.type)) {
     const have = itemsOfPid(s, pl.id).find((x) => x.type === it.type);
     if (have) {
       have.count = (have.count ?? 1) + (it.count ?? 1);
       markItem(s, have.id);
       deleteItem(s, it.id);
-      fx(crew, 'pickup', { p: [pl.pose.p[0], 1, pl.pose.p[2]], pid: pl.id, item: it.type, id: have.id });
+      fx(crew, 'pickup', { p: fxp, pid: pl.id, item: it.type, id: have.id });
+      emitItem(crew, { kind: 'pickup', pid: pl.id, type: it.type, id: it.id, count: it.count ?? 1, fresh, ...where });
       return { ok: true };
     }
   }
   if (it.armed) delete it.armed;
   if (!putInInv(s, pl.id, it)) return { ok: false, msg: 'Hands full (G to drop)' };
-  fx(crew, 'pickup', { p: [pl.pose.p[0], 1, pl.pose.p[2]], pid: pl.id, item: it.type, id: it.id });
+  fx(crew, 'pickup', { p: fxp, pid: pl.id, item: it.type, id: it.id });
+  emitItem(crew, {
+    kind: 'pickup', pid: pl.id, type: it.type, id: it.id, count: it.count ?? 1, fresh,
+    ...(it.name ? { name: it.name } : {}), ...(it.value ? { value: it.value } : {}), ...where,
+  });
   return { ok: true };
 }
 
 export function dropActive(crew: Crew, pl: ServerPlayer, slot?: number): IxResult {
   const s = slice(crew);
   if (!pl.alive) return { ok: false };
+  if (s.hidden[pl.id]) return { ok: false, msg: 'You are hiding' };
   const inv = invOf(s, pl.id);
   const i = slot !== undefined && slot >= 0 && slot < INV_SLOTS ? slot : (s.active[pl.id] ?? 0);
   const id = inv[i];
   const it = id ? s.items[id] : undefined;
   if (!it) return { ok: false, msg: 'Nothing to drop' };
+  // v1.2: pool gear dropped in the hub would be handed out again at the next contract (gear-pool dupe)
+  if (crew.phase === 'hub' && POOL_TYPES.includes(it.type)) return { ok: false, msg: 'Keep your gear on you in the lot: it is on the books' };
   const p = dropPoint(s, pl);
   dropToWorld(s, it, p);
   it.rot = pl.pose.yaw;
   fx(crew, 'drop', { p, pid: pl.id, item: it.type, id: it.id });
+  emitItem(crew, { kind: 'drop', pid: pl.id, type: it.type, id: it.id, count: it.count ?? 1, ...(it.name ? { name: it.name } : {}), ...(it.value ? { value: it.value } : {}), p });
   return { ok: true };
 }
 
@@ -856,6 +1495,12 @@ export function act(crew: Crew, pl: ServerPlayer, dirIn: Vec3, eyeIn?: Vec3): Ix
   const eye = eyeOf(pl, eyeIn);
   const t = now();
   const d = itemDef(it.type);
+  const type = it.type, iid = it.id;
+  const used = (extra: Partial<ItemEvent> = {}) => emitItem(crew, { kind: 'use', pid: pl.id, type, id: iid, p: eye, dir, ...extra });
+  const spent = () => {
+    consumeOne(s, it);
+    emitItem(crew, { kind: 'consume', pid: pl.id, type, id: iid, count: 1 });
+  };
   switch (d.use) {
     case 'throw': {
       if (t - (s.lastAct[pl.id] ?? 0) < 400) return { ok: false };
@@ -864,13 +1509,15 @@ export function act(crew: Crew, pl: ServerPlayer, dirIn: Vec3, eyeIn?: Vec3): Ix
       const p: Vec3 = [eye[0] + dir[0] * 0.35, eye[1] - 0.1, eye[2] + dir[2] * 0.35];
       if (!losClear(s, eye[0], eye[2], p[0], p[2])) { p[0] = eye[0]; p[2] = eye[2]; }
       s.thrown.push({ id: `thrown:${s.nextId++}`, p, v: [dir[0] * sp, dir[1] * sp + up, dir[2] * sp], t: 0, by: pl.id, item: it.type });
-      consumeOne(s, it);
-      fx(crew, 'throw', { p: eye, pid: pl.id, item: it.type });
+      used();
+      spent();
+      fx(crew, 'throw', { p: eye, pid: pl.id, item: type });
       return { ok: true };
     }
     case 'swing': {
       if (t - (s.lastAct[pl.id] ?? 0) < num('crowbarCooldownMs', 650)) return { ok: false };
       s.lastAct[pl.id] = t;
+      used();
       fx(crew, 'swing', { p: eye, pid: pl.id, item: it.type });
       let hit = false;
       for (const fn of meleeFns) if (safe('onMelee', () => fn(crew, pl.id, eye, dir)) === true) hit = true;
@@ -888,7 +1535,8 @@ export function act(crew: Crew, pl: ServerPlayer, dirIn: Vec3, eyeIn?: Vec3): Ix
       const id = `glow${s.nextId++}`;
       s.glows[id] = [p[0], 0.03, p[2]];
       markGlow(s, id);
-      consumeOne(s, it);
+      used({ p });
+      spent();
       fx(crew, 'glow', { p, pid: pl.id, id });
       return { ok: true };
     }
@@ -900,6 +1548,7 @@ export function act(crew: Crew, pl: ServerPlayer, dirIn: Vec3, eyeIn?: Vec3): Ix
     case 'horn': {
       if (t - (s.lastAct[pl.id] ?? 0) < num('airhornCooldownMs', 2500)) return { ok: false };
       s.lastAct[pl.id] = t;
+      used();
       fx(crew, 'horn', { p: eye, pid: pl.id });
       noise(crew, pl.pose.p[0], pl.pose.p[2], NOISE_M.airhorn, 'airhorn', pl.id);
       return { ok: true };
@@ -911,7 +1560,8 @@ export function act(crew: Crew, pl: ServerPlayer, dirIn: Vec3, eyeIn?: Vec3): Ix
       const p: Vec3 = [eye[0] + dir[0] * 0.35, eye[1] - 0.1, eye[2] + dir[2] * 0.35];
       if (!losClear(s, eye[0], eye[2], p[0], p[2])) { p[0] = eye[0]; p[2] = eye[2]; }
       s.thrown.push({ id: `thrown:flare:${s.nextId++}`, p, v: [dir[0] * sp, dir[1] * sp + up, dir[2] * sp], t: 0, by: pl.id, item: 'flare' });
-      consumeOne(s, it);
+      used();
+      spent();
       fx(crew, 'throw', { p: eye, pid: pl.id, item: 'flare' });
       return { ok: true };
     }
@@ -920,18 +1570,45 @@ export function act(crew: Crew, pl: ServerPlayer, dirIn: Vec3, eyeIn?: Vec3): Ix
       s.lastAct[pl.id] = t;
       const p = dropPoint(s, pl, 0.7);
       const placed = newItem(s, 'sensor', { p: [p[0], 0, p[2]], rot: pl.pose.yaw, count: 1, armed: true });
+      s.heldOnce.add(placed.id);
       markItem(s, placed.id);
-      consumeOne(s, it);
+      used({ p });
+      spent();
       fx(crew, 'sensor', { p, pid: pl.id, id: placed.id });
       return { ok: true, msg: `Motion sensor armed: the van console sees movement within ${num('sensorRangeM', 6)} m` };
     }
     case 'inject': {
       if (t - (s.lastAct[pl.id] ?? 0) < 400) return { ok: false };
       s.lastAct[pl.id] = t;
-      consumeOne(s, it);
+      used();
+      spent();
       // stamina is client-side: the injector's client turns stamina drain off for adrenalineSec (fx 'inject')
       fx(crew, 'inject', { p: eye, pid: pl.id, id: it.id });
       return { ok: true, msg: `ADRENALINE: ${num('adrenalineSec', 15)} s of sprint without getting tired` };
+    }
+    case 'battery': {
+      // v1.2: the flashlight battery is client-side; fx 'battery' tells the owner's client to swap it to 100%
+      if (t - (s.lastAct[pl.id] ?? 0) < 400) return { ok: false };
+      s.lastAct[pl.id] = t;
+      used();
+      spent();
+      fx(crew, 'battery', { p: eye, pid: pl.id, id: iid, count: s.items[iid]?.count ?? 0 });
+      return { ok: true, msg: 'Fresh battery: flashlight at 100%' };
+    }
+    case 'flash': {
+      // v1.2 flashbulb: lights a 14 m / 25 deg cone (LOS) for flashMs, a 6 m pop; monsters subscribe to the use event
+      const fk = `${pl.id}:flash`;
+      if (t - (s.lastAct[fk] ?? 0) < num('flashCooldownMs', 1200) || t - (s.lastAct[pl.id] ?? 0) < 300) return { ok: false };
+      s.lastAct[pl.id] = s.lastAct[fk] = t;
+      const id = `flash${s.nextId++}`;
+      const hd: Vec3 = norm3([dir[0], 0, dir[2]]);
+      flashesOf(s)[id] = { p: [eye[0], eye[1], eye[2]], dir: [hd[0], dir[1], hd[2]], until: t + num('flashMs', 2000), by: pl.id };
+      markFlash(s, id);
+      used();
+      spent();
+      fx(crew, 'flash', { p: eye, pid: pl.id, id, dir });
+      noise(crew, eye[0], eye[2], num('flashNoiseM', 6), 'flash', pl.id);
+      return { ok: true };
     }
     case 'radio':
       return { ok: false, msg: 'Hold Q to talk on the walkie' };
@@ -1002,7 +1679,9 @@ function medkitRevive(crew: Crew, s: IxSlice, pl: ServerPlayer, body: BodyState)
   if (now() > body.reviveBy) return { ok: false, msg: 'Too late. Bring their badge to the van' };
   const kit = itemsOfPid(s, pl.id).find((it) => it.type === 'medkit');
   if (!kit) return { ok: false, msg: 'Needs a medkit' };
+  emitItem(crew, { kind: 'use', pid: pl.id, type: 'medkit', id: kit.id, p: body.p });
   deleteItem(s, kit.id);
+  emitItem(crew, { kind: 'consume', pid: pl.id, type: 'medkit', id: kit.id, count: 1 });
   fx(crew, 'medkit', { p: body.p, pid: pl.id, id: body.pid });
   reviveSelf(crew, body.pid, body.p, { by: pl.id, how: 'medkit' });
   return { ok: true };
@@ -1018,6 +1697,8 @@ export function killPid(crew: Crew, pid: string, cause: DeathCause): boolean {
     ...(cause?.detail ? { detail: String(cause.detail).slice(0, 160) } : {}),
   };
   if (s.hidden[pid]) unhidePid(crew, pid);
+  cancelEase(s, pid);
+  if (nvOf(s)[pid]) { delete nvOf(s)[pid]; markNv(s, pid); }
   const t = now();
   const p: Vec3 = [pl.pose.p[0], 0, pl.pose.p[2]];
   pl.alive = false;
@@ -1035,6 +1716,8 @@ export function killPid(crew: Crew, pid: string, cause: DeathCause): boolean {
     if (!losClear(s, p[0], p[2], q[0], q[2])) q = [p[0], 0, p[2]];
     dropToWorld(s, it, q);
   });
+  // v1.2: the salvage pouch drops as one item (it merges into whoever picks it up)
+  dropPouch(crew, s, pid, [p[0] + 0.3, 0, p[2] - 0.25]);
   // badge
   for (const it of Object.values(s.items)) if (it.type === 'badge' && it.owner === pid) deleteItem(s, it.id);
   const badge = newItem(s, 'badge', { owner: pid, name: `${pl.name}'s badge`, p: [p[0] - 0.25, 0, p[2] + 0.2], rot: pl.pose.yaw });
@@ -1051,6 +1734,106 @@ export function killPid(crew: Crew, pid: string, cause: DeathCause): boolean {
   ctx?.log(TRACK).info(`crew ${crew.code}: ${pl.name} killed by ${c.killer}: ${c.reason}`);
   for (const fn of deathFns) safe('onDeath', () => fn(crew, pid, c, p));
   return true;
+}
+
+/** pid's salvage pouch as a world item (death, leaving mid-contract); its contents in ItemState.mats */
+function dropPouch(crew: Crew, s: IxSlice, pid: string, at: Vec3): ItemState | null {
+  const pouch = pouchesOf(s)[pid];
+  delete pouchesOf(s)[pid];
+  markPouch(s, pid);
+  if (!pouch || !Object.values(pouch).some((n) => n > 0) || crew.phase !== 'contract') return null;
+  const name = crew.players.get(pid)?.name;
+  const it = newItem(s, POUCH_TYPE, { p: [at[0], 0, at[2]], mats: { ...pouch }, ...(name ? { name: `${name}'s salvage pouch` } : {}) });
+  s.heldOnce.add(it.id);
+  markItem(s, it.id);
+  return it;
+}
+
+/** pid's pouch into the van stash: fx 'stash' and one 'stash' item event per material (never the deposit listeners) */
+function stashPouch(crew: Crew, s: IxSlice, pid: string): number {
+  const pouch = pouchesOf(s)[pid];
+  if (!pouch) return 0;
+  delete pouchesOf(s)[pid];
+  markPouch(s, pid);
+  let units = 0;
+  const moved: [string, number][] = [];
+  for (const [k, n] of Object.entries(pouch)) {
+    if (!isMaterial(k) || !(n > 0)) continue;
+    s.vanMats[k] = (s.vanMats[k] ?? 0) + n;
+    units += n;
+    moved.push([k, n]);
+  }
+  if (!units) return 0;
+  const pl = crew.players.get(pid);
+  fx(crew, 'stash', { p: pl ? [pl.pose.p[0], 1, pl.pose.p[2]] : undefined, pid, count: units });
+  for (const [k, n] of moved) emitItem(crew, { kind: 'stash', pid, type: k, id: `pouch:${pid}`, count: n });
+  return units;
+}
+
+/** materials in the van: the deposited stash + mat.* / pouch items in the cargo rect (+-0.6 m) + the pouches of living
+ *  players inside it (the timeout path skips the deposit). take = remove them (G5 at contract end). */
+export function vanMaterialsOf(crew: Crew, take: boolean): Record<string, number> {
+  const s = slice(crew);
+  const out: Record<string, number> = {};
+  const add = (k: string, n: unknown) => {
+    const v = Math.round(Number(n) || 0);
+    if (isMaterial(k) && v > 0) out[k] = (out[k] ?? 0) + v;
+  };
+  for (const [k, n] of Object.entries(s.vanMats)) add(k, n);
+  const c = crew.layout?.van?.cab;
+  const inRect = (x: number, z: number, pad: number) => !!c && x >= c.x - pad && x <= c.x + c.w + pad && z >= c.y - pad && z <= c.y + c.h + pad;
+  for (const it of Object.values(s.items)) {
+    if (it.where !== 'world' || !it.p || !inRect(it.p[0], it.p[2], 0.6)) continue;
+    if (isMaterial(it.type)) add(it.type, it.count ?? 1);
+    else if (it.type === POUCH_TYPE) for (const [k, n] of Object.entries(it.mats ?? {})) add(k, n);
+    else continue;
+    if (take) deleteItem(s, it.id);
+  }
+  for (const pl of crew.players.values()) {
+    const pouch = pouchesOf(s)[pl.id];
+    if (!pouch || !pl.alive || s.dead.includes(pl.id) || !inRect(pl.pose.p[0], pl.pose.p[2], 0.3)) continue;
+    for (const [k, n] of Object.entries(pouch)) add(k, n);
+    if (take) { delete pouchesOf(s)[pl.id]; markPouch(s, pl.id); }
+  }
+  if (take) clearObj(s.vanMats);
+  return out;
+}
+
+/** meta's recordStat (guarded: meta absent / throwing is fine) */
+export function stat(crew: Crew, pid: string, key: string, n = 1): void {
+  const fn = adapters.meta?.recordStat;
+  if (typeof fn === 'function') safe('recordStat', () => (fn as (c: Crew, p: string, k: string, n?: number) => void)(crew, pid, key, n));
+}
+
+/** van upgrade owned by the crew (meta unlocks; workshop) */
+export function unlocked(crew: Crew, id: string): boolean {
+  const fn = adapters.meta?.unlocks;
+  if (typeof fn !== 'function') return false;
+  const r = safe('unlocks', () => (fn as (c: Crew) => unknown)(crew));
+  return Array.isArray(r) && r.includes(id);
+}
+
+/** 'interaction.nv': night vision on/off (needs a night-vision module in any slot; flag nightVision) */
+export function setNightVision(crew: Crew, pl: ServerPlayer, on: boolean): IxResult & { on?: boolean } {
+  const s = slice(crew);
+  const p: Vec3 = [pl.pose.p[0], 1.5, pl.pose.p[2]];
+  if (on) {
+    if (!flag('nightVision')) return { ok: false, msg: 'Night vision is offline', on: false };
+    if (!pl.alive || s.dead.includes(pl.id)) return { ok: false, on: false };
+    const nvg = itemsOfPid(s, pl.id).find((it) => it.type === 'nvg');
+    if (!nvg) return { ok: false, msg: 'Needs a night-vision module', on: false };
+    if (!nvOf(s)[pl.id]) {
+      nvOf(s)[pl.id] = true;
+      markNv(s, pl.id);
+      fx(crew, 'nv', { p, pid: pl.id, open: true });
+      emitItem(crew, { kind: 'use', pid: pl.id, type: 'nvg', id: nvg.id, p });
+    }
+  } else if (nvOf(s)[pl.id]) {
+    delete nvOf(s)[pl.id];
+    markNv(s, pl.id);
+    fx(crew, 'nv', { p, pid: pl.id, open: false });
+  }
+  return { ok: true, on: !!nvOf(s)[pl.id] };
 }
 
 function vanSpawn(crew: Crew, pid: string): { p: Vec3; yaw: number } {
@@ -1123,10 +1906,13 @@ export function depositLootOf(crew: Crew, pid: string): ItemState[] {
     markItem(s, it.id);
     out.push(it);
   }
+  // v1.2: the salvage pouch goes into the van stash (materials never reach the deposit listeners / the haul)
+  stashPouch(crew, s, pid);
   if (out.length) {
     const pl = crew.players.get(pid);
     fx(crew, 'deposit', { p: pl ? [pl.pose.p[0], 1, pl.pose.p[2]] : undefined, pid });
     if (bonus > 0) fx(crew, 'lucky', { p: pl ? [pl.pose.p[0], 1.2, pl.pose.p[2]] : undefined, pid, item: String(bonus) });
+    for (const it of out) emitItem(crew, { kind: 'deposit', pid, type: it.type, id: it.id, ...(it.name ? { name: it.name } : {}), value: it.value ?? 0 });
     for (const fn of depositFns) safe('onDeposit', () => fn(crew, pid, out));
   }
   return out;
@@ -1135,6 +1921,8 @@ export function depositLootOf(crew: Crew, pid: string): ItemState[] {
 function deposit(crew: Crew, s: IxSlice, pl: ServerPlayer, intId: string): IxResult {
   let did = false;
   const t = now();
+  // v1.2 stretcher (van upgrade): a filed badge brings them back sooner and in better shape
+  const stretcher = unlocked(crew, 'stretcher');
   for (const it of itemsOfPid(s, pl.id)) {
     if (it.type !== 'badge' || !it.owner) continue;
     removeFromInv(s, it.id);
@@ -1142,20 +1930,26 @@ function deposit(crew: Crew, s: IxSlice, pl: ServerPlayer, intId: string): IxRes
     delete it.p;
     markItem(s, it.id);
     if (s.dead.includes(it.owner)) {
-      s.respawns[it.owner] = t + num('badgeReviveSec', 20) * 1000;
+      s.respawns[it.owner] = t + (stretcher ? num('stretcherReviveSec', 8) : num('badgeReviveSec', 20)) * 1000;
+      s.respawnInfo[it.owner] = { hp: stretcher ? num('stretcherReviveHp', 75) : num('reviveHp', 50), by: pl.id };
       markRespawn(s, it.owner);
     }
+    // the badge filer (meta badgesFiled)
+    emitItem(crew, { kind: 'deposit', pid: pl.id, type: 'badge', id: it.id, ...(it.name ? { name: it.name } : {}), value: 0 });
     did = true;
   }
   if (did) fx(crew, 'deposit', { p: [pl.pose.p[0], 1, pl.pose.p[2]], pid: pl.id });
+  const mats = stashPouch(crew, s, pl.id);
   const r = runHandlers(crew, pl, 'deposit', intId);
   if (r && r.ok) return r;
   const loot = depositLootOf(crew, pl.id);
+  const matMsg = mats ? ` · ${mats} material${mats > 1 ? 's' : ''} to the stash` : '';
   if (loot.length) {
     const v = loot.reduce((a, it) => a + (it.value ?? 0), 0);
-    return { ok: true, msg: `Deposited ${loot.length} item${loot.length > 1 ? 's' : ''} ($${v})` };
+    return { ok: true, msg: `Deposited ${loot.length} item${loot.length > 1 ? 's' : ''} ($${v})${matMsg}` };
   }
-  if (did) return { ok: true, msg: 'Badge filed: they respawn at the van shortly' };
+  if (did) return { ok: true, msg: `Badge filed: they respawn at the van shortly${matMsg}` };
+  if (mats) return { ok: true, msg: `Stashed ${mats} material${mats > 1 ? 's' : ''} for the workbench` };
   return r ?? { ok: false, msg: 'Nothing to deposit' };
 }
 
@@ -1181,6 +1975,8 @@ export function use(crew: Crew, pl: ServerPlayer, id: string, hold: boolean): Ix
   const s = slice(crew);
   if (!pl.alive || s.dead.includes(pl.id)) return { ok: false, msg: 'You are dead' };
   if (s.hidden[pl.id]) {
+    // a locker: E leaves it; a programmatic spot (crawl vent) is left through its owner (players)
+    if (s.ints[s.hidden[pl.id]]?.kind !== 'locker') return { ok: false };
     unhidePid(crew, pl.id);
     return { ok: true };
   }
@@ -1207,6 +2003,8 @@ export function use(crew: Crew, pl: ServerPlayer, id: string, hold: boolean): Ix
     }
     case 'deposit':
       return deposit(crew, s, pl, inf.id);
+    case 'container':
+      return tapContainer(crew, s, pl, inf);
     default: {
       if (!inf.enabled) return { ok: false, msg: inf.prompt };
       return runHandlers(crew, pl, inf.kind, inf.id) ?? { ok: false, msg: 'Nothing happens' };
@@ -1245,8 +2043,19 @@ export function dropInteractable(crew: Crew, id: string): void {
 
 // ---------------------------------------------------------------- lifecycle hooks
 
-/** held item types that survive the end of a contract (bought / company gear; matches meta's GEAR_TYPES) */
-const CARRY_OVER_TYPES = new Set(['walkie', 'crowbar', 'bottle', 'glowstick', 'medkit', 'flashlight_pro', 'flare', 'sensor', 'syringe', 'charm']);
+/** held item types that survive the end of a contract (pool gear: meta's GEAR_TYPES; overshoes wear out) */
+const CARRY_OVER_TYPES = new Set<string>(POOL_TYPES);
+
+/** v1.2 per-contract state: hold-E runs, pouches, the van stash, night vision, flashes, pending drawer spawns */
+function resetContractState(s: IxSlice): void {
+  for (const pid of Object.keys(s.easing)) cancelEase(s, pid);
+  for (const pid of Object.keys(pouchesOf(s))) { delete pouchesOf(s)[pid]; markPouch(s, pid); }
+  for (const pid of Object.keys(nvOf(s))) { delete nvOf(s)[pid]; markNv(s, pid); }
+  for (const id of Object.keys(flashesOf(s))) { delete flashesOf(s)[id]; markFlash(s, id); }
+  clearObj(s.vanMats);
+  clearObj(s.respawnInfo);
+  s.pendingSpawns.length = 0;
+}
 
 /** contract ended / phase left 'contract': everyone alive again, bodies/badges/respawns/glows gone, loot left behind */
 export function endContract(crew: Crew, s: IxSlice): void {
@@ -1260,6 +2069,7 @@ export function endContract(crew: Crew, s: IxSlice): void {
   for (const pid of Object.keys(s.hp)) { s.hp[pid] = 100; markHp(s, pid); }
   for (const pid of Object.keys(s.respawns)) { delete s.respawns[pid]; markRespawn(s, pid); }
   s.deaths.length = 0;
+  resetContractState(s);
   ctx?.crews.broadcastRoster(crew);
 }
 
@@ -1269,6 +2079,12 @@ export function onPhase(crew: Crew, from: string, to: string): void {
   const relayout = before !== s.layoutKey;
   // leaving the contract, or a new facility while still in 'contract' (dbg restart): nobody stays dead
   if (from === 'contract' && (to !== 'contract' || relayout)) endContract(crew, s);
+  // v1.2: pouches and the van stash start empty every contract
+  if (to === 'contract' && from !== 'contract') {
+    resetContractState(s);
+    s.heldOnce.clear();
+    for (const it of Object.values(s.items)) if (it.where === 'held') s.heldOnce.add(it.id);
+  }
   if (to === 'contract' && !s.walkiesGiven && !adapters.meta) {
     // fallback while meta (d) is absent: the crew gets its 2 company walkies on the first contract
     s.walkiesGiven = true;
@@ -1293,6 +2109,9 @@ export function onJoin(crew: Crew, pl: ServerPlayer): void {
 
 export function onLeaveFinal(crew: Crew, pl: ServerPlayer): void {
   const s = slice(crew);
+  cancelEase(s, pl.id);
+  if (nvOf(s)[pl.id]) { delete nvOf(s)[pl.id]; markNv(s, pl.id); }
+  dropPouch(crew, s, pl.id, [pl.pose.p[0], 0, pl.pose.p[2]]);
   const items = itemsOfPid(s, pl.id);
   for (const it of items) {
     if (crew.phase === 'contract' && crew.layout) dropToWorld(s, it, [pl.pose.p[0], 0, pl.pose.p[2]]);
@@ -1320,8 +2139,10 @@ export function onPose(crew: Crew, pl: ServerPlayer, pose: { p: Vec3; stance: nu
   if (!s) return;
   const l = s.hidden[pl.id];
   if (l) {
-    const f = lockerFront(s, l);
-    if (f) pose.p = [f[0], pose.p[1], f[2]];
+    if (s.ints[l]?.kind === 'locker' || s.layoutItems.get(l)?.kind === 'hiding') {
+      const f = lockerFront(s, l);
+      if (f) pose.p = [f[0], pose.p[1], f[2]];
+    } else (pose as { light?: number }).light = 0; // a crawl vent (players moves them): no flashlight in a duct
     pose.stance = STANCE.hidden;
   } else if (!pl.alive || s.dead.includes(pl.id)) pose.stance = STANCE.dead;
 }
@@ -1339,9 +2160,28 @@ export function tick(crew: Crew, dt: number): void {
     if (t >= at) {
       delete s.respawns[pid];
       markRespawn(s, pid);
-      reviveSelf(crew, pid, null, { how: 'badge', by: null });
+      const info = s.respawnInfo[pid];
+      delete s.respawnInfo[pid];
+      reviveSelf(crew, pid, null, { how: 'badge', by: null, ...(info ? { hp: info.hp } : {}) });
     }
   }
+  // v1.2: hold-E runs, tapped drawers' contents, night vision without a module, burnt-out flashes
+  tickEase(crew, s, t);
+  if (s.pendingSpawns.length) {
+    const due = s.pendingSpawns.filter((x) => t >= x.at);
+    if (due.length) {
+      s.pendingSpawns = s.pendingSpawns.filter((x) => t < x.at);
+      for (const x of due) spawnContents(crew, s, x.cid);
+    }
+  }
+  for (const pid of Object.keys(nvOf(s))) {
+    const pl = crew.players.get(pid);
+    if (!pl || !pl.connected || !pl.alive || s.dead.includes(pid) || !hasType(s, pid, 'nvg') || !flag('nightVision')) {
+      delete nvOf(s)[pid];
+      markNv(s, pid);
+    }
+  }
+  for (const [id, f] of Object.entries(flashesOf(s))) if (t >= f.until) { delete flashesOf(s)[id]; markFlash(s, id); }
   for (const b of Object.values(s.bodies)) {
     const info = s.ints[`body:${b.pid}`];
     if (info && info.enabled && t > b.reviveBy) {

@@ -25,14 +25,15 @@ export interface Hit {
   t: number;
 }
 
-let gridCache: { key: string; grid: EdgeGrid; doors: Map<number, LayoutDoor> } | null = null;
+let gridCache: { key: string; L: LevelLayout; grid: EdgeGrid; doors: Map<number, LayoutDoor> } | null = null;
 
 export function gridFor(L: LevelLayout | null): { grid: EdgeGrid; doors: Map<number, LayoutDoor> } | null {
   if (!L) return null;
+  if (gridCache?.L === L) return gridCache; // the same layout object: no key string per frame
   const key = `${L.kind}:${L.seed}:${L.hash}`;
-  if (gridCache?.key === key) return gridCache;
+  if (gridCache?.key === key) { gridCache.L = L; return gridCache; }
   try {
-    gridCache = { key, grid: buildEdgeGrid(L), doors: new Map(L.doors.map((d) => [d.id, d])) };
+    gridCache = { key, L, grid: buildEdgeGrid(L), doors: new Map(L.doors.map((d) => [d.id, d])) };
   } catch {
     gridCache = null;
   }
@@ -81,6 +82,18 @@ export interface PickOpts {
   reach: number;
   /** ids to skip */
   skip?: (c: Candidate) => boolean;
+  /** the state's patch counter: with it the candidate list is rebuilt only when the state (or me) changed */
+  version?: number;
+}
+
+let candCache: { st: InteractionState; me: string | null; version: number; list: Candidate[] } | null = null;
+function candidatesFor(o: PickOpts): Candidate[] {
+  if (o.version === undefined) return candidates(o.st, o.me);
+  const c = candCache;
+  if (c && c.st === o.st && c.me === o.me && c.version === o.version) return c.list;
+  const list = candidates(o.st, o.me);
+  candCache = { st: o.st, me: o.me, version: o.version, list };
+  return list;
 }
 
 export function candidates(st: InteractionState, me: string | null): Candidate[] {
@@ -107,7 +120,7 @@ export function pick(o: PickOpts): Hit | null {
   };
   let best: Hit | null = null;
   let bestOn: Hit | null = null;
-  const all = candidates(o.st, o.me);
+  const all = candidatesFor(o);
   for (const c of all) {
     if (o.skip?.(c)) continue;
     const dx = c.p[0] - o.origin[0], dz = c.p[2] - o.origin[2];

@@ -1,10 +1,13 @@
 // Owned by P2 track (b) Interaction; read by all. Interactable kinds a player can target with E / LMB,
 // plus the item catalog (names, stacks, LMB use) shared by server and client.
 import type { InteractionPatch, InteractionState } from './messages/interaction.ts';
+import { MATERIAL_LABEL, MATERIAL_TYPES, PAGE_TYPE, POUCH_TYPE } from './catalog.ts';
 
 export type InteractableKind =
   | 'door' | 'lever' | 'keypad' | 'loot' | 'core' | 'locker' | 'switch' | 'console' | 'board' | 'shop'
-  | 'mirror' | 'leave_lever' | 'deposit' | 'body' | 'badge' | 'item' | 'note' | 'intercom' | 'kennel';
+  | 'mirror' | 'leave_lever' | 'deposit' | 'body' | 'badge' | 'item' | 'note' | 'intercom' | 'kennel'
+  /** v1.2: openable drawer / cabinet / tool chest (id 'cont:<host prop id>', ref = container id) */
+  | 'container';
 
 export interface InteractableInfo {
   id: string;
@@ -30,7 +33,7 @@ export interface InteractableInfo {
 export const INTERACT_RADIUS: Record<string, number> = {
   lever: 0.3, keypad: 0.25, switch: 0.2, intercom: 0.25, note: 0.25, locker: 0.55, console: 0.7, board: 0.7,
   shop: 0.7, mirror: 0.5, leave_lever: 0.3, deposit: 0.8, body: 0.6, core: 0.45, kennel: 0.9, item: 0.3,
-  loot: 0.32, badge: 0.25,
+  loot: 0.32, badge: 0.25, container: 0.32,
 };
 
 /** Inventory slots per player */
@@ -38,7 +41,9 @@ export const INV_SLOTS = 4;
 
 export type ItemUse = 'throw' | 'swing' | 'glow' | 'revive' | 'radio' | 'horn' | 'none'
   /** v1.1 gear: LMB throws a burning flare / places a motion sensor / injects adrenaline */
-  | 'flare' | 'sensor' | 'inject';
+  | 'flare' | 'sensor' | 'inject'
+  /** v1.2 gear: LMB swaps in a fresh battery / fires a flashbulb */
+  | 'battery' | 'flash';
 
 export interface ItemDef {
   name: string;
@@ -58,7 +63,14 @@ export interface ItemDef {
   note?: string;
   /** gear tier (1 = standard issue, 2 = pro / special) */
   tier?: 1 | 2;
+  /** v1.2: stack count unit for the HUD label ('charge' -> "Master keycard (3 charges)") */
+  unit?: string;
 }
+
+/** v1.2 world / HUD colour per crafting material */
+export const MATERIAL_COLOR: Readonly<Record<string, string>> = {
+  'mat.scrap': '#9a9fa3', 'mat.wiring': '#d0773a', 'mat.chem': '#d9d24c', 'mat.optics': '#8fd3ff', 'mat.cells': '#6fe06a', 'mat.relic': '#b48cff',
+};
 
 export const ITEM_DEFS: Record<string, ItemDef> = {
   bottle: { name: 'Bottle', short: 'BTL', use: 'throw', stack: 3, color: '#2f6b3a', prop: 'prop.bottles', hint: 'LMB throw (15 m smash: Hound bait)' },
@@ -66,7 +78,7 @@ export const ITEM_DEFS: Record<string, ItemDef> = {
   glowstick: { name: 'Glowsticks', short: 'GLO', use: 'glow', stack: 5, color: '#39ff6a', hint: 'LMB drop a glowstick (keeps things lit)' },
   medkit: { name: 'Medkit', short: 'MED', use: 'revive', color: '#e9e4da', prop: 'prop.medical_box', hint: 'LMB / E at a body: revive (within 30 s)' },
   walkie: { name: 'Walkie', short: 'RAD', use: 'radio', color: '#3a3f44', prop: 'prop.radio', hint: 'Hold Q to talk on the radio' },
-  airhorn: { name: 'Airhorn', short: 'HRN', use: 'horn', color: '#d63b2f', loot: true, hint: 'LMB: HONK (30 m, wakes the Hound)' },
+  airhorn: { name: 'Airhorn', short: 'HRN', use: 'horn', color: '#d63b2f', hint: 'LMB: HONK (30 m, wakes the Hound)' },
   keycard: { name: 'Keycard', short: 'KEY', use: 'none', color: '#f2c230', hint: 'Opens the locked wing door' },
   badge: { name: 'Badge', short: 'ID', use: 'none', color: '#5dade2', hint: 'Bring it to the van deposit to respawn them' },
   // v1.1 gear pack (shop) and special finds (rare, deep rooms). Passive items work from any slot.
@@ -79,6 +91,21 @@ export const ITEM_DEFS: Record<string, ItemDef> = {
   'loot.small': { name: 'Salvage', short: '$', use: 'none', color: '#c9a227', loot: true, hint: 'Deposit in the van' },
   'loot.medium': { name: 'Salvage', short: '$$', use: 'none', color: '#d08c2a', loot: true, hint: 'Deposit in the van' },
   'loot.heavy': { name: 'Heavy salvage', short: '$$$', use: 'none', color: '#e0662b', loot: true, hint: 'Deposit in the van' },
+  // v1.2 gear (findable in deep rooms / drawers / safes, craftable at the van workbench). Passive items work from any slot.
+  battery: { name: 'Battery', short: 'BAT', use: 'battery', stack: 2, color: '#e9c64a', tier: 1, hint: 'LMB: swap in a fresh battery (flashlight back to 100%)', note: 'LMB swaps it in: your light back to 100%' },
+  lockpick: { name: 'Lockpicks', short: 'PIK', use: 'none', stack: 3, color: '#b7b0a2', tier: 1, hint: 'Hold E on a locked door: pick the lock (5 s, loud)', note: 'hold E on a locked door: 5 s and 6 m of noise' },
+  masterkey: { name: 'Master keycard', short: 'MKY', use: 'none', stack: 3, unit: 'charge', color: '#ff8f3a', tier: 2, hint: 'E: any locked door opens; a security door opens without the clank (1 charge)', note: 'any locked door, or a security door without the clank' },
+  soles: { name: 'Soft overshoes', short: 'SOL', use: 'none', color: '#8aa1b4', tier: 1, hint: 'Passive (any slot): your footsteps carry less far · worn out after this contract', note: 'quieter footsteps (they wear out after this contract)' },
+  nvg: { name: 'Night-vision module', short: 'NVG', use: 'none', color: '#5cff7a', tier: 2, hint: 'Passive (any slot): N toggles night vision (flashlight off, 2x battery)', note: 'N: see in the dark · no flashlight · twice the battery' },
+  flashbulb: { name: 'Flashbulbs', short: 'FLB', use: 'flash', stack: 3, color: '#fff2c2', tier: 2, hint: 'LMB: a blinding flash (14 m cone, a 6 m pop)', note: 'LMB: a blinding flash that makes them flinch' },
+  'loot.curio': { name: 'Curio', short: 'CUR', use: 'none', color: '#d6a63f', loot: true, tier: 2, hint: 'One of a kind. Deposit in the van', note: 'one of a kind: the Company pays well for these' },
+  // crafting materials: picked up into the salvage pouch (no slot), deposited at the van into the crew stash
+  ...Object.fromEntries(MATERIAL_TYPES.map((t) => [t, {
+    name: MATERIAL_LABEL[t], short: t.slice(4, 7).toUpperCase(), use: 'none' as const, stack: 1, color: MATERIAL_COLOR[t],
+    note: 'crafting material: goes in your salvage pouch',
+  }])),
+  [POUCH_TYPE]: { name: 'Salvage pouch', short: 'PCH', use: 'none', color: '#8a7350', note: 'crafting materials: they go in your pouch' },
+  [PAGE_TYPE]: { name: 'Field-note page', short: 'PG', use: 'none', color: '#e8dfc6', note: 'it files itself in your Field Guide' },
 };
 
 export const LOOT_TIER_TYPES = ['loot.small', 'loot.medium', 'loot.heavy'] as const;
@@ -109,6 +136,7 @@ export function itemDef(type: string): ItemDef {
 export function itemLabel(it: { type: string; name?: string; count?: number; value?: number }): string {
   const d = itemDef(it.type);
   const base = it.name ?? d.name;
+  if (d.unit && d.stack) return `${base} (${it.count ?? 1} ${d.unit}${(it.count ?? 1) === 1 ? '' : 's'})`;
   if (d.stack && (it.count ?? 1) > 1) return `${base} x${it.count}`;
   if (d.loot && (it.value ?? 0) > 0) return `${base} ($${it.value})`;
   return base;
@@ -117,7 +145,10 @@ export function itemLabel(it: { type: string; name?: string; count?: number; val
 // ---------------------------------------------------------------- patch application (client mirror + test bots)
 
 export function emptyInteractionState(): InteractionState {
-  return { doors: {}, items: {}, inventories: {}, lights: {}, dead: [], hidden: {}, active: {}, ints: {}, glows: {}, bodies: {}, respawns: {}, hp: {}, flares: {} };
+  return {
+    doors: {}, items: {}, inventories: {}, lights: {}, dead: [], hidden: {}, active: {}, ints: {}, glows: {}, bodies: {}, respawns: {}, hp: {}, flares: {},
+    containers: {}, nv: {}, pouches: {}, flashes: {},
+  };
 }
 
 function mergeMap<V>(target: Record<string | number, V>, src: Record<string | number, V | null> | undefined): void {
@@ -137,6 +168,7 @@ export function applyInteractionPatch(st: InteractionState, p: InteractionPatch)
   }
   st.doors ??= {}; st.items ??= {}; st.inventories ??= {}; st.lights ??= {}; st.hidden ??= {}; st.active ??= {};
   st.ints ??= {}; st.glows ??= {}; st.bodies ??= {}; st.respawns ??= {}; st.hp ??= {}; st.dead ??= []; st.flares ??= {};
+  st.containers ??= {}; st.nv ??= {}; st.pouches ??= {}; st.flashes ??= {};
   mergeMap(st.doors, p.doors);
   mergeMap(st.items, p.items);
   mergeMap(st.inventories, p.inventories);
@@ -149,6 +181,10 @@ export function applyInteractionPatch(st: InteractionState, p: InteractionPatch)
   mergeMap(st.respawns, p.respawns);
   mergeMap(st.hp, p.hp);
   mergeMap(st.flares, p.flares);
+  mergeMap(st.containers, p.containers);
+  mergeMap(st.nv, p.nv);
+  mergeMap(st.pouches, p.pouches);
+  mergeMap(st.flashes, p.flashes);
   if (p.dead) st.dead = [...p.dead];
   return st;
 }

@@ -59,8 +59,15 @@ export function hasWalkie(crew: Crew, pid: string): boolean {
   return E.hasType(E.slice(crew), pid, 'walkie');
 }
 
-/** give an item (into a free slot; dropped at the player's feet if the inventory is full). Returns the item or null. */
-export function giveItem(crew: Crew, pid: string, type: string, opts: Partial<Pick<ItemState, 'count' | 'value' | 'name' | 'lock'>> = {}): ItemState | null {
+/**
+ * give an item (into a free slot; dropped at the player's feet if the inventory is full). Returns the item or null.
+ * v1.2: opts.via says how the player got it for the 'acquire' item event (meta hand-out 'handout', shop 'buy', workshop
+ * 'craft', safes 'safe'; default 'api'). A crafting material goes straight into the salvage pouch.
+ */
+export function giveItem(
+  crew: Crew, pid: string, type: string,
+  opts: Partial<Pick<ItemState, 'count' | 'value' | 'name' | 'lock'>> & { via?: NonNullable<ItemEvent['via']> } = {},
+): ItemState | null {
   return E.giveItemTo(crew, pid, type, opts);
 }
 
@@ -155,9 +162,12 @@ export function onDeposit(fn: (crew: Crew, pid: string, items: ItemState[]) => v
   E.addDepositFn(fn as DepositFn);
 }
 
-/** total value of loot spawned for this contract (world + held + van) */
+/** total value of loot spawned for this contract (world + held + van, plus salvage still inside closed drawers) */
 export function lootTotal(crew: Crew): number {
-  return Object.values(E.slice(crew).items).filter((it) => it.type.startsWith('loot.')).reduce((a, it) => a + (it.value ?? 0), 0);
+  const s = E.slice(crew);
+  let v = Object.values(s.items).filter((it) => it.type.startsWith('loot.')).reduce((a, it) => a + (it.value ?? 0), 0);
+  for (const list of s.contents.values()) for (const sp of list) if (sp.type.startsWith('loot.')) v += sp.value ?? 0;
+  return v;
 }
 
 /** loot value currently in the van */
@@ -220,27 +230,55 @@ export function flushNow(crew: Crew): void {
   E.flush(crew);
 }
 
-// ---------------------------------------------------------------- v1.2 contract (PLAN.md §13; stubs until G3 fills them)
+// ---------------------------------------------------------------- v1.2 contract (PLAN.md §13; G3)
 
-const itemEventSubs = new Set<(crew: Crew, e: ItemEvent) => void>();
-/** v1.2 item events (server only) */
+/**
+ * v1.2 item events (server only, never sent): pickup (fresh = world-spawned, nobody held it this contract; materials
+ * and pages are consumed on pickup and the event comes after the state change), acquire (giveItem: via
+ * handout | buy | craft | safe | api), use (LMB uses with p/dir, lockpicks, master-keycard charges, night vision on),
+ * consume (a unit used up), deposit (each loot item with name + value; filed badges as type 'badge'), stash (materials
+ * into the van, one per type with count) and drop (G). Returns an unsubscribe function.
+ */
 export function onItemEvent(fn: (crew: Crew, e: ItemEvent) => void): () => void {
-  itemEventSubs.add(fn);
-  return () => itemEventSubs.delete(fn);
+  return E.addItemEventFn(fn);
 }
-/** (b) internal: publish */
+/** publish an item event (interaction internal; other modules subscribe with onItemEvent) */
 export function emitItemEvent(crew: Crew, e: ItemEvent): void {
-  for (const f of itemEventSubs) {
-    try { f(crew, e); } catch { /* subscriber bug */ }
-  }
+  E.emitItem(crew, e);
 }
-/** deposited materials + mat.* / pouch items in the van cargo rect +-0.6 m; returns and clears */
-export function takeVanMaterials(_crew: Crew): Record<string, number> { return {}; }
-export function vanMaterials(_crew: Crew): Record<string, number> { return {}; }
-export function pouchOf(_crew: Crew, _pid: string): Record<string, number> { return {}; }
-/** private item into a closed container (fieldguide pages); false if unknown/open */
-export function stockContainer(_crew: Crew, _containerId: string, _spec: { type: string; name?: string; value?: number }): boolean { return false; }
-/** programmatic hide (crawl: 'duct:<vent id>'): stance hidden, use/act blocked, monsters + litAt ignore; unhide() ends */
-export function hideIn(_crew: Crew, _pid: string, _spotId: string): boolean { return false; }
-/** an onInteract handler exists for kind (gate checks) */
-export function hasInteractHandler(_kind: string): boolean { return false; }
+/** deposited materials + mat.* / pouch items in the van cargo rect +-0.6 m + the pouches of living players inside the
+ *  van; returns them and clears (G5 at contract end, before results) */
+export function takeVanMaterials(crew: Crew): Record<string, number> {
+  return E.vanMaterialsOf(crew, true);
+}
+/** the same sum as takeVanMaterials without taking anything */
+export function vanMaterials(crew: Crew): Record<string, number> {
+  return E.vanMaterialsOf(crew, false);
+}
+/** a player's salvage pouch (MaterialType -> units; a copy) */
+export function pouchOf(crew: Crew, pid: string): Record<string, number> {
+  return { ...(E.slice(crew).pouches?.[pid] ?? {}) };
+}
+/** private item into a closed container (fieldguide pages): containerId = ContainerInfo.id (host prop id) or the
+ *  interactable id 'cont:<prop id>'; false if unknown, already open or the containers flag is off */
+export function stockContainer(crew: Crew, containerId: string, spec: { type: string; name?: string; value?: number }): boolean {
+  return E.stockContainerItem(crew, String(containerId ?? ''), spec);
+}
+/** programmatic hide (crawl: 'duct:<vent id>'): stance hidden, use/act/drop blocked, flashlight off, monsters + litAt
+ *  ignore; unhide() ends it. A locker id hides in that locker (occupancy rules apply). */
+export function hideIn(crew: Crew, pid: string, spotId: string): boolean {
+  return E.hideInSpot(crew, pid, spotId);
+}
+/** an onInteract handler exists for kind, or interaction handles it itself (door, locker, switch, body, deposit,
+ *  container, item): gate checks */
+export function hasInteractHandler(kind: string): boolean {
+  return E.ownsKind(kind) || E.hasHandler(kind);
+}
+/** v1.2: player has night vision on */
+export function nightVision(crew: Crew, pid: string): boolean {
+  return !!E.slice(crew).nv?.[pid];
+}
+/** v1.2: a hold-E (ease / lockpick / security force) in progress on interactable id ('door:12', 'cont:prop:41') */
+export function isEasing(crew: Crew, id: string): boolean {
+  return Object.values(E.slice(crew).easing).some((r) => r.id === id);
+}

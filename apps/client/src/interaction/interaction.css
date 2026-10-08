@@ -91,3 +91,31 @@
 }
 .ix-locker-frame { position: absolute; inset: 0; box-shadow: inset 0 0 160px 60px rgba(0, 0, 0, 0.95); }
 .ix-locker-hint { position: absolute; left: 0; right: 0; bottom: 14%; text-align: center; font: 600 12px var(--font-mono); letter-spacing: 0.25em; color: #c9c2ae; text-shadow: 0 0 6px #000; }
+
+/* v1.2: easing ring label, pouch chips, death-card tip, night-vision fallback, flashbulb screen flash */
+.ix-prompt-text.easing { color: #cfe8c8; letter-spacing: 0.08em; }
+.ix-pouch { display: flex; gap: 5px; justify-content: center; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+.ix-pouch-tag { font: 700 8.5px var(--font-mono); letter-spacing: 0.3em; color: #8a7d62; margin-right: 2px; }
+.ix-pouch-chip {
+  display: inline-flex; align-items: center; gap: 5px; font: 700 9px var(--font-mono); letter-spacing: 0.14em; color: #d9d0b8;
+  padding: 2px 7px; background: rgba(0, 0, 0, 0.55); border: 1px solid #3a3426; text-shadow: 0 0 4px #000; white-space: nowrap;
+}
+.ix-pouch-dot { width: 7px; height: 7px; border-radius: 2px; }
+.ix-death-tip {
+  margin-top: 12px; padding: 7px 10px; font: 600 12px/1.35 var(--font-mono); letter-spacing: 0.06em; color: #e9d9a6;
+  background: rgba(240, 180, 60, 0.07); border-left: 2px solid var(--amber);
+}
+.ix-nv { position: fixed; inset: 0; pointer-events: none; z-index: 4;
+  background: radial-gradient(ellipse 70% 62% at 50% 50%, rgba(30, 255, 90, 0.05) 0%, rgba(0, 20, 6, 0.55) 78%, rgba(0, 0, 0, 0.92) 100%);
+  mix-blend-mode: normal; }
+.ix-nv-grain { position: absolute; inset: 0; opacity: 0.22;
+  background: repeating-linear-gradient(0deg, rgba(160, 255, 170, 0.07) 0px, rgba(160, 255, 170, 0.07) 1px, transparent 1px, transparent 3px);
+  animation: ix-nv-roll 1.6s linear infinite; }
+@keyframes ix-nv-roll { to { background-position: 0 6px; } }
+.ix-nv-tag { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); font: 700 10px var(--font-mono); letter-spacing: 0.32em;
+  color: #8dff9f; text-shadow: 0 0 6px #0f4; opacity: 0.8; }
+.ix-flash { position: fixed; inset: 0; pointer-events: none; z-index: 40; background: #fffaf0;
+  opacity: 0; animation: ix-flash 380ms ease-out; }
+.ix-flash.soft { background: #fff3dc; animation: ix-flash-soft 700ms ease-out; }
+@keyframes ix-flash { 0% { opacity: calc(0.92 * var(--ix-flash-k, 1)); } 100% { opacity: 0; } }
+@keyframes ix-flash-soft { 0% { opacity: 0; } 25% { opacity: calc(0.3 * var(--ix-flash-k, 1)); } 100% { opacity: 0; } }

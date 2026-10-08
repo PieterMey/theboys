@@ -101,6 +101,8 @@ export interface InteractionState {
   nv?: Record<string, boolean>;
   /** v1.2: player id -> salvage pouch (MaterialType -> units), no slot */
   pouches?: Record<string, Record<string, number>>;
+  /** v1.2 flashbulb: a fired flash (counts as lit inside its cone while it lasts) */
+  flashes?: Record<string, FlashState>;
 }
 
 /** Incremental update; null deletes a key. `reset` replaces the whole state (layout rebuild). */
@@ -123,13 +125,20 @@ export interface InteractionPatch {
   containers?: Record<string, ContainerState | null>;
   nv?: Record<string, boolean | null>;
   pouches?: Record<string, Record<string, number> | null>;
+  flashes?: Record<string, FlashState | null>;
 }
+
+/** v1.2 flashbulb flash: lit inside flashRangeM / flashConeDeg (LOS) from p along dir until `until` (server ms) */
+export interface FlashState { p: V3; dir: V3; until: number; by: string }
 
 export type IxFxKind =
   | 'smash' | 'throw' | 'swing' | 'hit' | 'horn' | 'door' | 'security' | 'pickup' | 'drop' | 'switch' | 'deny'
   | 'glow' | 'locker' | 'unlock' | 'deposit' | 'revive' | 'medkit' | 'slot'
   /** v1.1 gear: flare ignites, motion sensor armed, adrenaline injected, cursed idol whisper (open=true: a wail), lucky deposit */
-  | 'flare' | 'sensor' | 'inject' | 'whisper' | 'lucky';
+  | 'flare' | 'sensor' | 'inject' | 'whisper' | 'lucky'
+  /** v1.2: drawer/cabinet opened (soft = eased), materials into the van stash, battery swapped, night vision toggled
+   *  (open = on), lock picked, master keycard used, flashbulb fired */
+  | 'container' | 'stash' | 'battery' | 'nv' | 'pick' | 'masterkey' | 'flash';
 
 export interface IxResult {
   ok: boolean;
@@ -143,7 +152,15 @@ export interface InteractionEvents {
   'interaction.death': { pid: string; name: string; cause: DeathCause; p: V3 };
   'interaction.revive': { pid: string; by: string | null; how: 'medkit' | 'badge' | 'api'; p: V3; yaw: number; hp: number };
   /** one-shot effects (sfx / animations): door clanks, smashes, swings, pickups */
-  'interaction.fx': { kind: IxFxKind; p?: V3; pid?: string; id?: string; door?: number; open?: boolean; item?: string };
+  'interaction.fx': {
+    kind: IxFxKind; p?: V3; pid?: string; id?: string; door?: number; open?: boolean; item?: string;
+    /** v1.2: a quiet (eased) door / drawer */
+    soft?: boolean;
+    /** v1.2: units (stash, battery) */
+    count?: number;
+    /** v1.2 flashbulb: direction */
+    dir?: V3;
+  };
 }
 
 export interface InteractionReqs {
@@ -158,13 +175,18 @@ export interface InteractionReqs {
   /** console operator toggles a security door (5 s cooldown, 12 m clank). open omitted = toggle */
   'interaction.consoleDoor': { args: { id: number; open?: boolean }; result: IxResult & { open?: boolean; cooldownMs?: number } };
   /** v1.2 quiet hold-E on a door/container: on=true after E was held 220 ms, on=false on release; the server times it */
-  'interaction.ease': { args: { id: string; on: boolean }; result: IxResult & { t0?: number; ms?: number } };
+  'interaction.ease': { args: { id: string; on: boolean }; result: IxResult & { t0?: number; ms?: number; off?: boolean; done?: boolean } };
   /** v1.2 night vision (needs 'nvg' in any slot) */
   'interaction.nv': { args: { on: boolean }; result: IxResult & { on?: boolean } };
 }
 
 /** server-timed quiet action: commits at t0 + ms (ctx.now clock) unless cancelled */
-export interface EaseState { by: string; to: boolean; t0: number; ms: number }
+export interface EaseState {
+  by: string; to: boolean; t0: number; ms: number;
+  /** v1.2: 'soft' = quiet ease (the door / drawer moves), 'pick' = lockpick (loud, the door stays put),
+   *  'force' = security-door hold (loud) */
+  kind?: 'soft' | 'pick' | 'force';
+}
 /** container state; interactable 'cont:<container id>' */
 export interface ContainerState {
   /** bitmask of open parts (ContainerPart.idx); 0 = closed */

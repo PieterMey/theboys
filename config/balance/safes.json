@@ -18,5 +18,14 @@
   "itemClearM": 1.2,
   "dialSendMs": 100,
   "clickVolume": 0.9,
-  "tickVolume": 0.05
+  "tickVolume": 0.05,
+  "safeGearChance": 0.35,
+  "safeGear": {
+    "lockpick": 3,
+    "masterkey": 2,
+    "nvg": 1,
+    "battery": 3,
+    "flashbulb": 2,
+    "soles": 2
+  }
 }

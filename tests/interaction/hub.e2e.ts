@@ -40,6 +40,8 @@ for (const id of ['board:0', 'shop:0', 'mirror:0']) {
   const stand: [number, number] = [it.x + Math.sin(rot) * 0.9, it.z + Math.cos(rot) * 0.9];
   await walkTo(b, at, stand, rot + Math.PI);
   at = stand;
+  // v1.2 hub: a straight walk can end against a wall (the stations moved); place the server pose on the spot
+  await b.dbg('interaction.pose', { pid: b.me, x: stand[0], z: stand[1], yaw: rot + Math.PI }).catch(() => undefined);
   const evP = b.waitEvent('meta.open', () => true, 2500).catch(() => null);
   const r = await b.req<{ ok: boolean; msg?: string }>('interaction.use', { id });
   const ev = await evP;

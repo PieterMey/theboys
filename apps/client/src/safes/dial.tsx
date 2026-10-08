@@ -49,12 +49,12 @@ export function SafeScreen(props: ScreenProps) {
       if (st.current.busy || st.current.done) return;
       st.current.busy = true;
       try {
-        const r = (await req('safes.confirm', { id, pos: st.current.pos })) as { ok: boolean; stage: number; open: boolean; closed?: boolean; value?: number; name?: string };
+        const r = (await req('safes.confirm', { id, pos: st.current.pos })) as { ok: boolean; stage: number; open: boolean; closed?: boolean; value?: number; name?: string; gearName?: string };
         if (r.closed) { close(false); return; }
         setStage(r.stage);
         if (r.open) {
           setFlash('open');
-          setMsg(`It swings open: ${r.name ?? 'loot'} (${r.value ?? '?'} scrip) in your hands.`);
+          setMsg(`It swings open: ${r.name ?? 'loot'} (${r.value ?? '?'} scrip)${r.gearName ? ` and ${r.gearName}` : ''} in your hands.`);
           setTimeout(() => close(false), 1600);
           return;
         }
