@@ -26,6 +26,8 @@
   "haikuColdTimeoutMs": 8000,
   "haikuEffort": "low",
   "haikuMinMaxTokens": 1024,
+  "briefEffort": "medium",
+  "reviewEffort": "low",
   "directorTimeoutMs": 900,
   "briefTimeoutMs": 120000,
   "reviewTimeoutMs": 55000,

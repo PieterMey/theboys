@@ -31,3 +31,13 @@ test('prices: Haiku 5.5 is $0.10 / $0.50 per MTok, Haiku 4.5 stays $1 / $5', () 
   assert.equal(costUsd('claude-haiku-5-5', { input_tokens: 1_000_000, output_tokens: 1_000_000 }).toFixed(2), '0.60');
   assert.equal(costUsd('claude-haiku-4-5', { input_tokens: 1_000_000, output_tokens: 1_000_000 }).toFixed(2), '6.00');
 });
+
+test('writer effort: briefs medium, HR memos low by default; balance overrides', async () => {
+  const { writerEffort } = await import('../../apps/server/src/ai/gateway.ts');
+  configureGateway({ mode: 'mock', flags: {}, bal: () => ({}), budgetUsd: () => 3, log: quietLog });
+  assert.equal(writerEffort('brief'), 'medium');
+  assert.equal(writerEffort('review'), 'low');
+  configureGateway({ mode: 'mock', flags: {}, bal: () => ({ briefEffort: 'low', reviewEffort: 'high' }), budgetUsd: () => 3, log: quietLog });
+  assert.equal(writerEffort('brief'), 'low');
+  assert.equal(writerEffort('review'), 'high');
+});

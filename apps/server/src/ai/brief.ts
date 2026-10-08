@@ -1,11 +1,12 @@
-// Owner: track (e) AI. Route contract.brief (PLAN §4.8): Opus 5.5 (effort low) rewrites a TEMPLATE work order's
-// flavour text: site name, history, Company memo, request flavour, clue notes. Clue notes may only use the
-// placeholders the template's notes use ({{CODE_A}}, {{ROOM_1}}, ...), each exactly once and in the same note,
-// so real secrets never enter a prompt; (a) objectives substitutes the real values at contract start.
+// Owner: track (e) AI. Route contract.brief (PLAN §4.8): the writer (MODEL_WRITER, Haiku 5.5 at balance briefEffort)
+// rewrites a TEMPLATE work order's flavour text: site name, history, Company memo, request flavour, clue notes. Clue
+// notes may only use the placeholders the template's notes use ({{CODE_A}}, {{ROOM_1}}, ...), each exactly once and in
+// the same note, so real secrets never enter a prompt; (a) objectives substitutes the real values at contract start.
 // Template-first: briefFor() always resolves (AI order or the untouched template), cached per order id, at most 3
-// Opus calls in flight (one board), budget- and per-session-capped. Refusal -> one Haiku retry -> template.
+// writer calls in flight (one board), budget- and per-session-capped. Refusal -> one MODEL_RETRY retry (skipped when
+// it is the writer) -> template.
 import type { WorkOrder } from '@dead-air/shared/workorder.ts';
-import { claudeJson } from './gateway.ts';
+import { claudeJson, writerEffort } from './gateway.ts';
 import type { ClaudeResult, MockMessage } from './gateway.ts';
 import { clampWords, wordCount } from './text.ts';
 import { balNum, flagOn, log } from './hub.ts';
@@ -173,13 +174,14 @@ async function generate(order: WorkOrder, writer: string, fast: string): Promise
     ...common,
     route: 'brief.opus',
     model: writer,
-    effort: 'low',
+    effort: writerEffort('brief'),
     maxInFlight: 3, // a board shows 3 orders; meta asks for all of them at once
     maxTokens: balNum('writerMaxTokens', 16000),
     expectedOut: balNum('writerExpectedOutTokens', 3000),
     timeoutMs: balNum('briefTimeoutMs', 120_000),
   });
-  if (!res.ok && res.reason === 'refusal') {
+  // refusal: retry once on the retry model (MODEL_RETRY), unless it is the writer itself (then the template stays)
+  if (!res.ok && res.reason === 'refusal' && fast !== writer) {
     res = await claudeJson({ ...common, route: 'writer.haiku', model: fast, maxTokens: balNum('haikuRetryMaxTokens', 2500), expectedOut: 800, timeoutMs: balNum('refusalRetryTimeoutMs', 20_000) });
   }
   if (!res.ok) return { order, notSent: NOT_SENT.has(res.reason) };
@@ -216,7 +218,7 @@ export function brief(order: WorkOrder, writer: string, fast: string): Promise<W
 /** Exactly ONE writer call for a brief (no refusal retry): used by tests/ai/smoke.mjs to cap live spend. */
 export async function briefOnce(order: WorkOrder, writer: string): Promise<{ res: ClaudeResult; merged: WorkOrder | null }> {
   const res = await claudeJson({
-    route: 'brief.opus', model: writer, effort: 'low', system: WRITER_SYSTEM, user: briefUser(order),
+    route: 'brief.opus', model: writer, effort: writerEffort('brief'), system: WRITER_SYSTEM, user: briefUser(order),
     schema: BRIEF_SCHEMA as unknown as Record<string, unknown>, maxTokens: balNum('writerMaxTokens', 16000),
     expectedOut: balNum('writerExpectedOutTokens', 3000), timeoutMs: balNum('briefTimeoutMs', 120_000), mock: () => mockBrief(order),
   });

@@ -390,6 +390,13 @@ export function haikuOpts(model: string, effort: Effort | undefined, maxTokens: 
   return { effort: effort ?? e, maxTokens: Math.max(maxTokens, num('haikuMinMaxTokens', 1024)) };
 }
 
+/** effort for the writer routes: briefs (balance briefEffort, default 'medium': background work, richer clue notes
+ *  on Haiku 5.5) and HR memos (reviewEffort, default 'low': the crew is waiting; 2.7 s on Haiku 5.5) */
+export function writerEffort(kind: 'brief' | 'review'): Effort {
+  const e = G.cfg.bal()[kind === 'brief' ? 'briefEffort' : 'reviewEffort'];
+  return e === 'low' || e === 'medium' || e === 'high' ? e : kind === 'brief' ? 'medium' : 'low';
+}
+
 /** Parse a provider-shaped Message: branch on stop_reason, JSON.parse the text block. */
 export function parseClaudeMessage(msg: MockMessage): { ok: true; data: unknown } | { ok: false; reason: FailReason; category?: string | null } {
   if (msg.stop_reason === 'refusal') return { ok: false, reason: 'refusal', category: msg.stop_details?.category ?? null };

@@ -1,10 +1,10 @@
 // Owner: track (e) AI. Route shift.review (PLAN §1.6, §4.8): the Company Performance Review after a shift.
-// One Opus 5.5 (effort low) call per player (title + 2 lines + which overheard quote to print, by index) and one
-// for 8 "employee comments" + the termination letter when fired; all in parallel, template per part on any
-// failure, whole thing resolves within ~60 s. Quotes are verbatim RAM transcripts of CONSENTING players only;
-// the model picks an index, code prints the text (it never echoes speech it was handed).
+// One writer call (MODEL_WRITER, Haiku 5.5 at balance reviewEffort) per player (title + 2 lines + which overheard
+// quote to print, by index) and one for 8 "employee comments" + the termination letter when fired; all in parallel,
+// template per part on any failure, whole thing resolves within ~60 s. Quotes are verbatim RAM transcripts of
+// CONSENTING players only; the model picks an index, code prints the text (it never echoes speech it was handed).
 import type { PlayerMemo, ShiftReview, ShiftSummary, ShiftSummaryPlayer } from '@dead-air/shared/messages/ai.ts';
-import { claudeJson } from './gateway.ts';
+import { claudeJson, writerEffort } from './gateway.ts';
 import type { ClaudeResult, MockMessage } from './gateway.ts';
 import { WRITER_SYSTEM } from './brief.ts';
 import { clampWords, wordCount } from './text.ts';
@@ -157,8 +157,9 @@ function validComments(d: unknown, fired: boolean): { comments: string[] | null;
 
 async function writer(route: string, user: string, schema: Record<string, unknown>, mock: () => MockMessage, writerModel: string, fast: string): Promise<ClaudeResult> {
   const common = { system: WRITER_SYSTEM, user, schema, mock, maxInFlight: 8 };
-  let res = await claudeJson({ ...common, route, model: writerModel, effort: 'low', maxTokens: balNum('writerMaxTokens', 16000), expectedOut: balNum('writerExpectedOutTokens', 3000), timeoutMs: balNum('reviewTimeoutMs', 55_000) });
-  if (!res.ok && res.reason === 'refusal') {
+  let res = await claudeJson({ ...common, route, model: writerModel, effort: writerEffort('review'), maxTokens: balNum('writerMaxTokens', 16000), expectedOut: balNum('writerExpectedOutTokens', 3000), timeoutMs: balNum('reviewTimeoutMs', 55_000) });
+  // refusal: retry once on the retry model (MODEL_RETRY), unless it is the writer itself (then the template stays)
+  if (!res.ok && res.reason === 'refusal' && fast !== writerModel) {
     res = await claudeJson({ ...common, route: 'writer.haiku', model: fast, maxTokens: balNum('haikuRetryMaxTokens', 2500), expectedOut: 600, timeoutMs: balNum('refusalRetryTimeoutMs', 20_000) });
   }
   return res;

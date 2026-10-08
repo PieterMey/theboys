@@ -32,7 +32,7 @@ export interface ServerEnv {
   CLIENT_DIST: string;
   MODEL_WRITER: string;
   MODEL_FAST: string;
-  /** refusal-retry model for briefs/memos (Haiku 4.5: no safety classifiers) */
+  /** refusal-retry model for briefs/memos; when it equals MODEL_WRITER a refusal keeps the template (no retry) */
   MODEL_RETRY: string;
 }
 
@@ -86,9 +86,9 @@ export function makeEnv(mode: Mode, portOverride?: number): ServerEnv {
     ASSETS_DIR: assets,
     ROOT,
     CLIENT_DIST: process.env.CLIENT_DIST || join(ROOT, 'apps/client/dist'),
-    MODEL_WRITER: e.MODEL_WRITER ?? 'claude-opus-5-5',
+    MODEL_WRITER: e.MODEL_WRITER ?? 'claude-haiku-5-5',
     MODEL_FAST: e.MODEL_FAST ?? 'claude-haiku-5-5',
-    MODEL_RETRY: e.MODEL_RETRY ?? 'claude-haiku-4-5',
+    MODEL_RETRY: e.MODEL_RETRY ?? 'claude-haiku-5-5',
   };
 }
 

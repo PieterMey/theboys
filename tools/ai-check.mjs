@@ -44,7 +44,7 @@ const MODEL_FAST = process.env.MODEL_FAST || 'claude-haiku-5-5';
 const FAST_EFFORT = process.env.AI_CHECK_EFFORT || null; // low | medium | high
 const FAST_THINKING = process.env.AI_CHECK_THINKING || null; // disabled | adaptive (unset = model default)
 const FAST_MAX_TOKENS = Number(process.env.AI_CHECK_MAX_TOKENS || 100);
-const MODEL_WRITER = process.env.MODEL_WRITER || 'claude-opus-5-5';
+const MODEL_WRITER = process.env.MODEL_WRITER || 'claude-haiku-5-5';
 const JEV_MODEL = process.env.JEV_MODEL || 'jev-1.13.0';
 
 // USD per million tokens (claude-api skill pricing table, cached 2026-09-25; TypeSafe models page).

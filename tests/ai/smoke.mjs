@@ -16,8 +16,8 @@ const log = { debug() {}, info: (...a) => console.log('[gw]', ...a), warn: (...a
 configureGateway({ mode: 'record', flags, bal: () => balance.ai ?? {}, budgetUsd: () => Number(balance.core.aiBudgetUsdPerSession ?? 3), log });
 const before = spentUsd();
 const haikuOnly = process.argv.includes('--haiku-only'); // re-prove only the Haiku route (1 call)
-const FAST = process.env.MODEL_FAST || 'claude-haiku-4-5';
-const WRITER = process.env.MODEL_WRITER || 'claude-opus-5-5';
+const FAST = process.env.MODEL_FAST || 'claude-haiku-5-5';
+const WRITER = process.env.MODEL_WRITER || 'claude-haiku-5-5';
 let bad = 0;
 const check = (what, ok) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${what}`); if (!ok) bad++; };
 

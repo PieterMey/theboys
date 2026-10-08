@@ -27,9 +27,10 @@ export type { AiStatus, DirectorOption, ListenerInput, ListenerIntent, ShiftRevi
 export type { LureHeard, LureRequest };
 
 const fastModel = () => getCtx()?.env.MODEL_FAST ?? process.env.MODEL_FAST ?? 'claude-haiku-5-5';
-/** refusal retry for briefs/memos: Haiku 4.5 on purpose (no safety classifiers; Haiku 5.5 has them and no fallback) */
-const retryModel = () => getCtx()?.env.MODEL_RETRY ?? process.env.MODEL_RETRY ?? 'claude-haiku-4-5';
-const writerModel = () => getCtx()?.env.MODEL_WRITER ?? process.env.MODEL_WRITER ?? 'claude-opus-5-5';
+/** refusal retry for briefs/memos; the same model as the writer means no retry (the template stays). Set
+ *  MODEL_RETRY=claude-haiku-4-5 to retry on a model without safety classifiers. */
+const retryModel = () => getCtx()?.env.MODEL_RETRY ?? process.env.MODEL_RETRY ?? 'claude-haiku-5-5';
+const writerModel = () => getCtx()?.env.MODEL_WRITER ?? process.env.MODEL_WRITER ?? 'claude-haiku-5-5';
 
 /** Subscribe to transcribed utterances (voice + proximity text). Returns an unsubscribe function. */
 export function onUtterance(fn: (crew: Crew, u: Utterance) => void): () => void {
