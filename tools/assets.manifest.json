@@ -381,6 +381,161 @@
         "ph": "standing_chalkboard_01",
         "group": "site",
         "note": "v1.2 lore blackboard / nursery"
+      },
+      "prop.item_pocket_watch": {
+        "ph": "pocket_watch",
+        "group": "site",
+        "item": true,
+        "maxTex": 256,
+        "tris": 3000,
+        "rest": [
+          -90,
+          0,
+          0
+        ],
+        "note": "v1.2 item model: salvage 'Pocket watch' (loot.small). Glass dropped; rest pose lies face up"
+      },
+      "prop.item_old_camera": {
+        "ph": "vintage_video_camera",
+        "group": "site",
+        "item": true,
+        "maxTex": 256,
+        "tris": 3000,
+        "note": "v1.2 item model: salvage 'Old camera' (loot.small). Lens glass dropped"
+      },
+      "prop.item_circuit_board": {
+        "ph": "circuit_board",
+        "group": "site",
+        "item": true,
+        "maxTex": 256,
+        "tris": 3000,
+        "scale": 0.55,
+        "keep": "^circuit_board(_alpha)?$",
+        "note": "v1.2 item model: salvage 'Circuit board' (loot.small). The 0.40 m source board scaled to 0.22 m; the board itself is the source's circuit_board_alpha material (alpha-blend flag, opaque JPEG), kept and drawn opaque"
+      },
+      "prop.item_cassette_tape": {
+        "ph": "cassette_player",
+        "group": "site",
+        "item": true,
+        "maxTex": 256,
+        "tris": 3000,
+        "keep": "^cassette_player_tape$",
+        "rest": [
+          -90,
+          0,
+          0
+        ],
+        "note": "v1.2 item model: salvage 'Cassette tape' (loot.small; also the curio dashcam tape). Only the tape of the cassette player; lies flat"
+      },
+      "prop.item_reading_glasses": {
+        "ph": "round_spectacles",
+        "group": "site",
+        "item": true,
+        "maxTex": 256,
+        "tris": 3000,
+        "note": "v1.2 item model: salvage 'Reading glasses' (loot.small). Lenses dropped"
+      },
+      "prop.item_tool_chest": {
+        "ph": "metal_toolbox",
+        "group": "site",
+        "item": true,
+        "maxTex": 512,
+        "tris": 4000,
+        "pose": {
+          "metal_toolbox_lid": [
+            0,
+            0,
+            0
+          ]
+        },
+        "note": "v1.2 item model: salvage 'Tool chest' (loot.medium). The source lid is authored open: pose closes it"
+      },
+      "prop.item_jerrycan": {
+        "ph": "metal_jerrycan_green",
+        "group": "site",
+        "item": true,
+        "maxTex": 512,
+        "tris": 4000,
+        "note": "v1.2 item model: salvage 'Jerrycan' (loot.medium). Green, unlike the red prop.jerrycan decor"
+      },
+      "prop.item_radio_set": {
+        "ph": "vintage_radio_transceiver",
+        "group": "site",
+        "item": true,
+        "maxTex": 512,
+        "tris": 5000,
+        "keep": "^vintage_radio_transceiver$",
+        "note": "v1.2 item model: salvage 'Radio set' (loot.medium). Main unit only (the accessories material is dropped)"
+      },
+      "prop.item_brass_lamp": {
+        "ph": "Lantern_01",
+        "group": "site",
+        "item": true,
+        "maxTex": 512,
+        "tris": 4000,
+        "note": "v1.2 item model: salvage 'Brass lamp' (loot.medium). Glass chimney dropped"
+      },
+      "prop.item_film_projector": {
+        "ph": "filmstrip_projector_8mm",
+        "group": "site",
+        "item": true,
+        "maxTex": 512,
+        "tris": 5000,
+        "note": "v1.2 item model: salvage 'Film projector' (loot.medium). Film strip dropped"
+      },
+      "prop.item_bronze_bust": {
+        "ph": "marble_bust_01",
+        "group": "site",
+        "item": true,
+        "maxTex": 512,
+        "tris": 5000,
+        "tint": {
+          "color": "#a8743e",
+          "metallic": 1
+        },
+        "note": "v1.2 item model: salvage 'Bronze bust' (loot.heavy). The marble bust baked to bronze, metallic 1"
+      },
+      "prop.item_flashlight_pro": {
+        "ph": "signal_flashlight",
+        "group": "site",
+        "item": true,
+        "maxTex": 256,
+        "tris": 3000,
+        "rest": [
+          -90,
+          0,
+          0
+        ],
+        "note": "v1.2 item model: gear flashlight_pro (shop 'pro-flashlight'). Lens glass dropped; lies on its back, lamp facing up"
+      },
+      "prop.item_mat_chem": {
+        "ph": "drain_cleaner",
+        "group": "site",
+        "item": true,
+        "maxTex": 256,
+        "tris": 3000,
+        "note": "v1.2 item model: crafting material mat.chem"
+      },
+      "prop.item_mat_optics": {
+        "ph": "magnifying_glass_01",
+        "group": "site",
+        "item": true,
+        "maxTex": 256,
+        "tris": 3000,
+        "rest": [
+          -90,
+          0,
+          0
+        ],
+        "note": "v1.2 item model: crafting material mat.optics. Lens dropped; lies flat"
+      },
+      "prop.item_mat_relic": {
+        "ph": "carved_wooden_elephant",
+        "group": "site",
+        "item": true,
+        "maxTex": 256,
+        "tris": 3000,
+        "note": "v1.2 item model: crafting material mat.relic"
       }
     }
   },

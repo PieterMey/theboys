@@ -11,6 +11,8 @@
 //   --no-prune   keep stale hashed files in a --dist stage (writing .assets/dist never prunes: the live server serves it;
 //                --prune forces it there, only with the game server stopped)
 //   --no-keys-ts do not rewrite packages/shared/src/assets.ts (its key lists are a union: keys are only ever added)
+//   v1.2 item models: props.items entries with "item": true build as one-mesh / one-material world items
+//   (prop.item_*, see buildItem below); stage them with --dist <stage> --only props,emit --no-prune
 //
 // Layout: .assets/src   raw downloads (untrusted data; never executed)
 //         .assets/build optimized outputs with stable names
@@ -846,7 +848,17 @@ async function stepDecals() {
 async function stepProps() {
   credit('polyhaven', { title: 'Poly Haven textures and models', author: 'Poly Haven contributors', license: 'CC0-1.0', url: 'https://polyhaven.com' });
   const P = M.props;
+  const itemErrors = [];
   await pool(Object.entries(P.items), 4, async ([key, spec]) => {
+    if (spec.item) {
+      // v1.2 item models (prop.item_*): their own build, below; one failing item never stops the others
+      try {
+        await buildItem(key, spec, P);
+      } catch (e) {
+        itemErrors.push(`${key}: ${e.message}`);
+      }
+      return;
+    }
     const name = key.replace(/^prop\./, '');
     const out = join(BUILD, 'props', `${name}.glb`);
     if (!fresh(out)) {
@@ -881,6 +893,447 @@ async function stepProps() {
     }
     reg(key, out, `props/${name}.glb`, { group: spec.group || 'site', credit: 'polyhaven', extra: { source: `polyhaven:${spec.ph}` } });
   });
+  if (itemErrors.length) throw new Error(`${itemErrors.length} item model(s) failed (not registered):\n  ${itemErrors.join('\n  ')}`);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// item models (v1.2): small Poly Haven models drawn as world items (salvage, gear, crafting materials). They are
+// props.items entries with "item": true, keyed prop.item_<name>, and load like any prop (loadPropModel('item_<name>')).
+// Each is ONE mesh with ONE material in the Poly Haven three-texture layout (colour, normal, ARM = metal/rough + AO),
+// so every item model draws as a plain mesh with one shared shader program:
+//   - no -kn: gltfpack bakes every node transform into a single mesh (no node rotation survives)
+//   - glass / lens / film / alpha-blend primitives dropped; per entry, "keep" (material names to keep) and "drop"
+//     (more names to drop) regexes pick a sub-part (the tape out of a cassette player). A "keep" match overrides the
+//     glass / alpha-blend rule: that material stays and is drawn opaque (circuit_board_alpha is the board itself)
+//   - KHR_materials_* (transmission, clearcoat, ior, ...) and emissive stripped; every material double-sided; one
+//     vertex layout (POSITION / NORMAL / TEXCOORD_0: extra colour / uv sets, tangents and morph targets dropped)
+//   - one image per file and one texture per (image, sampler), so materials that differ only by a duplicate image
+//     entry merge into one; textures and images no kept material references are pruned (gltfpack embeds every image)
+//   - "pose": { "<node name>": [x, y, z] degrees } replaces a node's rotation (closes an authored-open lid)
+//   - a wrapper node for the rest pose ("rest": [x, y, z] degrees, Euler XYZ: how it lies on a surface), "scale" (a
+//     deliberate resize of the real object: the expected size scales too) and "units" (a source-units fix, e.g. 0.1 for
+//     a mesh authored at 10x: the expected size stays the API's)
+//   - "tint" baked into the textures: color ('#rrggbb': luminance kept, the mean texel becomes the colour), metallic
+//     (the ARM blue channel), roughness (the roughness factor); a roughness-only "ARM" (one grey channel, Poly Haven
+//     _rough maps) becomes AO 1 / rough / metal 0, so its roughness is not read as ambient occlusion
+//   - -tl "maxTex" (default 256); -si targets the "tris" cap (default 3000) and -se "se" (default 0.02) bounds the
+//     error, so a detailed model can stay above its cap
+//   - the patched glTF, copies of its buffers / images and the baked PNGs sit in one short work folder
+//     (.assets/build/_tmp/items/<name>, removed after a good build): no '..' paths (gltfpack skips an image it cannot
+//     open, e.g. past Windows MAX_PATH, and the texture check below then fails the item)
+//   - checks (each run): one material, one primitive, the three-texture layout, no node rotation, textures embedded
+//     KTX2 within maxTex, and the built bounds against the Poly Haven API dimensions (mm, x / y / z with z up) after
+//     rest pose and scale: no axis may exceed them, and the longest side must reach 0.75x of theirs (0.15x for a
+//     keep/drop sub-part), so a model authored at 10x (or 0.1x) fails the step instead of shipping a giant pocket watch
+// An item rebuilds when its manifest entry (minus note / group) or ITEM_PIPELINE changes: sidecar .assets/build/items.
+// ---------------------------------------------------------------------------------------------------------------
+const ITEM_PIPELINE = 5; // bump after changing buildItem / packItem output, so every item model rebuilds
+const ITEM_DROP = /_(glass|lens|lense|alpha|flame|film)$/i;
+const ITEM_SE = 0.02;
+
+/** glTF quaternion [x, y, z, w] of Euler angles in degrees (three.js order 'XYZ') */
+function eulerQuat([x = 0, y = 0, z = 0]) {
+  const h = Math.PI / 360;
+  const c1 = Math.cos(x * h), c2 = Math.cos(y * h), c3 = Math.cos(z * h);
+  const s1 = Math.sin(x * h), s2 = Math.sin(y * h), s3 = Math.sin(z * h);
+  const q = [s1 * c2 * c3 + c1 * s2 * s3, c1 * s2 * c3 - s1 * c2 * s3, c1 * c2 * s3 + s1 * s2 * c3, c1 * c2 * c3 - s1 * s2 * s3];
+  return q.map((v) => +v.toFixed(9) || 0);
+}
+/** row-major 3x3 rotation of a unit quaternion */
+function quatRows([x, y, z, w]) {
+  return [
+    [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+    [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+    [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+  ];
+}
+/** column-major 4x4 of a glTF node (matrix, or translation / rotation / scale) */
+function nodeMatrix(n) {
+  if (n.matrix) return n.matrix;
+  const r = quatRows(n.rotation || [0, 0, 0, 1]);
+  const s = n.scale || [1, 1, 1];
+  const t = n.translation || [0, 0, 0];
+  return [r[0][0] * s[0], r[1][0] * s[0], r[2][0] * s[0], 0, r[0][1] * s[1], r[1][1] * s[1], r[2][1] * s[1], 0, r[0][2] * s[2], r[1][2] * s[2], r[2][2] * s[2], 0, t[0], t[1], t[2], 1];
+}
+function mat4Mul(a, b) {
+  const o = new Array(16).fill(0);
+  for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) for (let k = 0; k < 4; k++) o[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k];
+  return o;
+}
+/** scene bounds in metres from the JSON alone: POSITION accessor min/max (dequantised when normalized) through every
+ *  node's transform (8 box corners per primitive; exact when no node is rotated, as in a built item) */
+function gltfBounds(json) {
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  const NORM = { 5120: (v) => Math.max(v / 127, -1), 5121: (v) => v / 255, 5122: (v) => Math.max(v / 32767, -1), 5123: (v) => v / 65535 };
+  const deq = (v, a) => (a.normalized && NORM[a.componentType] ? NORM[a.componentType](v) : v);
+  const walk = (ni, parent) => {
+    const n = json.nodes[ni];
+    const W = mat4Mul(parent, nodeMatrix(n));
+    if (n.mesh !== undefined) for (const p of json.meshes[n.mesh].primitives) {
+      const a = json.accessors[p.attributes.POSITION];
+      if (!a?.min || !a?.max) throw new Error(`mesh ${n.mesh}: POSITION without min/max`);
+      const mn = a.min.map((v) => deq(v, a)), mx = a.max.map((v) => deq(v, a));
+      for (let c = 0; c < 8; c++) {
+        const v = [c & 1 ? mx[0] : mn[0], c & 2 ? mx[1] : mn[1], c & 4 ? mx[2] : mn[2]];
+        for (let k = 0; k < 3; k++) {
+          const w = W[k] * v[0] + W[4 + k] * v[1] + W[8 + k] * v[2] + W[12 + k];
+          lo[k] = Math.min(lo[k], w);
+          hi[k] = Math.max(hi[k], w);
+        }
+      }
+    }
+    for (const c of n.children || []) walk(c, W);
+  };
+  for (const ni of json.scenes[json.scene || 0].nodes) walk(ni, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+  return { min: lo, max: hi, size: lo.map((v, k) => hi[k] - v) };
+}
+/** triangles drawn by the scene (a mesh counts once per node that uses it: gltfpack bakes instances) */
+function sceneTris(json) {
+  let t = 0;
+  const walk = (ni) => {
+    const n = json.nodes[ni];
+    if (n.mesh !== undefined) for (const p of json.meshes[n.mesh].primitives) t += json.accessors[p.indices ?? p.attributes.POSITION].count / 3;
+    for (const c of n.children || []) walk(c);
+  };
+  for (const ni of json.scenes[json.scene || 0].nodes) walk(ni);
+  return Math.round(t);
+}
+/** expected built size (m, glTF axes) from the Poly Haven API dimensions (mm, Blender x / y / z, z up), scaled and
+ *  turned by the rest pose (bounds of the rotated box) */
+function itemExpectedSize(info, spec) {
+  const d = info?.dimensions;
+  if (!Array.isArray(d) || d.length !== 3 || !d.every((v) => v > 0)) return null;
+  const e = [d[0], d[2], d[1]].map((v) => (v / 1000) * (spec.scale || 1));
+  if (!spec.rest) return e;
+  return quatRows(eulerQuat(spec.rest)).map((row) => Math.abs(row[0]) * e[0] + Math.abs(row[1]) * e[1] + Math.abs(row[2]) * e[2]);
+}
+function hexRgb(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex));
+  if (!m) throw new Error(`tint.color ${hex}: want #rrggbb`);
+  const v = parseInt(m[1], 16);
+  return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+}
+/** base colour -> the tint colour, keeping the texture's relative luminance (its mean texel becomes the tint) */
+async function bakeTintColor(src, dest, hex) {
+  const sharp = (await import('sharp')).default;
+  const { data, info } = await sharp(src).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const ch = info.channels, n = info.width * info.height;
+  const lum = new Float32Array(n);
+  let sum = 0;
+  for (let i = 0; i < n; i++) {
+    const o = i * ch;
+    lum[i] = ch >= 3 ? 0.2126 * data[o] + 0.7152 * data[o + 1] + 0.0722 * data[o + 2] : data[o];
+    sum += lum[i];
+  }
+  const mean = sum / n || 1;
+  const tint = hexRgb(hex);
+  const rgb = Buffer.alloc(n * 3);
+  for (let i = 0; i < n; i++) for (let c = 0; c < 3; c++) rgb[i * 3 + c] = Math.max(0, Math.min(255, Math.round((tint[c] * lum[i]) / mean)));
+  mkdirp(dirname(dest));
+  await sharp(rgb, { raw: { width: info.width, height: info.height, channels: 3 } }).png().toFile(dest);
+}
+/** ARM (R ambient occlusion, G roughness, B metalness): a one-channel roughness map becomes AO 1 / rough / metal 0;
+ *  metallic (0..1) overrides the blue channel */
+async function bakeArm(src, dest, metallic) {
+  const sharp = (await import('sharp')).default;
+  // from the file, not the decoded buffer: sharp's raw() hands a one-channel JPEG back as three equal channels
+  const roughOnly = (await sharp(src).metadata()).channels < 3;
+  const { data, info } = await sharp(src).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const ch = info.channels, n = info.width * info.height;
+  const metal = metallic == null ? null : Math.max(0, Math.min(255, Math.round(metallic * 255)));
+  const rgb = Buffer.alloc(n * 3);
+  for (let i = 0; i < n; i++) {
+    const o = i * ch;
+    rgb[i * 3] = roughOnly ? 255 : data[o];
+    rgb[i * 3 + 1] = data[o + (ch >= 3 ? 1 : 0)];
+    rgb[i * 3 + 2] = metal ?? (roughOnly ? 0 : data[o + (ch >= 3 ? 2 : 0)]);
+  }
+  mkdirp(dirname(dest));
+  await sharp(rgb, { raw: { width: info.width, height: info.height, channels: 3 } }).png().toFile(dest);
+}
+
+/** download, patch and pack one item model (see the block comment above); returns build stats */
+async function packItem(name, spec, res, dir, infoFile, out) {
+  const files = await getJson(`https://api.polyhaven.com/files/${spec.ph}`);
+  const g = files.gltf?.[res]?.gltf;
+  if (!g) throw new Error(`no glTF at ${res} for ${spec.ph}`);
+  const gltfPath = join(dir, basename(new URL(g.url).pathname));
+  await download(g.url, gltfPath);
+  for (const [relPath, inc] of Object.entries(g.include || {})) await download(inc.url, join(dir, relPath));
+  writeAtomic(infoFile, JSON.stringify(await getJson(`https://api.polyhaven.com/info/${spec.ph}`)));
+  const json = JSON.parse(readFileSync(gltfPath, 'utf8'));
+  const srcTris = sceneTris(json);
+  // 1. materials: drop glass / lens / alpha-blend (+ the entry's keep / drop), primitives with them, emptied meshes
+  const keep = spec.keep ? new RegExp(spec.keep, 'i') : null;
+  const dropRe = spec.drop ? new RegExp(spec.drop, 'i') : null;
+  const mats = json.materials || [];
+  const dropped = new Set();
+  mats.forEach((m, i) => {
+    const n = m.name || '';
+    const kept = !!keep?.test(n);
+    if (dropRe?.test(n) || (keep && !kept) || (!kept && (m.alphaMode === 'BLEND' || ITEM_DROP.test(n)))) dropped.add(i);
+  });
+  for (const m of json.meshes || []) m.primitives = m.primitives.filter((p) => (p.material === undefined ? !keep : !dropped.has(p.material)));
+  const meshMap = new Map();
+  const meshes = [];
+  (json.meshes || []).forEach((m, i) => {
+    if (!m.primitives.length) return;
+    meshMap.set(i, meshes.length);
+    meshes.push(m);
+  });
+  for (const n of json.nodes || []) {
+    if (n.mesh === undefined) continue;
+    if (meshMap.has(n.mesh)) n.mesh = meshMap.get(n.mesh);
+    else delete n.mesh;
+  }
+  json.meshes = meshes;
+  const keptTris = sceneTris(json);
+  if (!keptTris) throw new Error(`nothing left after dropping [${[...dropped].map((i) => mats[i].name).join(', ')}]`);
+  // one vertex layout for every item: POSITION / NORMAL / TEXCOORD_0 (no extra colour / uv sets, no tangents: three
+  // would take another normal-map path), no morph targets
+  const ITEM_ATTRS = new Set(['POSITION', 'NORMAL', 'TEXCOORD_0']);
+  for (const m of meshes) for (const p of m.primitives) {
+    for (const a of Object.keys(p.attributes)) if (!ITEM_ATTRS.has(a)) delete p.attributes[a];
+    if (!p.attributes.NORMAL || !p.attributes.TEXCOORD_0) throw new Error('a kept primitive has no NORMAL / TEXCOORD_0');
+    delete p.targets;
+  }
+  for (const m of meshes) delete m.weights;
+  // 2. kept materials: no KHR_materials_*, no emissive, double-sided, ARM also as occlusion (as stepProps)
+  const notes = [];
+  mats.forEach((m, i) => {
+    if (dropped.has(i)) {
+      mats[i] = { name: m.name }; // unreferenced now (gltfpack drops it); no texture references left behind
+      return;
+    }
+    if (m.alphaMode === 'MASK') throw new Error(`kept material ${m.name} is alphaMode MASK (its own shader program): drop it or pick another model`);
+    if (m.alphaMode === 'BLEND') {
+      delete m.alphaMode; // kept on purpose ("keep" match): drawn opaque
+      notes.push(`opaque ${m.name}`);
+    }
+    if (m.extensions) {
+      for (const k of Object.keys(m.extensions)) if (k.startsWith('KHR_materials_')) { delete m.extensions[k]; notes.push(`-${k.slice(14)}`); }
+      if (!Object.keys(m.extensions).length) delete m.extensions;
+    }
+    if (m.emissiveTexture || m.emissiveFactor) notes.push('-emissive');
+    delete m.emissiveTexture;
+    delete m.emissiveFactor;
+    m.doubleSided = true;
+    const t = m.pbrMetallicRoughness?.metallicRoughnessTexture;
+    if (t && !m.occlusionTexture) m.occlusionTexture = { index: t.index, ...(t.texCoord ? { texCoord: t.texCoord } : {}) };
+    for (const r of [m.pbrMetallicRoughness?.baseColorTexture, t, m.normalTexture, m.occlusionTexture]) if (r?.texCoord) throw new Error(`kept material ${m.name} samples TEXCOORD_${r.texCoord} (items keep TEXCOORD_0 only)`);
+  });
+  for (const k of ['extensionsUsed', 'extensionsRequired']) {
+    if (!json[k]) continue;
+    json[k] = json[k].filter((e) => !e.startsWith('KHR_materials_'));
+    if (!json[k].length) delete json[k];
+  }
+  // 3. one image per file, one texture per (image, sampler); then prune textures / images no kept material references
+  const refs = (m) => [m.pbrMetallicRoughness?.baseColorTexture, m.pbrMetallicRoughness?.metallicRoughnessTexture, m.normalTexture, m.occlusionTexture].filter(Boolean);
+  const firstImg = new Map();
+  const imgCanon = (json.images || []).map((im, i) => {
+    if (!im.uri || im.uri.startsWith('data:')) return i;
+    if (!firstImg.has(im.uri)) firstImg.set(im.uri, i);
+    return firstImg.get(im.uri);
+  });
+  for (const t of json.textures || []) if (t.source !== undefined) t.source = imgCanon[t.source];
+  const firstTex = new Map();
+  const texCanon = (json.textures || []).map((t, i) => {
+    const k = JSON.stringify([t.source ?? null, t.sampler ?? null, t.extensions ?? null]);
+    if (!firstTex.has(k)) firstTex.set(k, i);
+    return firstTex.get(k);
+  });
+  for (const m of mats) for (const r of refs(m)) r.index = texCanon[r.index];
+  const usedTex = new Set(mats.flatMap((m) => refs(m).map((r) => r.index)));
+  const texMap = new Map(), imgMap = new Map(), textures = [], images = [];
+  (json.textures || []).forEach((t, i) => {
+    if (!usedTex.has(i)) return;
+    texMap.set(i, textures.length);
+    const nt = { ...t };
+    if (t.source !== undefined) {
+      if (!imgMap.has(t.source)) {
+        imgMap.set(t.source, images.length);
+        images.push({ ...json.images[t.source] });
+      }
+      nt.source = imgMap.get(t.source);
+    }
+    textures.push(nt);
+  });
+  for (const m of mats) for (const r of refs(m)) r.index = texMap.get(r.index);
+  const imagesBefore = (json.images || []).length;
+  json.textures = textures;
+  json.images = images;
+  // 4. bake: tint (colour / metallic) and roughness-only ARM maps, as PNGs in the work folder
+  const work = join(BUILD, '_tmp', 'items', name);
+  rmSync(work, { recursive: true, force: true });
+  mkdirp(work);
+  const role = new Map(); // image index -> 'color' | 'arm' | 'normal'
+  for (const m of mats) {
+    const set = (ref, r) => {
+      if (!ref) return;
+      const img = textures[ref.index]?.source;
+      if (img === undefined) return;
+      if (role.has(img) && role.get(img) !== r) throw new Error(`image ${images[img].name} is both ${role.get(img)} and ${r}`);
+      role.set(img, r);
+    };
+    set(m.pbrMetallicRoughness?.baseColorTexture, 'color');
+    set(m.pbrMetallicRoughness?.metallicRoughnessTexture, 'arm');
+    set(m.occlusionTexture, 'arm');
+    set(m.normalTexture, 'normal');
+  }
+  const tint = spec.tint || {};
+  const baked = new Set();
+  const sharp = (await import('sharp')).default;
+  for (const [img, r] of role) {
+    const im = images[img];
+    if (!im.uri || im.uri.startsWith('data:')) continue;
+    const src = join(dir, decodeURIComponent(im.uri));
+    const file = `baked_${img}_${(im.name || 'image').replace(/[^A-Za-z0-9_.-]/g, '_')}.png`;
+    if (r === 'color' && tint.color) {
+      await bakeTintColor(src, join(work, file), tint.color);
+      notes.push(`tint ${tint.color}`);
+    } else if (r === 'arm' && (tint.metallic != null || (await sharp(src).metadata()).channels < 3)) {
+      await bakeArm(src, join(work, file), tint.metallic);
+      notes.push(tint.metallic != null ? `metallic ${tint.metallic}` : 'rough-only ARM -> AO 1');
+    } else continue;
+    Object.assign(im, { uri: file, mimeType: 'image/png' });
+    baked.add(im);
+  }
+  for (const m of mats) {
+    if (!m.pbrMetallicRoughness) continue;
+    if (tint.metallic != null) m.pbrMetallicRoughness.metallicFactor = 1; // the baked blue channel holds the value
+    if (tint.roughness != null) m.pbrMetallicRoughness.roughnessFactor = tint.roughness;
+  }
+  // 5. node pose overrides, then rest pose + scale on one wrapper node (gltfpack bakes both into the mesh)
+  for (const [nodeName, euler] of Object.entries(spec.pose || {})) {
+    const n = (json.nodes || []).find((x) => x.name === nodeName);
+    if (!n) throw new Error(`pose: no node named ${nodeName}`);
+    if (n.matrix) throw new Error(`pose: node ${nodeName} uses a matrix`);
+    n.rotation = eulerQuat(euler);
+    notes.push(`pose ${nodeName}`);
+  }
+  const s = (spec.scale || 1) * (spec.units || 1);
+  if (spec.rest || s !== 1) {
+    const sc = json.scenes[json.scene || 0];
+    const wrap = { name: `item_${name}` };
+    if (spec.rest) wrap.rotation = eulerQuat(spec.rest);
+    if (s !== 1) wrap.scale = [s, s, s];
+    json.nodes.push({ ...wrap, children: sc.nodes });
+    sc.nodes = [json.nodes.length - 1];
+  }
+  // 6. buffers and unbaked images are copied next to the patched glTF (short local names, no '..' paths)
+  const local = new Map(); // source file -> local name
+  const localUri = (uri) => {
+    const src = join(dir, decodeURIComponent(uri));
+    if (!local.has(src)) {
+      const n = `${local.size}_${basename(src).replace(/[^A-Za-z0-9_.-]/g, '_')}`;
+      copyFileSync(src, join(work, n));
+      local.set(src, n);
+    }
+    return local.get(src);
+  };
+  for (const b of json.buffers || []) if (b.uri && !b.uri.startsWith('data:')) b.uri = localUri(b.uri);
+  for (const im of images) if (im.uri && !im.uri.startsWith('data:') && !baked.has(im)) im.uri = localUri(im.uri);
+  const patched = join(work, `${name}.gltf`);
+  writeAtomic(patched, JSON.stringify(json));
+  const maxTex = spec.maxTex || 256;
+  const ratio = Math.min(1, (spec.tris || 3000) / keptTris);
+  const args = ['-i', patched, '-o', out, '-cc', '-tc', '-tl', String(maxTex)];
+  if (ratio < 1) args.push('-si', ratio.toFixed(4), '-se', String(spec.se ?? ITEM_SE));
+  await gltfpack(args);
+  rmSync(work, { recursive: true, force: true }); // kept only when packing failed (for a look at the patched glTF)
+  return {
+    srcTris,
+    keptTris,
+    ratio: +ratio.toFixed(4),
+    dropped: [...dropped].map((i) => mats[i].name),
+    imagesPruned: imagesBefore - images.length,
+    notes: [...new Set(notes)],
+  };
+}
+
+/** checks of a built item GLB (see the block comment above); returns stats + the list of problems */
+function checkItem(file, spec, info) {
+  const { json, bin } = readGltf(file);
+  const errs = [];
+  const mats = json.materials || [];
+  const prims = (json.meshes || []).flatMap((m) => m.primitives);
+  if (mats.length !== 1) errs.push(`${mats.length} materials (want 1): ${mats.map((m) => m.name).join(', ')}`);
+  if (prims.length !== 1) errs.push(`${prims.length} primitives (want 1)`);
+  for (const p of prims) if (Object.keys(p.attributes).sort().join() !== 'NORMAL,POSITION,TEXCOORD_0' || p.targets || (p.mode ?? 4) !== 4) errs.push(`primitive is not indexed triangles with POSITION / NORMAL / TEXCOORD_0 only (${Object.keys(p.attributes).join(', ')})`);
+  for (const n of json.nodes || []) if (n.matrix || (n.rotation && Math.abs(n.rotation[3]) < 0.999999)) errs.push(`node ${n.name ?? '(unnamed)'} keeps a rotation`);
+  const m = mats[0] || {};
+  const pbr = m.pbrMetallicRoughness || {};
+  if (!pbr.baseColorTexture || !m.normalTexture || !pbr.metallicRoughnessTexture || m.occlusionTexture?.index !== pbr.metallicRoughnessTexture.index) errs.push('material is not the colour / normal / ARM (metal-rough = occlusion) layout');
+  if (!m.doubleSided) errs.push('material is single-sided');
+  if ((m.alphaMode && m.alphaMode !== 'OPAQUE') || m.emissiveTexture || m.emissiveFactor || m.extensions) errs.push(`material keeps ${JSON.stringify({ alphaMode: m.alphaMode, emissive: !!(m.emissiveTexture || m.emissiveFactor), extensions: Object.keys(m.extensions || {}) })}`);
+  const maxTex = spec.maxTex || 256;
+  const images = (json.images || []).map((im) => {
+    const bv = json.bufferViews[im.bufferView];
+    const k = bv && bin ? bin.subarray(bv.byteOffset || 0, (bv.byteOffset || 0) + bv.byteLength) : null;
+    if (im.mimeType !== 'image/ktx2' || !k || k.readUInt32BE(0) !== 0xab4b5458) {
+      errs.push(`image ${im.name} is not an embedded KTX2`);
+      return { name: im.name };
+    }
+    const r = { name: im.name, w: k.readUInt32LE(20), h: k.readUInt32LE(24), levels: k.readUInt32LE(40), kb: +(k.length / 1024).toFixed(1) };
+    if (Math.max(r.w, r.h) > maxTex) errs.push(`image ${im.name} is ${r.w}x${r.h} (maxTex ${maxTex})`);
+    return r;
+  });
+  if (images.length > 3) errs.push(`${images.length} images (want 3)`);
+  const b = gltfBounds(json);
+  const exp = itemExpectedSize(info, spec);
+  if (!exp) warn(`item ${spec.ph}: no API dimensions, bounds not checked`);
+  else {
+    const r3 = (v) => v.toFixed(3);
+    for (let k = 0; k < 3; k++) if (b.size[k] > exp[k] * 1.25 + 0.005) errs.push(`${'xyz'[k]} ${r3(b.size[k])} m exceeds the API ${r3(exp[k])} m (${(b.size[k] / exp[k]).toFixed(2)}x: wrong units or rest pose?)`);
+    const ratio = Math.max(...b.size) / Math.max(...exp);
+    if (ratio < (spec.keep || spec.drop ? 0.15 : 0.75)) errs.push(`longest side ${r3(Math.max(...b.size))} m is ${ratio.toFixed(2)}x the API ${r3(Math.max(...exp))} m (wrong units?)`);
+  }
+  const tris = Math.round(prims.reduce((a, p) => a + json.accessors[p.indices ?? p.attributes.POSITION].count / 3, 0));
+  return { errs, tris, bytes: statSync(file).size, size: b.size.map((v) => +v.toFixed(4)), api: exp?.map((v) => +v.toFixed(4)) ?? null, materials: mats.map((x) => x.name), images };
+}
+
+async function buildItem(key, spec, P) {
+  if (!/^prop\.item_[a-z0-9_]+$/.test(key)) throw new Error('item keys are prop.item_<a-z0-9_>');
+  if (!spec.ph) throw new Error('no Poly Haven id (ph)');
+  const name = key.replace(/^prop\./, '');
+  const out = join(BUILD, 'props', `${name}.glb`);
+  const side = join(BUILD, 'items', `${name}.json`);
+  const dir = join(SRC, 'polyhaven/models', spec.ph);
+  const infoFile = join(dir, 'polyhaven-info.json');
+  const res = spec.res || P.res;
+  const { note: _note, group: _group, ...buildSpec } = spec;
+  const specHash = sha(Buffer.from(JSON.stringify({ pipeline: ITEM_PIPELINE, res, ...buildSpec }))).slice(0, 12);
+  const prev = (() => {
+    try {
+      return JSON.parse(readFileSync(side, 'utf8'));
+    } catch {
+      return null;
+    }
+  })();
+  let built = null;
+  if (!fresh(out) || prev?.spec !== specHash || !existsSync(infoFile)) {
+    rmSync(out, { force: true });
+    rmSync(side, { force: true });
+    try {
+      built = await packItem(name, spec, res, dir, infoFile, out);
+    } catch (e) {
+      rmSync(out, { force: true });
+      throw e;
+    }
+  }
+  const c = checkItem(out, spec, JSON.parse(readFileSync(infoFile, 'utf8')));
+  if (c.errs.length) {
+    rmSync(out, { force: true });
+    rmSync(side, { force: true });
+    throw new Error(c.errs.join('; '));
+  }
+  if (built) {
+    const { errs: _errs, ...stats } = c;
+    writeAtomic(side, JSON.stringify({ spec: specHash, key, ph: spec.ph, ...built, ...stats }, null, 1));
+    const tex = c.images.map((i) => `${i.w}`).join('/');
+    log('built item', key, `${(c.bytes / 1024).toFixed(0)} KB`, `tris ${built.srcTris} -> ${built.keptTris} -> ${c.tris}`, `tex ${tex}`, `size ${c.size.map((v) => v.toFixed(3)).join(' x ')} m`, `(api ${c.api?.map((v) => v.toFixed(3)).join(' x ') ?? '?'})`, built.dropped.length ? `dropped [${built.dropped.join(', ')}]` : '', built.notes.join(', '));
+  }
+  reg(key, out, `props/${name}.glb`, { group: spec.group || 'site', credit: 'polyhaven', extra: { source: `polyhaven:${spec.ph}` } });
 }
 
 // ---------------------------------------------------------------------------------------------------------------
