@@ -1,0 +1,250 @@
+/* Owner: fieldguide (v1.2). FIELD GUIDE booklet + hazard bulletin. Prefix: fg- */
+@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&display=swap');
+
+:root {
+  --fg-paper: #ebe3cd;
+  --fg-paper2: #e2d8bd;
+  --fg-ink: #23211c;
+  --fg-ink2: #4a463c;
+  --fg-pencil: #3b3a36;
+  --fg-red: #b3271d;
+  --fg-amber: #f0b43c;
+  --fg-type: var(--m-type, 'Special Elite', 'Courier Prime', 'Courier New', monospace);
+  --fg-stencil: var(--m-stencil, 'Big Shoulders Stencil Display', 'Bahnschrift SemiBold Condensed', 'Impact', sans-serif);
+  --fg-hand: 'Caveat', 'Segoe Print', 'Bradley Hand', 'Comic Sans MS', cursive;
+  --fg-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.25 0 0 0 0 0.2 0 0 0 0 0.12 0 0 0 0.22 0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.screen:has(> .fg-screen) { background: none; display: block; place-items: initial; }
+.fg-screen {
+  position: absolute; inset: 0; overflow: hidden; user-select: none;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 26px;
+  background:
+    radial-gradient(ellipse at 50% 42%, rgba(30, 26, 18, 0.55) 0%, rgba(4, 4, 3, 0.93) 72%),
+    rgba(0, 0, 0, 0.55);
+  color: var(--fg-ink);
+  animation: fg-in 180ms ease-out;
+}
+@keyframes fg-in { from { transform: translateY(6px) scale(0.995); } }
+/* the index tabs stick out 52-62 px on the right: centre book + tabs together (and keep the open tab on a 1024 px screen) */
+.fg-book-screen { padding-right: 52px; }
+
+/* ---------------------------------------------------------------- the booklet */
+.fg-book {
+  position: relative;
+  width: min(1120px, calc(100vw - 120px));
+  height: min(720px, calc(100vh - 90px));
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+  transform: rotate(-0.35deg);
+  filter: drop-shadow(0 26px 40px rgba(0, 0, 0, 0.75)) drop-shadow(0 4px 6px rgba(0, 0, 0, 0.5));
+}
+.fg-cover-edge {
+  position: absolute; inset: -9px -14px -11px -12px; border-radius: 6px; z-index: -1;
+  background: linear-gradient(135deg, #3b3226, #231d15 60%, #2e261b);
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.35), inset 0 0 22px rgba(0, 0, 0, 0.6);
+}
+.fg-page {
+  position: relative; overflow: hidden; min-height: 0;
+  background:
+    var(--fg-grain),
+    radial-gradient(circle at 93% 97%, transparent 0 40px, rgba(122, 86, 38, 0.11) 41px 43px, rgba(122, 86, 38, 0.04) 44px 47px, transparent 48px),
+    radial-gradient(ellipse at 50% 50%, var(--fg-paper) 55%, var(--fg-paper2) 100%);
+  padding: 26px 30px 24px;
+  box-sizing: border-box;
+}
+.fg-left { border-radius: 4px 0 0 4px; box-shadow: inset -26px 0 30px -18px rgba(60, 42, 18, 0.45), inset 0 0 0 1px rgba(80, 60, 30, 0.25); display: flex; flex-direction: column; align-items: stretch; }
+.fg-right {
+  border-radius: 0 4px 4px 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #8a7d5e transparent;
+  box-shadow: inset 26px 0 30px -18px rgba(60, 42, 18, 0.45), inset 0 0 0 1px rgba(80, 60, 30, 0.25);
+  background-image:
+    var(--fg-grain),
+    repeating-linear-gradient(180deg, transparent 0 25px, rgba(70, 100, 140, 0.13) 25px 26px),
+    linear-gradient(90deg, transparent 0 46px, rgba(179, 39, 29, 0.22) 46px 47px, transparent 47px),
+    radial-gradient(ellipse at 50% 50%, var(--fg-paper) 55%, var(--fg-paper2) 100%);
+  padding-left: 62px; padding-right: 30px;
+}
+.fg-right::-webkit-scrollbar { width: 8px; }
+.fg-right::-webkit-scrollbar-thumb { background: #8a7d5e; border-radius: 4px; }
+
+.fg-rings { position: absolute; left: 50%; top: 18px; bottom: 18px; width: 30px; transform: translateX(-50%); display: flex; flex-direction: column; justify-content: space-between; pointer-events: none; }
+.fg-rings span {
+  display: block; height: 16px; border-radius: 9px;
+  background: linear-gradient(180deg, #d8d6d0 0%, #8b8a86 45%, #4a4945 55%, #a7a6a1 100%);
+  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.55), inset 0 -1px 1px rgba(0, 0, 0, 0.4);
+}
+
+.fg-formline { display: flex; justify-content: space-between; font: 11px/1 var(--fg-type); letter-spacing: 0.22em; color: var(--fg-ink2); border-bottom: 1.5px solid rgba(35, 33, 28, 0.55); padding-bottom: 7px; }
+.fg-name { margin: 12px 0 8px; font: 900 54px/0.9 var(--fg-stencil); letter-spacing: 0.05em; color: var(--fg-ink); text-transform: uppercase; }
+.fg-name.unknown { color: rgba(35, 33, 28, 0.35); letter-spacing: 0.4em; }
+
+/* The photo takes whatever height the page has left (flex 1 1 0, capped) and its sketch is drawn INSIDE that box:
+   .fg-svg / .fg-blank are absolutely positioned, so the sketch never sizes the photo (gate R: at 1280x720 the
+   Listener's 300 px silhouette spilled over its caption and the FIRST CONTACT box once the photo shrank). */
+.fg-photo {
+  position: relative; flex: 1 1 0; min-height: 56px; max-height: 330px; margin: 4px 6px 0;
+  background: #f1ead6; border: 1px solid rgba(60, 50, 30, 0.35);
+  box-shadow: 0 6px 14px rgba(40, 28, 10, 0.35), 0 1px 0 rgba(255, 255, 255, 0.5) inset;
+  transform: rotate(0.8deg);
+}
+.fg-photo.lvl1 { background: linear-gradient(180deg, #d9d1bb, #cbc2a8); }
+.fg-svg { position: absolute; inset: 8px; overflow: hidden; }
+.fg-svg svg { display: block; width: 100%; height: 100%; }
+.fg-blank { position: absolute; inset: 8px; overflow: hidden; display: grid; place-items: center; background: repeating-linear-gradient(45deg, rgba(35, 33, 28, 0.05) 0 8px, transparent 8px 16px); }
+.fg-tape { position: absolute; width: 74px; height: 22px; background: rgba(240, 228, 170, 0.62); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18); }
+.fg-tape.a { top: -9px; left: 18px; transform: rotate(-7deg); }
+.fg-tape.b { top: -8px; right: 22px; transform: rotate(5deg); }
+.fg-caption { font: 500 19px/1.1 var(--fg-hand); color: var(--fg-pencil); margin: 9px 10px 4px; transform: rotate(-0.6deg); }
+
+.fg-stamp {
+  display: inline-block; padding: 6px 12px; border: 3px double currentColor; color: var(--fg-red);
+  font: 800 20px/1 var(--fg-stencil); letter-spacing: 0.14em; transform: rotate(-8deg); opacity: 0.82;
+  text-shadow: 0 0 1px currentColor;
+}
+.fg-stamp-sm { font-size: 13px; padding: 4px 9px; transform: rotate(-3deg); margin-top: 10px; }
+.fg-stamp-ok { color: #2f6b2a; }
+.fg-stamp-dim { color: #6b665a; }
+
+.fg-contact { margin: 8px 6px 0; padding: 8px 10px; border: 1px solid rgba(35, 33, 28, 0.35); background: rgba(255, 252, 240, 0.35); display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; align-items: baseline; }
+.fg-k { font: 700 11px/1.2 var(--fg-type); letter-spacing: 0.2em; color: var(--fg-ink2); }
+.fg-v { font: 15px/1.25 var(--fg-type); color: var(--fg-ink); }
+.fg-how { grid-column: 2; font: 600 18px/1 var(--fg-hand); color: var(--fg-red); }
+.fg-counts { margin: 8px 6px 0; border-collapse: collapse; width: calc(100% - 12px); font-family: var(--fg-type); }
+.fg-counts th { font-size: 10px; letter-spacing: 0.2em; color: var(--fg-ink2); font-weight: 700; border-bottom: 1px solid rgba(35, 33, 28, 0.45); padding: 3px 0; }
+.fg-counts td { font: 700 26px/1.1 var(--fg-hand); text-align: center; padding-top: 3px; color: var(--fg-pencil); }
+.fg-counts td.bad { color: var(--fg-red); }
+.fg-sounds { margin: 10px 8px 0; }
+.fg-sounds .fg-pencil { font-size: 21px; margin: 3px 0 0 12px; }
+.fg-hint { margin: 10px 8px 0; font: 13px/1.45 var(--fg-type); color: var(--fg-ink2); }
+.fg-issued { margin-top: auto; padding-top: 10px; font: 11px/1 var(--fg-type); letter-spacing: 0.2em; color: var(--fg-ink2); }
+
+.fg-pencil { font-family: var(--fg-hand); font-weight: 500; font-size: 20px; line-height: 1.15; color: var(--fg-pencil); }
+
+/* right page: card + notes */
+.fg-card { position: relative; border: 1.5px solid rgba(35, 33, 28, 0.6); background: rgba(255, 253, 244, 0.55); padding: 10px 12px; margin-top: 2px; box-shadow: 2px 3px 0 rgba(35, 33, 28, 0.12); }
+.fg-card-row { display: grid; grid-template-columns: 128px 1fr; gap: 10px; padding: 5px 0; border-bottom: 1px dotted rgba(35, 33, 28, 0.35); }
+.fg-card-row:last-of-type { border-bottom: 0; }
+.fg-card-k { font: 800 15px/1.1 var(--fg-stencil); letter-spacing: 0.1em; color: var(--fg-ink); padding-top: 2px; }
+.fg-card-v { font: 13.5px/1.42 var(--fg-type); color: var(--fg-ink); }
+.fg-redacted .fg-card-v { display: flex; flex-direction: column; gap: 5px; padding-top: 3px; }
+.fg-redacted .fg-card-v i { display: block; height: 11px; background: #1d1b17; border-radius: 1px; transform: skewX(-6deg); }
+
+.fg-notes-h { display: flex; justify-content: space-between; align-items: baseline; margin: 18px 0 8px; font: 800 20px/1 var(--fg-stencil); letter-spacing: 0.12em; }
+.fg-count { font: 700 24px/1 var(--fg-hand); color: var(--fg-red); letter-spacing: 0; }
+.fg-notes { display: flex; flex-direction: column; gap: 12px; padding-bottom: 6px; }
+.fg-note { background: rgba(255, 253, 244, 0.72); border: 1px solid rgba(60, 50, 30, 0.28); padding: 9px 12px 8px; box-shadow: 0 3px 8px rgba(40, 28, 10, 0.18); }
+.fg-note header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 5px; }
+.fg-note h4 { margin: 0; font: 800 17px/1.05 var(--fg-stencil); letter-spacing: 0.06em; color: var(--fg-ink); }
+.fg-note-n { font: 700 11px/1 var(--fg-type); color: var(--fg-red); letter-spacing: 0.12em; }
+.fg-note p { margin: 0 0 6px; font: 13px/1.45 var(--fg-type); color: var(--fg-ink); }
+.fg-note p.fg-pencil { font: 500 20px/1.05 var(--fg-hand); color: var(--fg-red); transform: rotate(-1deg); margin: 4px 0 2px 20px; }
+.fg-torn {
+  position: relative; display: flex; align-items: center; gap: 12px; padding: 12px 14px 12px 22px;
+  font: 700 12px/1 var(--fg-type); letter-spacing: 0.18em; color: rgba(35, 33, 28, 0.5);
+  border: 1px dashed rgba(35, 33, 28, 0.3); background: rgba(35, 33, 28, 0.035);
+}
+.fg-torn em { font: 500 20px/1 var(--fg-hand); letter-spacing: 0; color: rgba(35, 33, 28, 0.55); }
+.fg-torn-edge {
+  position: absolute; left: -1px; top: -1px; bottom: -1px; width: 12px;
+  background: linear-gradient(135deg, transparent 50%, rgba(235, 227, 205, 1) 50%) 0 0 / 12px 10px repeat-y;
+  filter: drop-shadow(1px 0 0 rgba(35, 33, 28, 0.25));
+}
+.fg-empty { font: 500 22px/1.2 var(--fg-hand); color: var(--fg-pencil); padding: 14px 4px; }
+
+.fg-anoms { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.fg-anoms li { display: flex; align-items: baseline; gap: 8px; padding: 5px 0; font: 14px/1.3 var(--fg-type); color: var(--fg-ink); }
+.fg-anoms .dots { flex: 1; border-bottom: 2px dotted rgba(35, 33, 28, 0.4); transform: translateY(-4px); }
+.fg-anoms .cnt { font: 700 24px/1 var(--fg-hand); color: var(--fg-red); min-width: 3ch; text-align: right; }
+.fg-anoms li.unk { color: rgba(35, 33, 28, 0.35); }
+.fg-anoms li.unk .cnt { color: rgba(35, 33, 28, 0.3); }
+
+/* index tabs on the right edge */
+.fg-tabs { position: absolute; right: -52px; top: 0; bottom: 0; width: 60px; }
+.fg-tab {
+  position: absolute; right: 0; width: 56px; height: 80px; border: 0; cursor: pointer; padding: 0;
+  border-radius: 0 7px 7px 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  box-shadow: 3px 3px 6px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(0, 0, 0, 0.18); color: #1d1b17; transition: right 120ms ease, filter 120ms;
+}
+/* 12 px / 0.08em: MANNEQUIN plus its page count needs ~75 of the tab's 80 px (measured 80/80 at 12.5 px / 0.1em) */
+.fg-tab span { writing-mode: vertical-rl; transform: rotate(180deg); font: 800 12px/1 var(--fg-stencil); letter-spacing: 0.08em; }
+.fg-tab small { font: 700 13px/1 var(--fg-hand); }
+.fg-tab.on { right: -10px; filter: brightness(1.08); z-index: 2; }
+.fg-tab:not(.on) { filter: brightness(0.8) saturate(0.85); }
+.fg-tab:hover { right: -6px; }
+.fg-tab.unknown span { letter-spacing: 0.32em; opacity: 0.6; }
+.fg-tab.t-hound { top: 40px; background: linear-gradient(90deg, #b88c46, #d3a85e); }
+.fg-tab.t-listener { top: 128px; background: linear-gradient(90deg, #7f7392, #9c90ae); }
+.fg-tab.t-mannequin { top: 216px; background: linear-gradient(90deg, #c8a99d, #e2c6ba); }
+.fg-tab.t-snatcher { top: 304px; background: linear-gradient(90deg, #7d8a72, #98a68c); }
+.fg-tab.t-anomalies { top: 392px; background: linear-gradient(90deg, #9b3a2e, #bd5144); color: #f4e9d8; }
+
+.fg-footer { display: flex; justify-content: space-between; width: min(1120px, calc(100vw - 120px)); font: 11px/1 var(--font-mono, monospace); letter-spacing: 0.18em; color: #cfc6ad; }
+.fg-footer kbd, .fg-bul-keys kbd { display: inline-block; min-width: 1.4em; padding: 2px 5px; margin: 0 2px; border: 1px solid #6b6455; border-bottom-width: 2px; border-radius: 3px; font: 700 10px/1 var(--font-mono, monospace); color: #ded6c2; text-align: center; }
+
+/* ---------------------------------------------------------------- the hazard bulletin reader */
+.fg-bulletin-screen { background: radial-gradient(ellipse at 50% 45%, rgba(26, 22, 14, 0.5) 0%, rgba(3, 3, 2, 0.9) 70%); }
+.fg-bulletin {
+  position: relative; width: min(660px, calc(100vw - 48px)); max-height: calc(100vh - 80px); overflow-y: auto; box-sizing: border-box;
+  padding: 0 34px 22px; transform: rotate(0.6deg);
+  background: var(--fg-grain), linear-gradient(180deg, #efe4b8 0%, #e6d79f 100%);
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.7), inset 0 0 40px rgba(120, 90, 20, 0.25);
+  color: var(--fg-ink);
+}
+.fg-bulletin::before { content: ''; position: absolute; top: 10px; left: 50%; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #ff8a7a, #a3150b 70%); box-shadow: 0 2px 3px rgba(0, 0, 0, 0.5); }
+.fg-hazard { height: 18px; margin: 30px -34px 14px; background: repeating-linear-gradient(-45deg, #1b1810 0 12px, var(--fg-amber) 12px 24px); opacity: 0.92; }
+.fg-bul-head { display: flex; justify-content: space-between; font: 700 12px/1 var(--fg-type); letter-spacing: 0.24em; color: var(--fg-ink2); }
+.fg-bul-monster { margin-top: 10px; font: 900 40px/0.95 var(--fg-stencil); letter-spacing: 0.06em; color: var(--fg-red); }
+.fg-bul-title { margin: 6px 0 12px; font: 800 24px/1.05 var(--fg-stencil); letter-spacing: 0.05em; text-transform: uppercase; }
+.fg-bul-text p { margin: 0 0 10px; font: 15px/1.55 var(--fg-type); }
+.fg-bul-text p.fg-pencil { font: 500 23px/1.1 var(--fg-hand); color: var(--fg-red); transform: rotate(-1.2deg); margin-left: 18px; }
+/* stamp and key hint never break inside; if both do not fit on one row the hint moves below, right-aligned
+   (gate R, 1024x576: 'guide' wrapped alone under 'E / Esc done · J field') */
+.fg-bul-foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px 12px; margin-top: 16px; padding-top: 12px; border-top: 1.5px solid rgba(35, 33, 28, 0.45); }
+.fg-bul-foot .fg-stamp { white-space: nowrap; }
+.fg-bul-keys { margin-left: auto; white-space: nowrap; font: 11px/1 var(--font-mono, monospace); letter-spacing: 0.1em; color: var(--fg-ink2); }
+.fg-bul-keys kbd { color: var(--fg-ink); border-color: rgba(35, 33, 28, 0.55); }
+
+/* narrower screens (1024 px wide): the sound lines would wrap at 21 px */
+@media (max-width: 1100px) {
+  .fg-sounds .fg-pencil { font-size: 19px; }
+}
+/* short screens (1024x576, 1280x600, ...): a tighter left page keeps every block on it and leaves the photo
+   about 165 px (the Listener's heard-only page, the fullest one) instead of pushing ISSUED TO off the page. The book
+   ends 52 px above the screen edge, so one toast in the bottom lane (bottom: 22px while this screen is open) sits in
+   the footer row, not on the pages. */
+@media (max-height: 679px) {
+  .fg-screen { gap: 14px; }
+  .fg-book { height: calc(100vh - 80px); }
+  .fg-page { padding: 18px 24px 14px; }
+  .fg-right { padding-left: 58px; padding-right: 24px; }
+  .fg-formline { font-size: 10px; padding-bottom: 5px; }
+  .fg-name { margin: 8px 0 6px; font-size: 40px; }
+  .fg-photo { margin-top: 3px; max-height: 300px; }
+  .fg-caption { font-size: 17px; margin: 6px 10px 2px; }
+  .fg-contact { margin-top: 6px; padding: 6px 10px; }
+  .fg-v { font-size: 13px; }
+  .fg-how { font-size: 16px; }
+  .fg-counts { margin-top: 6px; }
+  .fg-counts th { font-size: 9px; padding: 2px 0; }
+  .fg-counts td { font-size: 22px; padding-top: 2px; }
+  .fg-sounds { margin-top: 7px; }
+  .fg-sounds .fg-pencil { font-size: 18px; line-height: 1.1; margin-top: 1px; }
+  .fg-hint { margin-top: 8px; font-size: 12px; line-height: 1.4; }
+  .fg-issued { padding-top: 6px; font-size: 10px; }
+  .fg-card-row { grid-template-columns: 104px 1fr; }
+  .fg-card-k { font-size: 13.5px; }
+  .fg-card-v { font-size: 12.5px; line-height: 1.38; }
+  .fg-notes-h { margin: 14px 0 6px; }
+  /* same 80 px tabs (a shorter tab clipped LISTENER / SNATCHER and their counts), packed closer */
+  .fg-tab.t-hound { top: 24px; }
+  .fg-tab.t-listener { top: 108px; }
+  .fg-tab.t-mannequin { top: 192px; }
+  .fg-tab.t-snatcher { top: 276px; }
+  .fg-tab.t-anomalies { top: 360px; }
+}
+
+@media (max-width: 900px) {
+  .fg-book { grid-template-columns: 1fr; width: calc(100vw - 80px); }
+  .fg-left { display: none; }
+  .fg-rings { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .fg-screen { animation: none; } }
