@@ -6,6 +6,7 @@ import type { LevelLayout, LayoutDoor } from '@dead-air/shared/layout.ts';
 import { INTERACT_RADIUS } from '@dead-air/shared/interactables.ts';
 import type { InteractableInfo } from '@dead-air/shared/interactables.ts';
 import type { InteractionState } from '@dead-air/shared/messages/interaction.ts';
+import { itemAimOffset } from './visuals.ts';
 
 export type V3 = [number, number, number];
 
@@ -104,7 +105,9 @@ export function candidates(st: InteractionState, me: string | null): Candidate[]
   }
   for (const it of Object.values(st.items)) {
     if (it.where !== 'world' || !it.p) continue;
-    out.push({ id: it.id, kind: 'item', p: [it.p[0], Math.max(0.12, it.p[1] + 0.1), it.p[2]], info: null, item: it.id });
+    // v1.2 item models: the sphere sits at half the drawn model's height (a jerrycan or a bust is aimed at its middle;
+    // small things keep 0.1 m over their spot)
+    out.push({ id: it.id, kind: 'item', p: [it.p[0], Math.max(0.12, it.p[1] + itemAimOffset(it.id)), it.p[2]], info: null, item: it.id });
   }
   return out;
 }

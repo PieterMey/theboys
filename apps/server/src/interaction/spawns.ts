@@ -188,6 +188,17 @@ export interface ContainerRoll {
   spent: number;
 }
 
+/** v1.2 item models: drawer salvage names whose real-size model fits an open drawer. Subsets of LOOT_NAMES (the
+ *  crafting salvage table and the collection log still know every one); a pick is one rng draw either way, so no other
+ *  roll moves. Every small name fits; of the medium ones only the radio set, typewriter, medical case and fuse box fit a
+ *  0.15 m drawer (a jerrycan, a projector or a tool chest would shrink to a toy). */
+const DRAWER_MEDIUM = ['Radio set', 'Typewriter', 'Medical case', 'Fuse box'];
+export const DRAWER_LOOT_NAMES: readonly (readonly string[])[] = LOOT_NAMES.map((names, tier) => {
+  if (tier !== 1) return names;
+  const fit = names.filter((n) => DRAWER_MEDIUM.includes(n));
+  return fit.length ? fit : names;
+});
+
 /**
  * Roll every container's private contents once per layout: ~emptyChance empty, else 1-2 entries from the merged
  * default / kind / room-type weights. 'loot' draws tier 0-1 salvage (the host's tier hint, at most 1) from `budget`
@@ -195,8 +206,13 @@ export interface ContainerRoll {
  */
 export function rollContainers(
   L: LevelLayout, list: readonly ContainerInfo[], budget: number,
-  o: { cfg?: ContainerLootCfg; materials: boolean; gearV12: boolean; salvage: boolean; tierValues: [number, number][]; matCfg?: MaterialsCfg },
+  o: {
+    cfg?: ContainerLootCfg; materials: boolean; gearV12: boolean; salvage: boolean; tierValues: [number, number][]; matCfg?: MaterialsCfg;
+    /** v1.2 item models: drawer salvage named from DRAWER_LOOT_NAMES (default on; false = any LOOT_NAMES flavour) */
+    drawerNames?: boolean;
+  },
 ): ContainerRoll {
+  const names = o.drawerNames === false ? LOOT_NAMES : DRAWER_LOOT_NAMES;
   const cfg = o.cfg ?? CONTAINER_LOOT_DEFAULT;
   const rng = makeRng(`${L.seed}:${L.hash}`, 'interaction.containers');
   const contents = new Map<string, SpawnSpec[]>();
@@ -232,7 +248,7 @@ export function rollContainers(
         }
         if (spent + value <= budget * 1.08) {
           spent += value;
-          out.push({ type: LOOT_TIER_TYPES[tier]!, value, tier, name: rng.pick(LOOT_NAMES[tier]!) });
+          out.push({ type: LOOT_TIER_TYPES[tier]!, value, tier, name: rng.pick(names[tier] ?? LOOT_NAMES[tier]!) });
           continue;
         }
         // the drawer budget is spent: the drawer holds something else from its table instead of standing empty

@@ -9,8 +9,9 @@ import { makeRng } from '../../packages/shared/src/rng.ts';
 import { CURIOS, MATERIAL_TYPES } from '../../packages/shared/src/catalog.ts';
 import { ITEM_DEFS } from '../../packages/shared/src/interactables.ts';
 import {
-  CONTAINER_LOOT_DEFAULT, MATERIALS_DEFAULT, materialCount, planFinds, planMaterials, rollContainers,
+  CONTAINER_LOOT_DEFAULT, DRAWER_LOOT_NAMES, MATERIALS_DEFAULT, materialCount, planFinds, planMaterials, rollContainers,
 } from '../../apps/server/src/interaction/spawns.ts';
+import { LOOT_NAMES } from '../../packages/shared/src/interactables.ts';
 import type { FindsCfg } from '../../apps/server/src/interaction/spawns.ts';
 import { fakeContainers } from '../interaction/v12lib.ts';
 
@@ -126,6 +127,16 @@ test(`containers: deterministic, budget held, ~40% empty, flags respected (${N} 
         if (it.type.startsWith('mat.')) mats++;
       }
     }
+    // v1.2 item models: drawer salvage is named from the drawer-sized subset; the rolls are the same with any name list
+    for (const items of r.contents.values()) for (const it of items) {
+      if (!it.type.startsWith('loot.')) continue;
+      assert.ok(DRAWER_LOOT_NAMES[it.tier ?? 0]!.includes(it.name!), `drawer salvage '${it.name}' fits a drawer`);
+      assert.ok(LOOT_NAMES[it.tier ?? 0]!.includes(it.name!), 'a frozen LOOT_NAMES flavour');
+    }
+    const anyName = rollContainers(L, list, budget, { ...o, drawerNames: false });
+    const unnamed = (m: typeof r.contents) => [...m].map(([k, v]) => [k, v.map(({ name: _n, ...rest }) => rest)]);
+    assert.deepEqual(unnamed(anyName.contents), unnamed(r.contents), 'names never move another roll');
+    assert.equal(anyName.spent, r.spent);
     const off = rollContainers(L, list, budget, { ...o, materials: false, gearV12: false });
     for (const items of off.contents.values()) for (const it of items) {
       assert.ok(!it.type.startsWith('mat.'), 'materials off: no mats');

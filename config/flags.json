@@ -32,5 +32,6 @@
   "fieldGuide": true,
   "siteThemes": true,
   "paranormal": true,
-  "mirrors": true
+  "mirrors": true,
+  "itemModels": true
 }

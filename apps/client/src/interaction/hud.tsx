@@ -1,10 +1,12 @@
 // Owner: track (b) Interaction. HUD widgets driven by signals the interaction system updates each frame:
 // target prompt (+ hold ring + denial message), 4-slot inventory, radio LED, death card, spectator hint, locker slats.
 import { signal } from '@preact/signals';
+import type { VNode } from 'preact';
 import type { HudProps } from '../core/ui/api.ts';
 import { MATERIAL_COLOR, itemDef, itemLabel } from '@dead-air/shared/interactables.ts';
 import { MATERIAL_LABEL, MATERIAL_TYPES } from '@dead-air/shared/catalog.ts';
 import type { DeathCause, ItemState } from '@dead-air/shared/messages/interaction.ts';
+import { visualKey } from './visuals.ts';
 
 export interface TargetView { id: string; text: string; key: 'E' | 'HOLD E' | null; enabled: boolean; sub?: string }
 export interface SlotView { item: ItemState | null }
@@ -43,9 +45,60 @@ export function flashMsg(text: string, ms = 2200): void {
   setTimeout(() => { if (ui.msg.value?.id === id) ui.msg.value = null; }, ms);
 }
 
-function Icon({ type }: { type: string }) {
+/** v1.2 item models: salvage and curio icons by visual key (the item's name), the generic tier shapes otherwise */
+const G = { gold: '#d8b45a', brass: '#c9a24a', steel: '#b9bec3', dark: '#1c1c1c', glass: '#9fc4d0' } as const;
+const JAR = <g><rect x="7" y="21" width="16" height="4" rx="1" fill="#5a3822" /><path d="M9 21 V12 a6 6 0 0 1 12 0 V21 Z" fill="#dfe9ee" opacity="0.3" stroke="#cfe0e8" stroke-width="0.8" /><circle cx="15" cy="5.6" r="1.1" fill={G.brass} /></g>;
+const LOOT_ART: Record<string, VNode> = {
+  's.watch': <g><circle cx="15" cy="3.6" r="2.1" fill="none" stroke={G.gold} stroke-width="1.2" /><rect x="13.6" y="5.2" width="2.8" height="2.6" fill={G.gold} /><circle cx="15" cy="15.5" r="8.4" fill={G.gold} /><circle cx="15" cy="15.5" r="6.6" fill="#f3efe4" /><path d="M15 15.5 V11 M15 15.5 L18.2 17" stroke="#222" stroke-width="1.2" stroke-linecap="round" /></g>,
+  's.keyring': <g><circle cx="10" cy="9" r="5.5" fill="none" stroke={G.brass} stroke-width="1.6" /><g fill={G.brass}><circle cx="15.5" cy="12" r="2.6" /><rect x="17" y="11" width="10" height="2" /><rect x="23" y="13" width="1.6" height="2.6" /><rect x="25.4" y="13" width="1.6" height="2" /></g><g fill={G.steel}><circle cx="11" cy="16" r="2.6" /><rect x="10" y="17.5" width="2" height="7" /><rect x="12" y="21" width="2.4" height="1.4" /></g></g>,
+  's.camera': <g><rect x="4" y="9" width="22" height="13" rx="2" fill={G.dark} stroke="#555" stroke-width="0.6" /><rect x="4" y="9" width="22" height="3" fill="#c8ccd0" /><rect x="7" y="5.5" width="6" height="3.5" rx="1" fill="#333" /><circle cx="17" cy="16" r="5" fill="#c8ccd0" /><circle cx="17" cy="16" r="3.2" fill="#26343a" /><circle cx="16" cy="15" r="0.9" fill="#9fc4d0" /></g>,
+  's.gasmask': <g><path d="M15 3 C23 3 25 10 24 15 C23 20 19 22 15 22 C11 22 7 20 6 15 C5 10 7 3 15 3 Z" fill="#2c2f2a" /><circle cx="11" cy="11" r="3.2" fill="#6a6e66" /><circle cx="11" cy="11" r="2.2" fill="#26343a" /><circle cx="19" cy="11" r="3.2" fill="#6a6e66" /><circle cx="19" cy="11" r="2.2" fill="#26343a" /><circle cx="15" cy="21" r="4" fill="#5a5f3a" stroke="#3a3d26" stroke-width="0.8" /></g>,
+  's.circuit': <g><rect x="3" y="5" width="24" height="16" rx="1" fill="#1f5d34" /><path d="M6 9 H12 V14 H20 M8 18 H16 V11 M22 8 V17" stroke={G.gold} stroke-width="0.9" fill="none" /><rect x="11" y="10" width="7" height="6" fill="#111" /><rect x="20" y="15" width="4" height="3" fill="#111" /><rect x="8" y="20" width="14" height="1.6" fill={G.gold} /></g>,
+  's.flask': <g><rect x="15" y="1.5" width="4" height="3.5" rx="0.8" fill="#9da2a6" /><rect x="8" y="5" width="16" height="19" rx="4" fill="#b3b8bc" /><rect x="8" y="12" width="16" height="7" fill="#5a3a24" /></g>,
+  's.cassette': <g><rect x="3" y="6" width="24" height="15" rx="1.6" fill={G.dark} /><rect x="5" y="7.5" width="20" height="8.5" rx="1" fill="#e8e2c8" /><rect x="5" y="9" width="20" height="1" fill="#c8402a" /><rect x="9" y="12" width="12" height="4" rx="2" fill="#2a2a2a" /><circle cx="11.5" cy="14" r="1.5" fill="#f2f2f2" /><circle cx="18.5" cy="14" r="1.5" fill="#f2f2f2" /></g>,
+  's.dogtags': <g><path d="M7 3 C2 10 6 14 11 9 M18 3 C24 10 21 13 17 9" stroke={G.steel} stroke-width="0.9" fill="none" stroke-dasharray="1 0.6" /><rect x="7" y="8" width="8" height="14" rx="3" fill={G.steel} transform="rotate(-10 11 15)" /><rect x="14" y="8" width="8" height="14" rx="3" fill="#a3a9ae" transform="rotate(12 18 15)" /><path d="M9 13 h4 M9 15.5 h4 M16.5 13.5 h3.5 M16.5 16 h3.5" stroke="#555" stroke-width="0.8" /></g>,
+  's.glasses': <g><circle cx="9" cy="14" r="5.4" fill="#dfe9ee" fill-opacity="0.25" stroke={G.brass} stroke-width="1.4" /><circle cx="21" cy="14" r="5.4" fill="#dfe9ee" fill-opacity="0.25" stroke={G.brass} stroke-width="1.4" /><path d="M14.4 13 q0.6 -2 1.2 0 M3.6 13 L1 9 M26.4 13 L29 9" stroke={G.brass} stroke-width="1.2" fill="none" /></g>,
+  's.buttons': <g><ellipse cx="12" cy="15" rx="9" ry="7" fill="#8a2a22" stroke={G.brass} stroke-width="1.4" /><circle cx="12" cy="15" r="3" fill="#e8d7a8" /><circle cx="24" cy="9" r="3" fill="#e8e0cc" /><circle cx="25" cy="17" r="2.6" fill="#222" /><circle cx="22" cy="22" r="2.4" fill="#7a1f1f" /></g>,
+  's.toolchest': <g><path d="M10 9 V6 H20 V9" stroke="#111" stroke-width="2" fill="none" /><rect x="3" y="9" width="24" height="14" rx="1.5" fill="#a32a22" /><rect x="3" y="9" width="24" height="4" fill="#c03328" /><rect x="7" y="12" width="3" height="3" fill="#ddd" /><rect x="20" y="12" width="3" height="3" fill="#ddd" /></g>,
+  's.jerrycan': <g><rect x="6" y="5" width="18" height="20" rx="2" fill="#4b5a32" /><path d="M9 10 L21 21 M21 10 L9 21" stroke="#3a4626" stroke-width="2" /><rect x="10" y="2" width="9" height="4" rx="1" fill="#3d4a28" /><rect x="20" y="2.5" width="3.5" height="3" fill="#2f3a1e" /></g>,
+  's.radio': <g><path d="M24 7 L27 1" stroke="#c8ccd0" stroke-width="1" /><rect x="3" y="7" width="24" height="16" rx="1.6" fill="#58603f" /><rect x="5.5" y="9.5" width="19" height="5" fill="#e8dcb0" /><path d="M8 10 v2.5 M11 10 v2.5 M14 10 v2.5 M17 10 v2.5 M20 10 v2.5" stroke="#333" stroke-width="0.6" /><circle cx="9" cy="19" r="2.2" fill="#111" /><circle cx="21" cy="19" r="2.2" fill="#111" /></g>,
+  's.typewriter': <g><rect x="9" y="1.5" width="12" height="9" fill="#f2efe6" /><path d="M11 4 h8 M11 6 h7 M11 8 h8" stroke="#555" stroke-width="0.6" /><rect x="4" y="9" width="22" height="4" rx="2" fill="#2a2a2a" /><path d="M3 14 H27 L25 24 H5 Z" fill="#151515" /><g fill="#e9e4d4"><circle cx="8" cy="17" r="1" /><circle cx="11" cy="17" r="1" /><circle cx="14" cy="17" r="1" /><circle cx="17" cy="17" r="1" /><circle cx="20" cy="17" r="1" /><circle cx="23" cy="17" r="1" /><circle cx="9.5" cy="20" r="1" /><circle cx="12.5" cy="20" r="1" /><circle cx="15.5" cy="20" r="1" /><circle cx="18.5" cy="20" r="1" /><circle cx="21.5" cy="20" r="1" /></g></g>,
+  's.medcase': <g><path d="M11 8 V5.5 H19 V8" stroke="#222" stroke-width="1.8" fill="none" /><rect x="3" y="8" width="24" height="15" rx="2" fill="#c4c9ce" stroke="#8d939a" stroke-width="0.6" /><path d="M13 11 h4 v3 h3 v4 h-3 v3 h-4 v-3 h-3 v-4 h3 z" fill="#c0201b" /></g>,
+  's.fusebox': <g><rect x="6" y="2" width="18" height="22" rx="1.5" fill="#7b8085" stroke="#555" stroke-width="0.6" /><rect x="8" y="4" width="14" height="18" fill="#8a9095" /><path d="M16 6 L11 14 H15 L13 20 L19 11 H15 Z" fill="#f2c230" /></g>,
+  's.lamp': <g><path d="M10 4 a5 3 0 0 1 10 0" stroke={G.brass} stroke-width="1" fill="none" /><rect x="11" y="4" width="8" height="3" rx="1" fill={G.brass} /><path d="M11 7 Q8 13 11 19 H19 Q22 13 19 7 Z" fill="#f2d68a" opacity="0.55" stroke={G.brass} stroke-width="0.8" /><rect x="8.5" y="19" width="13" height="5" rx="2" fill={G.brass} /></g>,
+  's.projector': <g><circle cx="9" cy="7" r="5" fill="#2b2b2b" stroke="#777" stroke-width="0.8" /><circle cx="20" cy="7" r="5" fill="#2b2b2b" stroke="#777" stroke-width="0.8" /><circle cx="9" cy="7" r="1.3" fill="#ccc" /><circle cx="20" cy="7" r="1.3" fill="#ccc" /><rect x="5" y="12" width="17" height="11" rx="1.5" fill="#5d6252" /><rect x="22" y="15" width="6" height="5" rx="1" fill="#c8ccd0" /></g>,
+  's.bonds': <g><rect x="5" y="8" width="21" height="14" fill="#d8d3bc" transform="rotate(-6 15 15)" /><rect x="4" y="6" width="21" height="14" fill="#e9e4cf" stroke="#2f6b4a" stroke-width="1.2" /><text x="11" y="16.5" fill="#1e4a33" font-size="9" font-family="serif" font-weight="700" text-anchor="middle">$</text><rect x="17" y="6" width="4" height="14" fill="#9b7a4a" /></g>,
+  's.blades': <g><rect x="3" y="3" width="24" height="21" rx="1" fill="#2a2d30" /><g fill="#40464c">{[5, 8.5, 12, 15.5, 22.5].map((x) => <rect key={x} x={x} y="5" width="2.8" height="17" />)}</g><g fill="#3ad15a">{[6.4, 9.9, 13.4, 16.9, 23.9].map((x) => <circle key={x} cx={x} cy="19.5" r="0.7" />)}</g></g>,
+  's.coil': <g><rect x="5" y="3" width="20" height="3" rx="1" fill="#3a2a1e" /><rect x="5" y="21" width="20" height="3" rx="1" fill="#3a2a1e" /><rect x="7" y="6" width="16" height="15" fill="#b87333" /><path d="M7 8 H23 M7 10.5 H23 M7 13 H23 M7 15.5 H23 M7 18 H23" stroke="#7a4a1e" stroke-width="0.9" /></g>,
+  's.depositbox': <g><rect x="2" y="8" width="26" height="12" rx="1" fill="#8e959b" stroke="#5d6368" stroke-width="0.6" /><rect x="2" y="8" width="26" height="2.5" fill="#9aa1a7" /><rect x="11" y="12.5" width="8" height="4" fill={G.brass} /><path d="M12 19 q3 3 6 0" stroke="#ddd" stroke-width="1.2" fill="none" /></g>,
+  's.bust': <g><rect x="9" y="21" width="12" height="4" fill="#2b2b2b" /><path d="M5 21 Q6 14 15 14 Q24 14 25 21 Z" fill="#9a6e42" /><rect x="13" y="11" width="4" height="4" fill="#8c6239" /><ellipse cx="15" cy="7.5" rx="4.4" ry="5.4" fill="#a87a4a" /></g>,
+  's.cryo': <g><rect x="11" y="1" width="8" height="3.5" rx="1" fill="#2f5d8a" /><path d="M12 4.5 H18 L22 8 V23 a2 2 0 0 1 -2 2 H10 a2 2 0 0 1 -2 -2 V8 Z" fill="#b7bcc1" /><rect x="8" y="12" width="14" height="6" fill="#eef2f5" /><rect x="8" y="12" width="14" height="2" fill="#2f5d8a" /></g>,
+  'loot.small': <g><path d="M15 8 C24 8 25 21 15 22 C5 21 6 8 15 8 Z" fill="#b8ab8c" /><path d="M12 8 L15 3 L18 8 Z" fill="#a89a78" /><path d="M11.5 8.2 H18.5" stroke="#6b5232" stroke-width="1.6" /></g>,
+  'loot.medium': <g><path d="M15 9 C26 9 27 24 15 24 C3 24 4 9 15 9 Z" fill="#a08a5c" /><path d="M11 9 L13 3 H17 L19 9 Z" fill="#8f7a4e" /><path d="M10.5 9 H19.5" stroke="#6b5232" stroke-width="2" /></g>,
+  'loot.heavy': <g><rect x="6" y="3" width="18" height="21" rx="2" fill="#34495e" /><path d="M6 9 H24 M6 18 H24" stroke="#22303e" stroke-width="1.8" /><rect x="17" y="3.5" width="3" height="1.5" fill="#666" /><path d="M12 11 L15 15.5 H9 Z" fill="#f2c230" /></g>,
+  'loot.curio': <g>{JAR}<circle cx="15" cy="15.5" r="3.2" fill="none" stroke="#c99b45" stroke-width="1.8" /></g>,
+  'c.pen': <g>{JAR}<path d="M10 19 L20 12" stroke="#141414" stroke-width="2" stroke-linecap="round" /><path d="M17 14 L20 12" stroke={G.gold} stroke-width="2" /></g>,
+  'c.plaque': <g>{JAR}<rect x="11" y="12" width="8" height="9" fill="#5a3822" /><rect x="12" y="13.5" width="6" height="5" fill={G.brass} /></g>,
+  'c.doll': <g>{JAR}<path d="M12 21 L15 15 L18 21 Z" fill="#d9a3b0" /><circle cx="15" cy="13" r="2.4" fill="#f1e8de" /><path d="M12.6 12.4 a2.4 2.4 0 0 1 4.8 0" fill="#5a3a20" /></g>,
+  'c.tooth': <g>{JAR}<rect x="10.5" y="18" width="9" height="3" rx="1.4" fill="#7a1424" /><path d="M12.4 17.5 C12 12 18 12 17.6 17.5 L16.5 15.5 L15 17 L13.5 15.5 Z" fill={G.gold} /></g>,
+  'c.owl': <g>{JAR}<ellipse cx="15" cy="16.5" rx="3.6" ry="4.5" fill="#7a5a3a" /><circle cx="13.6" cy="14.6" r="1.1" fill="#d08a1a" /><circle cx="16.4" cy="14.6" r="1.1" fill="#d08a1a" /><path d="M12 12 L12.6 10 L13.6 12 M16.4 12 L17.4 10 L18 12" fill="#7a5a3a" stroke="#7a5a3a" stroke-width="0.8" /></g>,
+  'c.snowglobe': <g><rect x="8" y="19" width="14" height="6" rx="1.5" fill="#5a3822" /><text x="15" y="24" fill={G.gold} font-size="4.5" font-family="serif" font-weight="700" text-anchor="middle">VAN 7</text><circle cx="15" cy="11" r="8" fill="#dfe9ee" opacity="0.35" stroke="#cfe0e8" stroke-width="0.8" /><rect x="11.5" y="12" width="7" height="3.5" rx="0.8" fill="#e8e6df" /><g fill="#fff"><circle cx="11" cy="7" r="0.7" /><circle cx="18" cy="6" r="0.7" /><circle cx="15" cy="8.5" r="0.6" /></g></g>,
+  'c.musicbox': <g><path d="M5 12 L7 4 L25 4 L23 12" fill="#7a4e30" /><rect x="5" y="12" width="20" height="11" rx="1" fill="#6a4228" /><rect x="7" y="12" width="16" height="2.5" fill="#7a1424" /><rect x="13" y="7" width="2" height="5" fill="#f0d0dc" /><circle cx="14" cy="6.4" r="1.2" fill="#f1e8de" /><rect x="25" y="16" width="3" height="1.6" fill={G.brass} /></g>,
+  'c.dashcam': <g><rect x="3" y="6" width="24" height="15" rx="1.6" fill={G.dark} /><rect x="5" y="7.5" width="20" height="8.5" rx="1" fill="#e8e2c8" /><text x="15" y="13.6" fill="#b0261c" font-size="4.6" font-family="sans-serif" font-weight="800" text-anchor="middle">VAN 3</text><rect x="1.5" y="4.5" width="27" height="18" rx="2.5" fill="none" stroke="#e8eef2" stroke-opacity="0.5" stroke-width="0.8" /></g>,
+  'c.planchette': <g><path d="M15 24 C10 18 4 14 5 9 C6 4 12 4 15 8 C18 4 24 4 25 9 C26 14 20 18 15 24 Z" fill="#b08860" stroke="#6b4a2a" stroke-width="0.8" /><circle cx="15" cy="12" r="3.2" fill="#dfe9ee" fill-opacity="0.4" stroke={G.brass} stroke-width="1.2" /></g>,
+  'c.manual': <g><rect x="7" y="2" width="16" height="22" rx="1" fill="#e2b52a" /><rect x="7" y="2" width="2" height="22" fill="#141414" /><text x="16" y="10" fill="#141414" font-size="4" font-family="sans-serif" font-weight="900" text-anchor="middle">SAFETY</text><path d="M11 19 q2 -3 4 0 t4 0" stroke="#1d3a8a" stroke-width="0.9" fill="none" /></g>,
+  'c.wax': <g><rect x="5" y="5" width="9" height="18" rx="1" fill="#a8865a" /><rect x="5" y="11" width="9" height="5" fill="#e9dfc4" /><rect x="16" y="9" width="9" height="14" rx="1" fill="#4a2a14" /><path d="M16 12 H25 M16 15 H25 M16 18 H25" stroke="#2a1608" stroke-width="0.7" /></g>,
+  'c.helmet': <g><path d="M5 23 C4 13 8 3 15 3 C22 3 26 13 25 23 Z" fill="#b5893a" /><circle cx="15" cy="13" r="5" fill="#26343a" stroke="#8a6a2a" stroke-width="1.6" /><rect x="4" y="21" width="22" height="3.5" rx="1" fill="#8a6a2a" /></g>,
+};
+
+function Icon({ type, name }: { type: string; name?: string }) {
   const c = itemDef(type).color;
   const s = { width: '30', height: '26', viewBox: '0 0 30 26' };
+  // salvage and curios: their own object by name (never the box)
+  if (itemDef(type).loot && type !== 'loot.idol') {
+    const art = LOOT_ART[visualKey({ type, name })];
+    if (art) return <svg {...s}>{art}</svg>;
+  }
   switch (type) {
     case 'bottle':
       return <svg {...s}><path d="M13 2h4v5l2 3v13a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1V10l2-3z" fill={c} stroke="#9fd3a8" stroke-width="0.8" /><rect x="11.5" y="13" width="7" height="5" fill="#d8cfa8" /></svg>;
@@ -170,7 +223,7 @@ export function InventoryHud(_p: HudProps) {
         {slots.map((s, i) => (
           <div key={i} class={`ix-slot${i === a ? ' active' : ''}${s.item ? '' : ' empty'}`}>
             <span class="ix-slot-n">{i + 1}</span>
-            {s.item && <span class="ix-slot-icon"><Icon type={s.item.type} /></span>}
+            {s.item && <span class="ix-slot-icon"><Icon type={s.item.type} name={s.item.name} /></span>}
             {s.item && (s.item.count ?? 1) > 1 && <span class="ix-slot-count">x{s.item.count}</span>}
             <span class="ix-slot-name">{s.item ? itemLabel({ ...s.item, count: 1 }) : 'empty'}</span>
           </div>
