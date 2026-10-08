@@ -91,6 +91,74 @@ function makeMats(mats: LevelMaterials) {
   };
 }
 
+/** a named screen's own material: plain standard + emissive (colour and intensity are uniforms, so every screen
+ *  shares the plain-material pipeline while consumers can restyle one screen alone) */
+const ownMats = new Map<string, THREE.MeshStandardNodeMaterial>();
+/** a CRT face for a console screen (white-on-black, tinted by the material's emissive colour): work orders, the site
+ *  map, a dead camera feed, the scanner sweep. null without a DOM (unit tests). */
+function screenFace(key: string): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 160;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#000'; g.fillRect(0, 0, 256, 160);
+  const r = makeRng(key, 'decor:screen');
+  g.fillStyle = '#fff';
+  g.strokeStyle = '#fff';
+  g.font = "700 15px 'Courier New', Courier, monospace";
+  if (key === 'screen0') {
+    g.fillText('WORK ORDERS', 12, 22);
+    g.fillRect(12, 28, 232, 2);
+    for (let i = 0; i < 6; i++) { g.globalAlpha = i === 1 ? 1 : 0.55; g.fillRect(12, 42 + i * 18, 40 + r.next() * 120, 7); g.fillRect(200, 42 + i * 18, 36, 7); }
+  } else if (key === 'screen1') {
+    g.fillText('SITE MAP', 12, 20);
+    g.globalAlpha = 0.35;
+    for (let x = 12; x < 250; x += 16) g.fillRect(x, 28, 1, 124);
+    for (let y = 28; y < 154; y += 16) g.fillRect(12, y, 232, 1);
+    g.globalAlpha = 0.85;
+    g.lineWidth = 2;
+    g.strokeRect(40, 50, 90, 60); g.strokeRect(130, 70, 70, 50); g.strokeRect(60, 110, 50, 30);
+    g.globalAlpha = 1;
+    for (let k = 0; k < 4; k++) { g.beginPath(); g.arc(50 + r.next() * 150, 60 + r.next() * 70, 3, 0, Math.PI * 2); g.fill(); }
+  } else if (key === 'screen2') {
+    for (let k = 0; k < 2600; k++) { g.globalAlpha = r.next() * 0.6; g.fillRect(r.next() * 256, r.next() * 160, 2, 1); }
+    g.globalAlpha = 1;
+    g.fillText('CAM 03', 12, 22);
+    g.fillText('NO SIGNAL', 86, 86);
+  } else {
+    g.lineWidth = 1.5;
+    for (const rr of [20, 40, 60]) { g.globalAlpha = 0.6; g.beginPath(); g.arc(128, 84, rr, 0, Math.PI * 2); g.stroke(); }
+    g.globalAlpha = 1;
+    g.beginPath(); g.moveTo(128, 84); g.arc(128, 84, 64, -0.9, -0.3); g.closePath(); g.fill();
+    g.fillText('SCAN', 12, 22);
+  }
+  g.globalAlpha = 0.25;
+  for (let y = 0; y < 160; y += 3) g.clearRect(0, y, 256, 1);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function screenMaterial(color: number, intensity: number, key: string): THREE.MeshStandardNodeMaterial {
+  let m = ownMats.get(key);
+  if (!m) {
+    const face = screenFace(key);
+    m = new THREE.MeshStandardNodeMaterial({ color: 0x0a0c0d, roughness: 0.22, metalness: 0, emissive: color, emissiveIntensity: intensity, ...(face ? { map: face, emissiveMap: face } : {}) });
+    m.name = `level.prop.${key}`;
+    ownMats.set(key, m);
+  }
+  return m;
+}
+/** a mirror glass's own material (fallback look until render.mirrors makes it live) */
+function glassMaterial(): THREE.MeshStandardNodeMaterial {
+  let m = ownMats.get('mirrorglass');
+  if (!m) {
+    m = new THREE.MeshStandardNodeMaterial({ color: 0x9aa3a6, roughness: 0.06, metalness: 1 });
+    m.name = 'level.prop.mirrorglass';
+    ownMats.set('mirrorglass', m);
+  }
+  return m;
+}
+
 const geoCache = new Map<string, THREE.BufferGeometry>();
 function geo(key: string, make: () => THREE.BufferGeometry): THREE.BufferGeometry {
   let g = geoCache.get(key);
@@ -234,7 +302,9 @@ export function buildItem(it: LayoutItem, L: LevelLayout, lm: LevelMaterials): T
       break;
     }
     case 'console': {
-      // operator desk against the van's front partition: screens face the rear (local +z)
+      // operator desk against the van's front partition: screens face the rear (local +z). v1.2: every screen is a
+      // named part with its OWN material (stationObject('console') -> 'screen0'..'screen3'); screen3 + its housing
+      // ('scanner') belong to the scanner upgrade and stay hidden until setVanUpgrades lists it
       g.add(mesh(geo('cnDesk', () => mergeGeometries([box(1.7, 0.06, 0.55, 0, 0.76, 0), box(1.6, 0.7, 0.45, 0, 0.36, -0.03)])), M.desk));
       g.add(mesh(geo('cnTop', () => box(1.68, 0.01, 0.53, 0, 0.795, 0)), M.deskTop));
       const screens: [number, number, number, number][] = [[-0.55, 1.12, 0.5, 0.32], [0, 1.18, 0.62, 0.4], [0.55, 1.12, 0.5, 0.32]];
@@ -244,10 +314,18 @@ export function buildItem(it: LayoutItem, L: LevelLayout, lm: LevelMaterials): T
         mon.position.set(x, y, -0.12);
         mon.rotation.y = yaw;
         mon.add(mesh(geo(`cnMon${k}`, () => box(w + 0.04, h + 0.04, 0.04, 0, 0, 0)), M.case));
-        mon.add(mesh(geo(`cnScr${k}`, () => box(w, h, 0.005, 0, 0, 0.022)), k === 1 ? M.screen : M.screenBlue, `screen${k}`));
+        mon.add(mesh(geo(`cnScr${k}`, () => box(w, h, 0.005, 0, 0, 0.022)), screenMaterial(k === 1 ? 0x3cffb0 : 0x48a8ff, k === 1 ? 2.4 : 2.1, `screen${k}`), `screen${k}`));
         g.add(mon);
       });
       g.add(mesh(geo('cnKb', () => box(0.45, 0.02, 0.15, 0, 0.81, 0.12)), M.panel));
+      const scanner = new THREE.Group();
+      scanner.name = 'scanner';
+      scanner.position.set(0.66, 0.9, 0.1);
+      scanner.rotation.set(-0.35, -0.5, 0);
+      scanner.visible = false;
+      scanner.add(mesh(geo('cnScanCase', () => box(0.26, 0.2, 0.16, 0, 0, -0.03)), M.case));
+      scanner.add(mesh(geo('cnScan', () => box(0.2, 0.14, 0.004, 0, 0.005, 0.052)), screenMaterial(0x6dff4a, 2.6, 'screen3'), 'screen3'));
+      g.add(scanner);
       break;
     }
     case 'leave_lever': {
@@ -268,8 +346,18 @@ export function buildItem(it: LayoutItem, L: LevelLayout, lm: LevelMaterials): T
       break;
     }
     case 'mirror': {
+      // v1.2: the hub mirror ('Change your look') hangs in the van at the station spot (data.mirror 'van'): a slim
+      // framed wall mirror centred on its mount height; before gate L1 it was the free-standing locker mirror. Either
+      // way the glass is the named part 'glass' (own material) that the level registers with render.mirrors.
+      if (it.data?.mirror === 'van' || it.data?.station === 'mirror') {
+        const w = Number(it.data?.w ?? 0.45), h = Number(it.data?.h ?? 0.9), d = Number(it.data?.d ?? 0.03);
+        g.add(mesh(geo(`mrvBack${w}${h}`, () => box(w, h, 0.01, 0, 0, -d / 2 + 0.005)), M.lockerDark));
+        g.add(mesh(geo(`mrvFrame${w}${h}`, () => mergeGeometries([box(w, 0.022, 0.024, 0, h / 2 - 0.011, 0), box(w, 0.022, 0.024, 0, -h / 2 + 0.011, 0), box(0.022, h - 0.044, 0.024, -w / 2 + 0.011, 0, 0), box(0.022, h - 0.044, 0.024, w / 2 - 0.011, 0, 0)])), M.chrome));
+        g.add(mesh(geo(`mrvGlass${w}${h}`, () => new THREE.PlaneGeometry(w - 0.044, h - 0.044).translate(0, 0, 0.008)), glassMaterial(), 'glass'));
+        break;
+      }
       g.add(mesh(geo('mrBody', () => box(0.9, 2.0, 0.5, 0, 1.0, 0)), M.locker));
-      g.add(mesh(geo('mrGlass', () => box(0.66, 1.4, 0.01, 0, 1.15, 0.255)), M.mirror));
+      g.add(mesh(geo('mrGlass', () => box(0.66, 1.4, 0.01, 0, 1.15, 0.255)), glassMaterial(), 'glass'));
       g.add(mesh(geo('mrFrame', () => mergeGeometries([box(0.72, 0.04, 0.02, 0, 1.87, 0.255), box(0.72, 0.04, 0.02, 0, 0.43, 0.255)])), M.chrome));
       break;
     }

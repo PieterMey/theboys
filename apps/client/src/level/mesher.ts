@@ -5,10 +5,12 @@
 // UVs are world-space metres / TILE with a right-handed tangent frame (u along up x n, v up).
 import * as THREE from 'three/webgpu';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import type { LayoutDoor, LayoutSpace, LevelLayout } from '@dead-air/shared/layout.ts';
+import type { LayoutDoor, LevelLayout } from '@dead-air/shared/layout.ts';
 import { HALF_T } from '@dead-air/shared/procgen/place.ts';
 import { VAN_CAB_L } from '@dead-air/shared/procgen/van.ts';
 import type { MatId } from './materials.ts';
+import { DIRECTIONAL_FLOORS, spacePalette, themeOf } from './palettes.ts';
+import type { SpaceTheme } from './palettes.ts';
 
 export const DOOR_H = 2.1;
 /** outdoor face height of building walls (the facade) */
@@ -16,22 +18,9 @@ export const FACADE_H = 4.6;
 export const WAINSCOT = 1.15;
 export const TILE = 2;
 
-export interface SpaceTheme { floor: MatId; wallLo: MatId; wallHi: MatId; ceil: MatId }
-
-const CLINICAL = new Set(['morgue', 'infirmary', 'showers', 'cold', 'cryo', 'kitchen', 'laundry', 'nursery']);
-const INDUSTRIAL = new Set(['boiler', 'furnace', 'foundry', 'pumps', 'tanks', 'garage', 'dock', 'pit', 'storage', 'greenhouse']);
-const HEAVY = new Set(['boiler', 'furnace', 'foundry', 'pumps', 'tanks']);
-
-export function themeOf(s: LayoutSpace): SpaceTheme {
-  if (s.kind === 'outside') return { floor: s.type === 'kennel' ? 'floor_dirt' : 'asphalt', wallLo: 'facade', wallHi: 'facade', ceil: 'ceiling_concrete' };
-  if (s.kind === 'corridor') return { floor: 'floor_lino', wallLo: 'wall_tile_green', wallHi: 'wall_plaster_green', ceil: 'ceiling_tiles' };
-  if (s.kind === 'vault') return { floor: 'floor_metal', wallLo: 'wall_vault', wallHi: 'wall_vault', ceil: 'ceiling_concrete' };
-  if (s.type === 'lobby') return { floor: 'floor_tiles', wallLo: 'wall_tile_green', wallHi: 'wall_plaster', ceil: 'ceiling_tiles' };
-  if (CLINICAL.has(s.type)) return { floor: 'floor_tiles', wallLo: 'wall_tile_white', wallHi: 'wall_tile_white', ceil: 'ceiling_tiles' };
-  if (INDUSTRIAL.has(s.type)) return { floor: HEAVY.has(s.type) ? 'floor_metal' : 'floor_concrete', wallLo: 'wall_concrete_dark', wallHi: 'wall_concrete', ceil: 'ceiling_metal' };
-  if (s.type === 'server' || s.type === 'radio') return { floor: 'floor_rubber', wallLo: 'wall_plaster_blue', wallHi: 'wall_plaster', ceil: 'ceiling_tiles' };
-  return { floor: 'floor_lino', wallLo: 'wall_plaster_blue', wallHi: 'wall_plaster', ceil: 'ceiling_tiles' };
-}
+// v1.2: the per-space palette lives in palettes.ts (themeOf(space, L.theme); facility = the exact v1.1 mapping)
+export { themeOf };
+export type { SpaceTheme };
 
 interface Bucket { pos: number[]; nor: number[]; uv: number[]; idx: number[] }
 
@@ -59,19 +48,20 @@ export function buildLevelGeometry(L: LevelLayout): LevelGeometry {
     return b;
   };
   let tris = 0;
-  /** emit a planar quad with normal n; corners in any order around the quad; winding fixed to face n */
-  const quad = (b: Bucket, p: number[][], n: readonly [number, number, number]) => {
+  /** emit a planar quad with normal n; corners in any order around the quad; winding fixed to face n.
+   *  rot90: floors only, UVs turned 90 degrees (directional floor textures run along the space's long axis) */
+  const quad = (b: Bucket, p: number[][], n: readonly [number, number, number], rot90 = false) => {
     const ax = p[1][0] - p[0][0], ay = p[1][1] - p[0][1], az = p[1][2] - p[0][2];
     const bx = p[2][0] - p[0][0], by = p[2][1] - p[0][1], bz = p[2][2] - p[0][2];
     const cx = ay * bz - az * by, cy = az * bx - ax * bz, cz = ax * by - ay * bx;
     const pts = cx * n[0] + cy * n[1] + cz * n[2] >= 0 ? p : [p[0], p[3], p[2], p[1]];
     const base = b.pos.length / 3;
-    // tangent t = up x n for walls; floors u=x v=-z; ceilings u=x v=z
+    // tangent t = up x n for walls; floors u=x v=-z (rot90: u=z v=x, a proper rotation); ceilings u=x v=z
     for (const v of pts) {
       b.pos.push(v[0], v[1], v[2]);
       b.nor.push(n[0], n[1], n[2]);
       let u: number, w: number;
-      if (n[1] > 0.5) { u = v[0]; w = -v[2]; }
+      if (n[1] > 0.5) { if (rot90) { u = v[2]; w = v[0]; } else { u = v[0]; w = -v[2]; } }
       else if (n[1] < -0.5) { u = v[0]; w = v[2]; }
       else { u = v[0] * n[2] - v[2] * n[0]; w = v[1]; }
       b.uv.push(u / TILE, w / TILE);
@@ -82,7 +72,7 @@ export function buildLevelGeometry(L: LevelLayout): LevelGeometry {
 
   const own = (x: number, y: number) => (x < 0 || y < 0 || x >= W || y >= H ? -1 : owner[y * W + x]);
   const isOpen = (s: number) => s >= 0 && spaces[s].open;
-  const theme = spaces.map((s) => themeOf(s));
+  const theme = spaces.map((s) => spacePalette(L, s.id));
   // van footprint: rendered by the van model, not the mesher
   const vanMask = new Uint8Array(W * H);
   const cab = L.van.cab;
@@ -134,9 +124,11 @@ export function buildLevelGeometry(L: LevelLayout): LevelGeometry {
     const inSet = (x: number, y: number) => owner[y * W + x] === s.id || (s.open && vanMask[y * W + x] === 1);
     const rects = greedyRects(r.x, r.y, r.w, r.h, inSet);
     const th = theme[s.id];
+    // directional floors (parquet, grating) run along the space's long axis: 90-degree UV steps only
+    const rot90 = DIRECTIONAL_FLOORS.has(th.floor) && r.h > r.w;
     for (const q of rects) {
       const x0 = q.x, x1 = q.x + q.w, z0 = q.y, z1 = q.y + q.h;
-      quad(B(s.id, th.floor), [[x0, 0, z1], [x1, 0, z1], [x1, 0, z0], [x0, 0, z0]], [0, 1, 0]);
+      quad(B(s.id, th.floor), [[x0, 0, z1], [x1, 0, z1], [x1, 0, z0], [x0, 0, z0]], [0, 1, 0], rot90);
       if (!s.open) quad(B(s.id, th.ceil), [[x0, WH, z0], [x1, WH, z0], [x1, WH, z1], [x0, WH, z1]], [0, -1, 0]);
     }
   }

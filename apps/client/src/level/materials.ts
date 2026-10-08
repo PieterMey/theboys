@@ -5,12 +5,18 @@ import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { assetUrl, basisPath, getAssetManifest, hasAsset, loadAssetManifest } from '@dead-air/shared/assets.ts';
 import type { MaterialId } from '@dead-air/shared/assets.ts';
 import { makeEmissive, makeSurfaceMaterial } from '../render/materials.ts';
+import type { SurfaceMaterial } from '../render/materials.ts';
 
 export type MatId =
   | 'floor_concrete' | 'floor_lino' | 'floor_tiles' | 'floor_rubber' | 'floor_metal' | 'floor_dirt'
   | 'wall_tile_green' | 'wall_tile_white' | 'wall_plaster' | 'wall_plaster_green' | 'wall_plaster_blue' | 'wall_concrete'
   | 'wall_concrete_dark' | 'wall_vault' | 'ceiling_tiles' | 'ceiling_concrete' | 'ceiling_metal'
-  | 'facade' | 'asphalt' | 'trim' | 'metal_rusty' | 'metal_painted' | 'metal_dark' | 'wood' | 'van_body' | 'rubble';
+  | 'facade' | 'asphalt' | 'trim' | 'metal_rusty' | 'metal_painted' | 'metal_dark' | 'wood' | 'van_body' | 'rubble'
+  // v1.2 theme palettes (env-world): flat PBR until the staged textures load
+  | 'floor_terrazzo' | 'floor_carpet' | 'floor_parquet' | 'floor_grating'
+  | 'wall_subway' | 'wall_wood_panel' | 'wall_wallpaper' | 'wall_insulated' | 'wall_brick' | 'facade_brick'
+  // v1.2 van: checker (diamond tread) plate floor
+  | 'van_floor';
 
 interface MatSpec {
   tex?: MaterialId;
@@ -28,6 +34,8 @@ interface MatSpec {
   wet?: number;
   /** roughness floor after texture/grime modulation (matte walls: no glare under the flashlight) */
   minRough?: number;
+  /** v1.2: render's procedural pattern ('diamond' tread plate, 'corrugated' sheet) */
+  pattern?: 'diamond' | 'corrugated';
 }
 
 const SPECS: Record<MatId, MatSpec> = {
@@ -57,6 +65,18 @@ const SPECS: Record<MatId, MatSpec> = {
   wood: { color: 0x5b4030, rough: 0.62, metal: 0, grime: 0.45 },
   van_body: { color: 0xa9aaa3, rough: 0.74, metal: 0, grime: 0.6, minRough: 0.62 },
   rubble: { tex: 'wall_concrete', color: 0x6b6862, tint: 0xb6b2aa, rough: 0.98, metal: 0, grime: 0.8, minRough: 0.9 },
+  // ---- v1.2 theme palettes (textures staged by env-layout; absent textures keep the flat colour) ----
+  floor_terrazzo: { tex: 'terrazzo', color: 0x8f8c84, tint: 0xd6d2c8, rough: 0.42, metal: 0, grime: 0.5, aniso: 8, wet: 0.6, minRough: 0.3 },
+  floor_carpet: { tex: 'carpet', color: 0x4f3b37, tint: 0xb8a49c, rough: 0.98, metal: 0, grime: 0.45, aniso: 8, minRough: 0.9 },
+  floor_parquet: { tex: 'parquet', color: 0x5e4330, tint: 0xc9ac90, rough: 0.58, metal: 0, grime: 0.55, aniso: 8, wet: 0.25, minRough: 0.4 },
+  floor_grating: { tex: 'grating', color: 0x4a4e50, tint: 0x9aa0a4, rough: 0.5, metal: 0.7, grime: 0.55, aniso: 8 },
+  wall_subway: { tex: 'tiles_subway', color: 0xb3baae, tint: 0xe2e6dc, rough: 0.38, metal: 0, grime: 0.6, minRough: 0.3 },
+  wall_wood_panel: { tex: 'wood_panel', color: 0x4f3826, tint: 0xc0a080, rough: 0.6, metal: 0, grime: 0.5, minRough: 0.45 },
+  wall_wallpaper: { tex: 'wallpaper', color: 0x7f7a62, tint: 0xd2cab0, rough: 0.9, metal: 0, grime: 0.65, minRough: 0.82 },
+  wall_insulated: { tex: 'insulated_panel', color: 0xb5babc, tint: 0xe4e8ea, rough: 0.45, metal: 0.15, grime: 0.45, minRough: 0.32 },
+  wall_brick: { tex: 'brick', color: 0x6a4638, tint: 0xc4a294, rough: 0.92, metal: 0, grime: 0.7, minRough: 0.85 },
+  facade_brick: { tex: 'brick', color: 0x5a3c31, tint: 0xa88a7e, rough: 0.95, metal: 0, grime: 0.85, minRough: 0.88 },
+  van_floor: { tex: 'metal_plate', color: 0x55595b, tint: 0x9ea3a6, rough: 0.72, metal: 0.3, grime: 0.65, aniso: 8, pattern: 'diamond' },
 };
 
 let ktx2: KTX2Loader | null = null;
@@ -107,7 +127,7 @@ export class LevelMaterials {
     let m = this.mats.get(id);
     if (m) return m;
     const s = SPECS[id];
-    m = makeSurfaceMaterial({ color: s.color, roughness: s.rough, metalness: s.metal, grime: s.grime ?? 0.5, uvMode: 'uv', side: s.side, wet: s.wet, minRough: s.minRough });
+    m = makeSurfaceMaterial({ color: s.color, roughness: s.rough, metalness: s.metal, grime: s.grime ?? 0.5, uvMode: 'uv', side: s.side, wet: s.wet, minRough: s.minRough, ...(s.pattern ? { pattern: s.pattern } : {}) });
     m.name = `level.${id}`;
     this.mats.set(id, m);
     if (this.renderer) void this.upgradeOne(id);
@@ -130,6 +150,41 @@ export class LevelMaterials {
     this.texturesDone = true;
   }
 
+  /** true when the material exists (requested at least once) */
+  has(id: MatId): boolean { return this.mats.has(id); }
+
+  /** a staged texture by asset key (KTX2, webp fallback; cached); null before upgradeAll or without the asset */
+  texture(key: string, linear = false): Promise<THREE.Texture | null> {
+    return this.renderer ? loadTex(this.renderer, key, linear) : Promise.resolve(null);
+  }
+
+  /**
+   * Create + texture + compile a set of materials ahead of use (the active work order's theme while the crew is still
+   * in the hub, so the 30 s drive and the first rooms do not compile them). compileAsync builds the pipelines against
+   * the real scene's lights without drawing anything.
+   */
+  async prefetch(ids: readonly MatId[], scene: THREE.Scene | null, camera: THREE.Camera | null): Promise<number> {
+    const fresh = ids.filter((id) => !this.mats.has(id));
+    if (!fresh.length) return 0;
+    for (const id of fresh) this.get(id);
+    if (this.renderer) await Promise.all(fresh.map((id) => this.upgradeOne(id)));
+    const r = this.renderer as (THREE.WebGPURenderer & { compileAsync?: (o: THREE.Object3D, c: THREE.Camera, s?: THREE.Scene) => Promise<unknown> }) | null;
+    if (r?.compileAsync && scene && camera) {
+      const proxy = new THREE.Group();
+      proxy.name = 'level-prefetch';
+      const geo = new THREE.PlaneGeometry(0.01, 0.01);
+      for (const id of fresh) {
+        const m = new THREE.Mesh(geo, this.mats.get(id)!);
+        m.receiveShadow = true;
+        m.position.set(0, -50, 0);
+        proxy.add(m);
+      }
+      try { await r.compileAsync(proxy, camera, scene); } catch { /* best effort: the first draw compiles instead */ }
+      geo.dispose();
+    }
+    return fresh.length;
+  }
+
   private async upgradeOne(id: MatId): Promise<void> {
     if (this.upgraded.has(id) || !this.renderer) return;
     this.upgraded.add(id);
@@ -142,12 +197,15 @@ export class LevelMaterials {
     if (!albedo) return;
     const aniso = Math.min(s.aniso ?? 4, r.getMaxAnisotropy?.() ?? 4);
     for (const t of [albedo, normal, orm]) if (t) t.anisotropy = aniso;
+    const m = this.mats.get(id) as (THREE.MeshStandardNodeMaterial & Partial<Pick<SurfaceMaterial, 'tintUniform' | 'baseUniform'>>) | undefined;
+    if (!m) return;
+    // render's live tint uniform carries over (theme variants share one program; a later setSurfaceTint still works)
     const tm = makeSurfaceMaterial({
       albedo, normal: normal ?? undefined, orm: orm ?? undefined, color: s.tint ?? 0xffffff, roughness: Math.min(1, s.rough + 0.05),
-      metalness: s.metal, grime: (s.grime ?? 0.5) * 0.7, uvMode: 'uv', side: s.side, wet: s.wet, minRough: s.minRough,
+      metalness: s.metal, grime: (s.grime ?? 0.5) * 0.7, uvMode: 'uv', side: s.side, wet: s.wet, minRough: s.minRough, ...(s.pattern ? { pattern: s.pattern } : {}),
+      ...(m.tintUniform ? { tintUniform: m.tintUniform } : {}),
     });
-    const m = this.mats.get(id);
-    if (!m) return;
+    if (tm.baseUniform) m.baseUniform = tm.baseUniform;
     // in-place upgrade keeps every mesh reference valid
     m.colorNode = tm.colorNode;
     m.roughnessNode = tm.roughnessNode;

@@ -26,7 +26,18 @@ export interface DoorVisual {
   spaces: [number, number];
   /** emissive status light of keycard / security doors (null otherwise) */
   status: THREE.Mesh | null;
+  /** v1.2: visual openness held by a quiet ease (setDoorProgress); null = follow the logical state */
+  override: number | null;
+  /** v1.2: easing back after a cancelled ease (slower than a slam, ~1.2/s) */
+  ret: boolean;
+  /** v1.2: handle / leaf rattle (paranormal knock): performance.now() window and strength */
+  rattle: { t0: number; until: number; amp: number } | null;
+  /** v1.2: apply a rattle offset on top of apply(t): j in [-1, 1] */
+  shake(j: number): void;
 }
+
+/** return speed (1/s) after a cancelled quiet ease */
+export const EASE_RETURN_SPEED = 1.2;
 
 const ease = (t: number) => t * t * (3 - 2 * t);
 
@@ -341,15 +352,38 @@ export function buildDoor(L: LevelLayout, d: LayoutDoor, mats: LevelMaterials): 
   // fewer draw calls: merge same-material static meshes inside every group (leaf decorations, bolts, ribs...)
   const groupsToMerge: THREE.Object3D[] = [g];
   g.traverse((o) => { if (o !== g && (o as THREE.Group).isGroup) groupsToMerge.push(o); });
-  for (const grp of groupsToMerge) mergeChildrenByMaterial(grp, new Set(['status', 'leaf']));
+  // wooden doors: the merged brass lever + rose of each leaf turns about its spindle when the door is rattled
+  const handleMat = d.kind === 'door' ? m.brass : null;
+  const hardware: { mesh: THREE.Mesh; dir: number }[] = [];
+  for (const grp of groupsToMerge) {
+    for (const mm of mergeChildrenByMaterial(grp, new Set(['status', 'leaf']))) {
+      if (handleMat && mm.material === handleMat && grp !== g) {
+        const bb = new THREE.Box3().setFromBufferAttribute(mm.geometry.getAttribute('position') as THREE.BufferAttribute);
+        // rose (spindle) 2 cm in from the hardware's outer edge, at handle height
+        const px = bb.max.x > -bb.min.x ? bb.max.x - 0.02 : bb.min.x + 0.02, py = 1.0;
+        mm.geometry.translate(-px, -py, 0);
+        mm.position.set(px, py, 0);
+        mm.name = 'handle';
+        hardware.push({ mesh: mm, dir: px > 0 ? 1 : -1 });
+      }
+    }
+  }
 
   const vis: DoorVisual = {
     id: d.id, kind: d.kind, group: g, open: d.initiallyOpen, t: d.initiallyOpen ? 1 : 0, speed, spaces, status,
+    override: null, ret: false, rattle: null,
     apply(t: number) {
       const k = ease(Math.max(0, Math.min(1, t)));
       const ang = (d.kind === 'vault' ? 100 : 92) * (Math.PI / 180) * k;
       for (const lf of leaves) lf.pivot.rotation.y = lf.dir === 1 ? -ang : ang;
       if (lift) lift.position.y = liftH * k;
+      for (const h of hardware) h.mesh.rotation.z = 0;
+    },
+    shake(j: number) {
+      // leaf jolts a few millimetres against the latch, the handle tries to turn; shutters clatter in their guides
+      for (const lf of leaves) lf.pivot.rotation.y += (lf.dir === 1 ? -1 : 1) * j * 0.012;
+      for (const h of hardware) h.mesh.rotation.z = h.dir * Math.abs(j) * 0.35;
+      if (lift) lift.position.y += Math.abs(j) * 0.012;
     },
   };
   if (d.kind === 'blocked') { vis.open = false; vis.t = 0; }

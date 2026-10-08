@@ -5,19 +5,26 @@
 // Local frame of a furniture item: origin on the floor at the item centre, +X along its width, +Z = its front.
 // Wall-mounted items are centred on their mount height (y in [-h/2, h/2]) with the back at z = -d/2.
 import * as THREE from 'three/webgpu';
+import { attribute } from 'three/tsl';
 import type { LayoutItem } from '@dead-air/shared/layout.ts';
 import type { ClutterItem } from '@dead-air/shared/procgen/clutter.ts';
+import { PROP_DEFS } from '@dead-air/shared/procgen/decor.ts';
 import type { Rng } from '@dead-air/shared/rng.ts';
 import type { LevelMaterials, MatId } from './materials.ts';
+import { fallbackParts, kitParts } from './kits.ts';
+import { decalMaterial } from './decals.ts';
+import { GeoRef, box, cyl, mergeParts, part, shape } from './geo.ts';
+import type { AnyGeo, Part } from './geo.ts';
 
-export interface Part { mat: string; geo: THREE.BufferGeometry }
+export type { Part };
 
-const B = (w: number, h: number, d: number, x = 0, y = 0, z = 0) => new THREE.BoxGeometry(w, h, d).translate(x, y, z);
-const CY = (r: number, h: number, x = 0, y = 0, z = 0, seg = 16, r2 = r) => new THREE.CylinderGeometry(r, r2, h, seg).translate(x, y, z);
+// shared prototypes placed by matrices (geo.ts): no per-part BufferGeometry for boxes and cylinders
+const B = (w: number, h: number, d: number, x = 0, y = 0, z = 0): GeoRef => box(w, h, d, x, y, z);
+const CY = (r: number, h: number, x = 0, y = 0, z = 0, seg = 16, r2 = r): GeoRef => cyl(r, h, x, y, z, seg, r2);
 /** cylinder lying along x */
-const CX = (r: number, len: number, x = 0, y = 0, z = 0, seg = 12) => new THREE.CylinderGeometry(r, r, len, seg).rotateZ(Math.PI / 2).translate(x, y, z);
+const CX = (r: number, len: number, x = 0, y = 0, z = 0, seg = 12): GeoRef => cyl(r, len, 0, 0, 0, seg).rotateZ(Math.PI / 2).translate(x, y, z);
 /** cylinder lying along z */
-const CZ = (r: number, len: number, x = 0, y = 0, z = 0, seg = 12) => new THREE.CylinderGeometry(r, r, len, seg).rotateX(Math.PI / 2).translate(x, y, z);
+const CZ = (r: number, len: number, x = 0, y = 0, z = 0, seg = 12): GeoRef => cyl(r, len, 0, 0, 0, seg).rotateX(Math.PI / 2).translate(x, y, z);
 
 let mats: Map<string, THREE.Material> | null = null;
 
@@ -91,30 +98,101 @@ export function setMaterial(lm: LevelMaterials, key: string): THREE.Material {
     M.set('cork', stdMat('cork', 0x8f6b43, 0.95, 0));
     M.set('brass', stdMat('brass', 0x9a8a5a, 0.3, 0.9));
     M.set('hole', stdMat('hole', 0x050505, 1, 0, { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
-    M.set('poster', stdMat('poster', 0xffffff, 0.9, 0, { map: posterAtlas(), alphaTest: 0.5, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    M.set('poster', stdMat('poster', 0xffffff, 0.9, 0, { map: typeof document !== 'undefined' ? posterAtlas() : null, alphaTest: 0.5, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
     M.set('cable', stdMat('cable', 0x101010, 0.6, 0.1));
     M.set('bookA', stdMat('booka', 0x5a1f1a, 0.8, 0));
     M.set('bookB', stdMat('bookb', 0x1f2f4a, 0.8, 0));
     M.set('bookC', stdMat('bookc', 0x4a4030, 0.85, 0));
+    // v1.2 kits (env-world): plain standard materials share one pipeline (colour is a uniform)
+    M.set('blanket', stdMat('blanket', 0x50686a, 0.95, 0));
+    M.set('curtain', stdMat('curtain', 0x8fa89c, 0.92, 0, { side: THREE.DoubleSide }));
+    M.set('pumpGreen', stdMat('pumpgreen', 0x34493b, 0.55, 0.45));
+    M.set('glassCase', stdMat('glasscase', 0x9fb4b8, 0.04, 0.1, { transparent: true, opacity: 0.22, depthWrite: false }));
+    M.set('bone', stdMat('bone', 0xcfc4a6, 0.7, 0));
+    M.set('muslin', stdMat('muslin', 0xb9a99a, 0.95, 0));
+    M.set('meat', stdMat('meat', 0x5a2622, 0.6, 0));
+    M.set('pvc', stdMat('pvc', 0xa9c4cc, 0.18, 0, { transparent: true, opacity: 0.4, depthWrite: false, side: THREE.DoubleSide }));
+    M.set('slate', stdMat('slate', 0x1b231f, 0.78, 0));
+    M.set('mirrorBack', stdMat('mirrorback', 0x8d969a, 0.06, 1));
     mats = M;
   }
   const hit = mats.get(key);
   if (hit) return hit;
+  if (key === 'vc') return vertexColourMaterial();
+  if (key === 'vcGlass') return vertexGlassMaterial();
   if (key === 'ledG') return lm.glow(0x30ff70, 2.2);
   if (key === 'ledA') return lm.glow(0xffa020, 2.2);
   if (key === 'ledR') return lm.glow(0xff2a1a, 2.4);
   if (key === 'candle') return lm.glow(0xffb050, 3);
+  if (key === 'bulbWarm') return lm.glow(0xffd8a0, 2.6);
+  if (key === 'exitGlow') return lm.glow(0x30ff70, 3);
+  if (key === 'decal') return decalMaterial();
   return lm.get(key as MatId);
+}
+
+/** plain opaque set materials (a colour, roughness and metalness, nothing else): the level folds every one of them in
+ *  a space into ONE vertex-colour mesh ('vc'), one draw per pass instead of one per colour */
+const PLAIN = new Set(['steel', 'steelDark', 'rack', 'rackFront', 'woodDark', 'pallet', 'enamel', 'cardboard', 'cardboardDark', 'cloth', 'sheet', 'plant', 'pot', 'blue', 'orange', 'red', 'black', 'cork', 'brass', 'cable', 'bookA', 'bookB', 'bookC', 'blanket', 'pumpGreen', 'bone', 'muslin', 'meat', 'slate', 'mirrorBack']);
+/** set materials whose parts never make a merged furniture mesh cast (glass, glows, paper, decals, floor films, pulls) */
+export const NO_CAST_MATS: ReadonlySet<string> = new Set(['paper', 'brass', 'glassBrown', 'glassGreen', 'glassCase', 'pvc', 'water', 'puddle', 'stain', 'poster', 'hole', 'decal', 'ledG', 'ledA', 'ledR', 'candle', 'bulbWarm', 'exitGlow']);
+/** bottle glass (same transparency, roughness and metalness in every colour): one vertex-colour glass mesh per space */
+const PLAIN_GLASS = new Set(['glassBrown', 'glassGreen']);
+export interface PlainParams { bucket: 'vc' | 'vcGlass'; rgb: [number, number, number]; rm: [number, number] }
+const plainCache = new Map<string, PlainParams>();
+/** the shared vertex-colour bucket of a plain set material + its linear colour and roughness / metalness (null = it
+ *  keeps its own material) */
+export function plainParams(lm: LevelMaterials, key: string): PlainParams | null {
+  const glass = PLAIN_GLASS.has(key);
+  if (!glass && !PLAIN.has(key)) return null;
+  let v = plainCache.get(key);
+  if (!v) {
+    const m = setMaterial(lm, key) as THREE.MeshStandardNodeMaterial;
+    v = { bucket: glass ? 'vcGlass' : 'vc', rgb: [m.color.r, m.color.g, m.color.b], rm: [m.roughness, m.metalness] };
+    plainCache.set(key, v);
+  }
+  return v;
+}
+let vcMat: THREE.MeshStandardNodeMaterial | null = null;
+/** the shared furniture material: colour from the 'color' attribute, roughness / metalness from the 'rm' attribute */
+function vertexColourMaterial(): THREE.MeshStandardNodeMaterial {
+  if (!vcMat) {
+    vcMat = new THREE.MeshStandardNodeMaterial({ color: 0xffffff, roughness: 1, metalness: 0, vertexColors: true });
+    vcMat.name = 'level.set.vc';
+    const rm = attribute<'vec2'>('rm', 'vec2');
+    vcMat.roughnessNode = rm.x;
+    vcMat.metalnessNode = rm.y;
+  }
+  return vcMat;
+}
+let vcGlass: THREE.MeshStandardNodeMaterial | null = null;
+/** the shared bottle glass: colour from the 'color' attribute (glassBrown / glassGreen) */
+function vertexGlassMaterial(): THREE.MeshStandardNodeMaterial {
+  if (!vcGlass) {
+    vcGlass = new THREE.MeshStandardNodeMaterial({ color: 0xffffff, roughness: 0.12, metalness: 0.2, transparent: true, opacity: 0.85, vertexColors: true });
+    vcGlass.name = 'level.set.vcglass';
+  }
+  return vcGlass;
 }
 
 // ---------------------------------------------------------------- furniture
 
-/** Parts of one procedural furniture item in its local frame (null = not a procedural key). */
-export function procParts(it: LayoutItem, rng: Rng): Part[] | null {
+/** container hosts (v1.2): no cosmetic random-open drawer; `skip` part indices are drawn as movable instances instead */
+export interface ProcHostOpts { host?: boolean; skip?: ReadonlySet<number> }
+
+/** filing cabinet drawer k (0..3, bottom up) in the host frame: front panel centre y and the closed front z */
+export const FILING_DRAWER = { y0: 0.17, pitch: 0.32, h: 0.29 } as const;
+
+/**
+ * Parts of one procedural furniture item in its local frame. Unknown keys: a kit (kits.ts) or, for any other
+ * PROP_DEFS key, a bevelled box of its footprint, so a solid prop is never invisible (null only for keys PROP_DEFS
+ * does not know at all).
+ */
+export function procParts(it: LayoutItem, rng: Rng, o: ProcHostOpts = {}): Part[] | null {
   const key = String(it.data?.prop ?? '');
-  const w = Number(it.data?.w ?? 1), d = Number(it.data?.d ?? 0.6), n = Math.max(1, Number(it.data?.n ?? 1));
+  const def = PROP_DEFS[key];
+  const w = Number(it.data?.w ?? def?.w ?? 1), d = Number(it.data?.d ?? def?.d ?? 0.6), n = Math.max(1, Number(it.data?.n ?? 1));
   const P: Part[] = [];
-  const add = (mat: string, ...gs: THREE.BufferGeometry[]) => { for (const geo of gs) P.push({ mat, geo }); };
+  const add = (mat: string, ...gs: AnyGeo[]) => { for (const g of gs) P.push(part(mat, g)); };
   switch (key) {
     case 'server_rack': {
       const uw = w / n;
@@ -141,7 +219,10 @@ export function procParts(it: LayoutItem, rng: Rng): Part[] | null {
       add('steel', B(w, 2.0, d, 0, 1.0, 0));
       for (let r = 0; r < 3; r++) for (let c2 = 0; c2 < 3; c2++) {
         const x = -w / 2 + (c2 + 0.5) * (w / 3), y = 0.42 + r * 0.6;
-        const open = rng.chance(0.08);
+        const open = rng.chance(0.08) && !o.host;
+        // container hosts: a dark opening on the carcass face behind each door (seen when its tray slides out)
+        if (o.host) add('black', B(w / 3 - 0.08, 0.48, 0.002, x, y, d / 2 + 0.001));
+        if (o.skip?.has(r * 3 + c2)) continue;
         add('steelDark', B(w / 3 - 0.06, 0.5, 0.025, x, y, d / 2 + (open ? 0.42 : 0.013)));
         if (open) add('steel', B(w / 3 - 0.12, 0.06, 0.45, x, y - 0.2, d / 2 + 0.2), B(w / 3 - 0.16, 0.14, 0.4, x, y - 0.13, d / 2 + 0.2));
         add('steel', B(0.16, 0.025, 0.04, x, y + 0.12, d / 2 + (open ? 0.45 : 0.04)));
@@ -185,7 +266,7 @@ export function procParts(it: LayoutItem, rng: Rng): Part[] | null {
       for (let k = 0; k < 5; k++) {
         const x = -w / 2 + 0.25 + k * ((w - 0.5) / 4), h = 0.12 + rng.next() * 0.2;
         add('enamel', CY(0.025, h, x, 0.97 + h / 2, -0.1, 8));
-        add('candle', new THREE.SphereGeometry(0.014, 6, 4).scale(1, 1.8, 1).translate(x, 0.97 + h + 0.02, -0.1));
+        add('candle', shape('sph:0.014:6:4', () => new THREE.SphereGeometry(0.014, 6, 4)).scale(1, 1.8, 1).translate(x, 0.97 + h + 0.02, -0.1));
       }
       break;
     }
@@ -235,10 +316,11 @@ export function procParts(it: LayoutItem, rng: Rng): Part[] | null {
       break;
     }
     case 'counter': {
-      add('metal_painted', B(w, 0.86, d - 0.04, 0, 0.47, -0.02));
+      if (o.host) counterCarcass(w, d, add);
+      else add('metal_painted', B(w, 0.86, d - 0.04, 0, 0.47, -0.02));
       add('steel', B(w + 0.02, 0.04, d, 0, 0.92, 0));
       add('black', B(w, 0.08, d - 0.1, 0, 0.04, -0.05));
-      for (let k = 0; k < 3; k++) add('steelDark', B(w / 3 - 0.06, 0.6, 0.012, -w / 3 + k * (w / 3), 0.5, d / 2 - 0.03));
+      for (let k = 0; k < 3; k++) if (!o.skip?.has(k)) add('steelDark', B(w / 3 - 0.06, 0.6, 0.012, -w / 3 + k * (w / 3), 0.5, d / 2 - 0.03));
       for (let k = rng.int(0, 3); k > 0; k--) add('steel', B(0.35, 0.03, 0.26, (rng.next() - 0.5) * (w - 0.4), 0.955, (rng.next() - 0.5) * 0.2));
       break;
     }
@@ -284,7 +366,8 @@ export function procParts(it: LayoutItem, rng: Rng): Part[] | null {
         const x = -w / 2 + 0.17 + (k % 4) * ((w - 0.34) / 3), z = k < 4 ? -0.18 : 0.18;
         add('pot', CY(0.09, 0.16, x, 0.92, z, 10, 0.07));
         const hh = 0.15 + rng.next() * 0.35;
-        add('plant', new THREE.ConeGeometry(0.07 + rng.next() * 0.05, hh, 5).translate(x, 1.0 + hh / 2, z).rotateY(rng.next()));
+        const cr = 0.07 + rng.next() * 0.05;
+        add('plant', shape('cone:5', () => new THREE.ConeGeometry(1, 1, 5)).scale(cr, hh, cr).translate(x, 1.0 + hh / 2, z).rotateY(rng.next()));
       }
       break;
     }
@@ -295,9 +378,13 @@ export function procParts(it: LayoutItem, rng: Rng): Part[] | null {
     }
     case 'filing': {
       add('metal_painted', B(w, 1.32, d, 0, 0.66, 0));
-      const open = rng.chance(0.2) ? rng.int(0, 3) : -1;
+      const roll = rng.chance(0.2) ? rng.int(0, 3) : -1;
+      const open = o.host ? -1 : roll;
       for (let k = 0; k < 4; k++) {
-        const y = 0.17 + k * 0.32, oz = k === open ? 0.3 : 0;
+        // container hosts: a dark opening on the carcass face behind each drawer front (seen when it slides out)
+        if (o.host) add('black', B(w - 0.08, FILING_DRAWER.h - 0.03, 0.002, 0, FILING_DRAWER.y0 + k * FILING_DRAWER.pitch, d / 2 + 0.001));
+        if (o.skip?.has(k)) continue;
+        const y = FILING_DRAWER.y0 + k * FILING_DRAWER.pitch, oz = k === open ? 0.3 : 0;
         add('metal_painted', B(w - 0.04, 0.29, 0.02, 0, y, d / 2 + 0.01 + oz));
         add('steel', B(0.12, 0.02, 0.03, 0, y + 0.06, d / 2 + 0.035 + oz));
         if (k === open) add('paper', B(w - 0.1, 0.22, 0.28, 0, y, d / 2 - 0.13 + oz));
@@ -334,10 +421,125 @@ export function procParts(it: LayoutItem, rng: Rng): Part[] | null {
       add('woodDark', B(0.07, 0.8, 0.04, 0, 0, 0), B(0.44, 0.07, 0.04, 0, 0.15, 0));
       break;
     }
-    default:
-      return null;
+    default: {
+      if (!def) return null;
+      const dims = { w, d, h: Number(it.data?.h ?? def.h), n };
+      return kitParts(key, dims, rng, String(it.data?.room ?? ''), def.mount) ?? fallbackParts(dims, def.mount);
+    }
   }
   return P;
+}
+
+/** a procedural host's movable part: one geometry per material + shape (instanced), optionally with a second piece
+ *  that moves on its own (a morgue door swinging aside on a vertical hinge while the tray slides) */
+export interface ProcPartGeometry {
+  mat: string; geo: THREE.BufferGeometry; shapeKey: string;
+  piece?: {
+    mat: string; geo: THREE.BufferGeometry; shapeKey: string;
+    /** piece centre relative to the part centre (closed pose) */
+    offset: [number, number, number];
+    /** hinge line (vertical) relative to the part centre */
+    pivot: [number, number, number];
+    sign: 1 | -1; travel: number;
+    /** part openness at which the piece is fully swung */
+    lead: number;
+  };
+}
+
+/** counter cupboard floor (top face) on container hosts: env-layout's slot height, where searched items lie */
+export const COUNTER_FLOOR_Y = 0.15;
+
+/**
+ * Hollow carcass of a container-host counter: three real cupboard bays (floor slab, back, end panels, two dividers, a
+ * face frame around the openings and a dark back liner), so whatever lies at a bay's slot is seen once its door swings
+ * open. Doors (drawn as movable instances) hang on the frame at z d/2 - 0.03; the worktop closes the top at y 0.9.
+ */
+function counterCarcass(w: number, d: number, add: (mat: string, ...g: AnyGeo[]) => void): void {
+  const t = 0.02, bay = w / 3, zb = -d / 2, zf = d / 2 - 0.04, yb = COUNTER_FLOOR_Y, yt = 0.9;
+  // each opening is 2 cm smaller than its door all round (doors w/3 - 0.06 x 0.6 at y 0.5)
+  const ow = bay - 0.1, oy0 = 0.22, oy1 = 0.78;
+  const inner = d - 0.04 - t, zi = zb + t + inner / 2;
+  add('metal_painted',
+    B(w, yb - 0.04, d - 0.04, 0, (0.04 + yb) / 2, -0.02), // floor slab (its top is the cupboard floor)
+    B(w, yt - yb, t, 0, (yb + yt) / 2, zb + t / 2), // back
+    // ends + dividers run from the back to the face frame
+    B(t, yt - yb, inner - t, -w / 2 + t / 2, (yb + yt) / 2, zi - t / 2), B(t, yt - yb, inner - t, w / 2 - t / 2, (yb + yt) / 2, zi - t / 2),
+    B(t, yt - yb, inner - t, -bay / 2, (yb + yt) / 2, zi - t / 2), B(t, yt - yb, inner - t, bay / 2, (yb + yt) / 2, zi - t / 2),
+    // face frame: bottom + top rails, outer + inner stiles
+    B(w, oy0 - yb, t, 0, (yb + oy0) / 2, zf - t / 2), B(w, yt - oy1, t, 0, (oy1 + yt) / 2, zf - t / 2),
+    B((bay - ow) / 2, oy1 - oy0, t, -w / 2 + (bay - ow) / 4, (oy0 + oy1) / 2, zf - t / 2), B((bay - ow) / 2, oy1 - oy0, t, w / 2 - (bay - ow) / 4, (oy0 + oy1) / 2, zf - t / 2),
+    B(bay - ow, oy1 - oy0, t, -bay / 2, (oy0 + oy1) / 2, zf - t / 2), B(bay - ow, oy1 - oy0, t, bay / 2, (oy0 + oy1) / 2, zf - t / 2),
+  );
+  // a dark liner on each bay's back wall: the cupboards read deep, the items in front of it stand out
+  for (let k = 0; k < 3; k++) add('black', B(bay - t - 0.012, yt - yb - 0.012, 0.004, -bay + k * bay, (yb + yt) / 2, zb + t + 0.002));
+}
+
+/**
+ * Geometry of a procedural host's movable part in its CLOSED pose, CENTRED on the part's own centre (the level places
+ * it with T(part.local), so same-size parts share one instanced geometry: shapeKey). One material each.
+ * filing: front + pull + an open-top tray with hanging files at its back; morgue_drawers: a door front + handle + a
+ * slab tray with a sheeted shape at its back; counter: a cupboard door + pull.
+ * `slot` = where searched items lie, relative to the part centre in its CLOSED pose (x, floor y, z); default =
+ * env-layout's convention for the key. Trays put their floor exactly at the slot height (items rest ON it, never in
+ * it) and keep the slot area clear.
+ */
+export function procPartGeometry(key: string, part: { idx: number; kind?: string; size: [number, number, number]; travel?: number }, slot?: readonly [number, number, number]): ProcPartGeometry {
+  const [sw, sh, sd] = part.size;
+  const parts: AnyGeo[] = [];
+  const fz = sd / 2;
+  const travel = part.travel ?? (key === 'morgue_drawers' ? 0.45 : 0.4);
+  // env-layout's slot conventions: drawers 3 cm over the part bottom, half the travel past the closed front; morgue
+  // trays 0.13 m under the door centre, 0.2 m past the front
+  const fy = slot?.[1] ?? (key === 'morgue_drawers' ? -0.13 : -sh / 2 + 0.03);
+  const sz = slot?.[2] ?? (key === 'morgue_drawers' ? fz + 0.2 - travel : fz + travel / 2 - travel);
+  const mm = (v: number) => Math.round(v * 1000);
+  const shapeKey = `${key}:${part.kind ?? 'drawer'}:${mm(sw)}x${mm(sh)}x${mm(sd)}:${mm(fy)}:${mm(sz)}`;
+  if (key === 'filing') {
+    const td = Math.max(0.12, sd - 0.03), tz = fz - 0.02 - td / 2, back = tz - td / 2;
+    const top = sh * 0.23, bot = fy - 0.012;
+    parts.push(B(sw, sh, 0.02, 0, 0, fz - 0.01));
+    parts.push(B(0.12, 0.02, 0.03, 0, 0.06, fz + 0.015));
+    parts.push(B(sw - 0.04, 0.012, td, 0, fy - 0.006, tz)); // tray floor: its top is the slot height
+    for (const sx of [-1, 1]) parts.push(B(0.012, top - bot, td, sx * (sw / 2 - 0.026), (top + bot) / 2, tz));
+    parts.push(B(sw - 0.04, top - bot, 0.012, 0, (top + bot) / 2, back + 0.006));
+    // hanging files only in the back of the tray: the slot (items, a lore page) stays in the clear
+    const fileEnd = Math.min(back + 0.17, sz - 0.14);
+    for (let k = 0; k < 4; k++) {
+      const z = back + 0.035 + k * ((fileEnd - back - 0.035) / 3);
+      if (z > fileEnd + 1e-6) break;
+      parts.push(B(sw - 0.09, sh * 0.62, 0.004, 0, fy + sh * 0.31, z));
+    }
+    return { mat: 'metal_painted', geo: mergeAll(parts), shapeKey };
+  }
+  if (key === 'morgue_drawers') {
+    // a real mortuary cabinet: the insulated door swings aside on its left edge (a separate piece, fully open a third
+    // of the way) while the slab tray rolls out behind it, so the tray is seen from a standing height
+    parts.push(B(sw - 0.06, 0.04, sd - 0.06, 0, fy - 0.02, -0.01)); // slab tray: its top is the slot height
+    parts.push(B(sw - 0.12, 0.022, 0.022, 0, fy + 0.03, fz - 0.06)); // pull bar at its front end
+    for (const sx of [-1, 1]) parts.push(B(0.02, 0.05, 0.02, sx * (sw / 2 - 0.07), fy + 0.005, fz - 0.06));
+    // a sheeted shape pushed to the back of the tray, ending 12 cm short of the slot
+    const z0 = -sd / 2 + 0.04, len = Math.max(0.02, Math.min(0.14, sz - 0.12 - z0 - 0.2));
+    parts.push(new THREE.CapsuleGeometry(0.1, len, 4, 10).rotateX(Math.PI / 2).scale(1, 0.5, 1).translate(0, fy + 0.04, z0 + 0.1 + len / 2));
+    const door = mergeAll([B(sw, sh, 0.025, 0, 0, 0), B(0.03, 0.15, 0.035, sw / 2 - 0.07, 0.02, 0.03)]);
+    return {
+      mat: 'steelDark', geo: mergeAll(parts), shapeKey,
+      piece: { mat: 'steelDark', geo: door, shapeKey: `${shapeKey}:door`, offset: [0, 0, fz - 0.0125], pivot: [-sw / 2, 0, fz], sign: -1, travel: 1.75, lead: 0.35 },
+    };
+  }
+  if (part.kind === 'door' || key === 'counter') {
+    parts.push(B(sw, sh, Math.max(0.008, sd), 0, 0, 0));
+    parts.push(B(0.02, 0.12, 0.03, sw / 2 - 0.06, 0.18, Math.max(0.008, sd) / 2 + 0.015));
+    return { mat: 'steelDark', geo: mergeAll(parts), shapeKey };
+  }
+  parts.push(B(sw, sh, Math.max(0.01, Math.min(0.03, sd)), 0, 0, fz - 0.012));
+  parts.push(B(Math.min(0.16, sw * 0.4), 0.025, 0.04, 0, sh * 0.2, fz + 0.02));
+  if (sd > 0.1) parts.push(B(sw - 0.04, 0.02, sd - 0.04, 0, -sh / 2 + 0.02, -0.01));
+  return { mat: 'metal_painted', geo: mergeAll(parts), shapeKey };
+}
+
+/** non-indexed merge keeping position / normal / uv (one geometry per movable part) */
+export function mergeAll(gs: readonly AnyGeo[]): THREE.BufferGeometry {
+  return mergeParts(gs.map((g) => (g instanceof GeoRef ? { geo: g.geo, m: g.m } : { geo: g, m: null })));
 }
 
 /** a procedural flooded floor for a boiler hall: one dark water sheet over the room (local to the space rect) */
@@ -351,10 +553,10 @@ export function waterSheet(x: number, z: number, w: number, h: number): THREE.Bu
 export function clutterParts(ci: ClutterItem, rng: Rng): Part[] {
   const P: Part[] = [];
   const m = new THREE.Matrix4().makeRotationY(ci.rot).setPosition(ci.x, ci.y, ci.z);
-  const add = (mat: string, g: THREE.BufferGeometry, world = false) => { P.push({ mat, geo: world ? g : g.applyMatrix4(m) }); };
+  const add = (mat: string, g: AnyGeo, world = false) => { P.push(part(mat, world ? g : g.applyMatrix4(m))); };
   switch (ci.kind) {
     case 'paper':
-      for (let k = 0; k < ci.a; k++) add('paper', new THREE.PlaneGeometry(0.21, 0.297).rotateX(-Math.PI / 2).rotateY(rng.next() * 3).translate((rng.next() - 0.5) * 0.3, k * 0.002, (rng.next() - 0.5) * 0.3));
+      for (let k = 0; k < ci.a; k++) add('paper', shape('plane:0.21x0.297', () => new THREE.PlaneGeometry(0.21, 0.297)).rotateX(-Math.PI / 2).rotateY(rng.next() * 3).translate((rng.next() - 0.5) * 0.3, k * 0.002, (rng.next() - 0.5) * 0.3));
       break;
     case 'box':
       for (let k = 0; k < ci.a; k++) {
@@ -365,7 +567,7 @@ export function clutterParts(ci: ClutterItem, rng: Rng): Part[] {
       break;
     case 'bottle':
       for (let k = 0; k < ci.a; k++) {
-        const g = new THREE.CylinderGeometry(0.035, 0.035, 0.24, 8).translate(0, 0.12, 0);
+        const g = cyl(0.035, 0.24, 0, 0.12, 0, 8);
         if (rng.chance(0.45)) g.rotateZ(Math.PI / 2).translate(0, -0.085, 0);
         add(rng.chance(0.5) ? 'glassBrown' : 'glassGreen', g.rotateY(rng.next() * 3).translate((rng.next() - 0.5) * 0.3, 0, (rng.next() - 0.5) * 0.3));
       }
@@ -373,12 +575,12 @@ export function clutterParts(ci: ClutterItem, rng: Rng): Part[] {
     case 'debris':
       for (let k = 0; k < ci.a; k++) {
         const s = 0.06 + rng.next() * 0.16;
-        add('rubble', new THREE.BoxGeometry(s * (1 + rng.next()), s * 0.7, s * (1 + rng.next())).rotateY(rng.next() * 3).rotateZ((rng.next() - 0.5) * 0.6).translate((rng.next() - 0.5) * 0.5, s * 0.3, (rng.next() - 0.5) * 0.5));
+        add('rubble', box(s * (1 + rng.next()), s * 0.7, s * (1 + rng.next())).rotateY(rng.next() * 3).rotateZ((rng.next() - 0.5) * 0.6).translate((rng.next() - 0.5) * 0.5, s * 0.3, (rng.next() - 0.5) * 0.5));
       }
       break;
     case 'tile': {
       // a dark hole in the ceiling grid + (when the floor below is free) the fallen tile
-      add('hole', new THREE.PlaneGeometry(0.6, 0.6).rotateX(Math.PI / 2).translate(0, -0.006, 0));
+      add('hole', shape('plane:0.6x0.6', () => new THREE.PlaneGeometry(0.6, 0.6)).rotateX(Math.PI / 2).translate(0, -0.006, 0));
       if (ci.b > 0) add('ceiling_tiles', B(0.6, 0.015, 0.6, 0, 0, 0).rotateZ((rng.next() - 0.5) * 0.2).applyMatrix4(new THREE.Matrix4().makeTranslation(0.3 * (rng.next() - 0.5), 0.012 - ci.y, 0.3 * (rng.next() - 0.5))));
       if (ci.a > 0.6) add('ceiling_tiles', B(0.6, 0.015, 0.3, 0.15, -0.25, 0.2).rotateX(0.9)); // half-hanging tile
       break;
@@ -391,10 +593,10 @@ export function clutterParts(ci: ClutterItem, rng: Rng): Part[] {
       break;
     }
     case 'puddle':
-      add('puddle', new THREE.CircleGeometry(0.5, 14).scale(ci.a, ci.b + 0.4, 1).rotateX(-Math.PI / 2));
+      add('puddle', shape('circle:0.5:14', () => new THREE.CircleGeometry(0.5, 14)).scale(ci.a, ci.b + 0.4, 1).rotateX(-Math.PI / 2));
       break;
     case 'stain':
-      add('stain', new THREE.CircleGeometry(0.45, 12).scale(ci.a, ci.a * (0.5 + ci.b), 1).rotateX(-Math.PI / 2));
+      add('stain', shape('circle:0.45:12', () => new THREE.CircleGeometry(0.45, 12)).scale(ci.a, ci.a * (0.5 + ci.b), 1).rotateX(-Math.PI / 2));
       break;
     case 'poster': {
       const g = new THREE.PlaneGeometry(0.46, 0.46).rotateZ(ci.b);
@@ -428,7 +630,7 @@ export function clutterParts(ci: ClutterItem, rng: Rng): Part[] {
 /** Contents for asset furniture (in the model's local frame, front = +Z): books / boxes on shelves, office desk tops. */
 export function fillParts(key: string, rng: Rng, roomType: string): Part[] {
   const P: Part[] = [];
-  const add = (mat: string, ...gs: THREE.BufferGeometry[]) => { for (const g of gs) P.push({ mat, geo: g }); };
+  const add = (mat: string, ...gs: AnyGeo[]) => { for (const g of gs) P.push(part(mat, g)); };
   if (key === 'shelves') {
     const books = roomType === 'library' || roomType === 'archive' || roomType === 'office' || roomType === 'mailroom';
     for (const y of [0.06, 0.53, 1.0, 1.47]) {
