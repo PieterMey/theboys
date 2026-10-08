@@ -13,7 +13,8 @@
 //    them (seen, or heard within huntSenseSec: hearing gives the perceived doorway, never the live position), else it
 //    investigates where it last perceived them. Noticing warns the player.
 //  - WARN FIRST (like the Hound): no pounce or grab unless warned >= warnGraceSec ago (and <= warnValidSec). An unwarned
-//    touch makes it recoil 1 m and notice instead; never a grab in relax/fade.
+//    touch makes it recoil 1 m and notice instead; never a grab in relax/fade. Losing them (investigateLast, a slammed
+//    door dropping the target, the end of a stalk) ends their warning, so a later touch warns again first.
 //  - HUNT at huntSpeed (4.6: above walk, below sprint); within pounceRangeM a short pounce (pounceSpeed for at most
 //    pounceMaxSec, then pounceCooldownSec). A buddy within grabAloneM turns the hunt into a stalk (checked every tick).
 //  - CHASE BREAKERS: doors cost huntDoorPauseSec; a door slammed by a player within 2 m in front of it stuns it
@@ -94,7 +95,7 @@ export function warnState(rt: Rt, L: ListenerAgent, pid: string): 'ok' | 'fresh'
   if (at === undefined) return 'no';
   const ago = rt.cm.time - at;
   if (ago > num(rt.listener, 'warnValidSec', 15)) return 'no';
-  return ago >= num(rt.listener, 'warnGraceSec', 1.0) ? 'ok' : 'fresh';
+  return ago >= num(rt.listener, 'warnGraceSec', 1.2) ? 'ok' : 'fresh';
 }
 
 const flareMemo = new WeakMap<object, { t: number; list: { x: number; z: number }[] }>();
@@ -229,7 +230,7 @@ export function listenerHeardUtterance(rt: Rt, L: ListenerAgent, u: {
       if (!hp || cm.time - hp.t > 8) {
         const sx = Number.isFinite(u.x) ? Number(u.x) : x, sz = Number.isFinite(u.z) ? Number(u.z) : z;
         const field = soundFlood(cm.grid, sx, sz, 40, cm.doorOpen);
-        const per = perceive(cm, field, L.x, L.z, sx, sz);
+        const per = perceive(cm, field, L.x, L.z, sx, sz, canOpen(rt));
         L.known.set(sp.id, { x: per.x, z: per.z, t: cm.time });
       }
     }
@@ -815,6 +816,7 @@ export function listenerDoorClosed(rt: Rt, L: ListenerAgent, doorId: number, byP
   L.stunKeep = keep;
   L.anim = ANIM.mAlert;
   if (!keep) {
+    if (L.targetPlayer) L.warned.delete(L.targetPlayer); // it lost them: a later touch warns first again
     L.targetPlayer = null;
     if (L.intent === 'hunt' || L.intent === 'stalk_player' || L.intent === 'notice') L.intent = 'patrol';
   }
@@ -1079,9 +1081,11 @@ function toStalk(rt: Rt, L: ListenerAgent, pid: string): void {
   L.pounceUntil = 0;
 }
 
-/** lost them: go to where it last perceived them (seen: the spot; heard: the doorway), else patrol */
+/** lost them: go to where it last perceived them (seen: the spot; heard: the doorway), else patrol. Their warning ends
+ *  here: touching them later recoils + notices again (never a silent grab for the rest of warnValidSec) */
 function investigateLast(rt: Rt, L: ListenerAgent, pid: string | null): void {
   const k = pid ? L.known.get(pid) : undefined;
+  if (pid) L.warned.delete(pid);
   L.pounceUntil = 0;
   if (k && rt.cm.time - k.t <= 30) {
     L.intent = 'investigate_room';
@@ -1158,6 +1162,7 @@ function listenerTickV12(rt: Rt, L: ListenerAgent, dt: number): void {
     const tp = L.targetPlayer ? rt.crew.players.get(L.targetPlayer) : undefined;
     if (L.stunKeep && tp && isAlive(rt.crew, tp) && !calm && seen.includes(tp)) startHunt(rt, L, tp);
     else {
+      if (L.targetPlayer) L.warned.delete(L.targetPlayer); // lost them while stunned
       L.targetPlayer = null;
       L.intent = 'patrol';
       L.state = 'search';
@@ -1273,6 +1278,7 @@ function listenerTickV12(rt: Rt, L: ListenerAgent, dt: number): void {
       const k = L.targetPlayer ? L.known.get(L.targetPlayer) : undefined;
       const target = L.targetPlayer ? rt.crew.players.get(L.targetPlayer) : undefined;
       if (!k || !target || !isAlive(rt.crew, target) || t - k.t > 10 || t >= L.until) {
+        if (L.targetPlayer) L.warned.delete(L.targetPlayer); // stopped following them: the warning lapses with it
         if (k && !(t - k.t > 30)) { L.intent = 'investigate_room'; L.targetSpace = spaceAtXZ(rt, k.x, k.z); goTo(rt, L, k.x, k.z, 'investigate'); }
         else startPatrol(rt, L);
         break;

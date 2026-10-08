@@ -413,6 +413,9 @@ export function install(ctx: ServerContext): void | Promise<void> {
     if (a.z !== undefined) ag.z = ag.lastZ = Number(a.z);
     if (a.yaw !== undefined) ag.yaw = Number(a.yaw);
     ag.path = null;
+    // no door pause carried over from before the move (it would open that door from wherever it is now)
+    ag.doorWait = 0;
+    ag.pendingDoor = -1;
     if (a.state) { ag.state = a.state; ag.st = 0; }
     if (a.active !== undefined) ag.active = !!a.active;
     if (a.anim !== undefined) ag.anim = Number(a.anim);

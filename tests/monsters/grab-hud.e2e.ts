@@ -10,10 +10,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { waitForGame } from '../lib/launch.ts';
 import { launchStable, shot } from './browser.ts';
-import { Bot, REPO, sleep, startServer, waitFor } from './bot.ts';
+import { Bot, REPO, refuseLive, sleep, startServer, waitFor } from './bot.ts';
 
 const PORT = Number(process.env.PORT ?? 3802);
 const LB = (JSON.parse(readFileSync(join(REPO, 'config/balance/monsters.json'), 'utf8')) as { listener: Record<string, number> }).listener;
+refuseLive(PORT, process.env.BASE_URL); // never the live server, before reusing BASE_URL or spawning one
 const srv = process.env.BASE_URL ? null : await startServer(PORT);
 const base = process.env.BASE_URL ?? srv!.base;
 const wsUrl = base.replace(/^http/, 'ws') + '/ws';

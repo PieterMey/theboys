@@ -165,7 +165,38 @@ function safeStorage(): Storage | null {
 export const HINT_TEXT = {
   contract: 'C: CROUCH · creeping is silent to the Hound and the Listener',
   growl: 'FREEZE, OR CREEP AWAY [C]',
-  spotted: 'IT SAW YOU · BREAK LINE OF SIGHT: DOORS, FLARES, CROUCH BEHIND COVER',
+  spotted: 'IT SAW YOU · SPRINT, BREAK LINE OF SIGHT, THEN CREEP (C)',
   kennel: 'It heard your footsteps. Crouch (C) to creep.',
+  /** once, the first time the Listener spots you with your flashlight on in an unlit room (spottedHints) */
+  flashlight: 'FLASHLIGHT ON: IT SEES YOU AT 6 M. OFF, IN THE DARK: 3 M',
 } as const;
 export type HintId = keyof typeof HINT_TEXT;
+
+/**
+ * Is the room under (x, z) lit? lightOn = the room-light state per space (services.interaction.lightOn: switch, power,
+ * blackout; the same state the server's Listener reads). null = unknown: no layout, no query, outside the grid or on a
+ * solid cell.
+ */
+export function roomLitAt(L: Pick<LevelLayout, 'W' | 'H' | 'owner'> | null | undefined, lightOn: ((space: number) => boolean) | undefined, x: number, z: number): boolean | null {
+  if (!L || typeof lightOn !== 'function' || !Number.isFinite(x) || !Number.isFinite(z)) return null;
+  const cx = Math.floor(x), cz = Math.floor(z);
+  const sp = cx >= 0 && cz >= 0 && cx < L.W && cz < L.H ? L.owner[cz * L.W + cx] : -1;
+  if (!(sp >= 0)) return null;
+  try {
+    return !!lightOn(sp);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The one-time hints a 'monsters.spotted' (the Listener noticed you) brings. 'spotted' the first time; 'flashlight' the
+ * first time it happens while your own flashlight is on in an unlit room (roomLit false; null = unknown: never). When
+ * both are new, 'flashlight' comes `later` (queued for after the spotted hint's time on screen), never over it.
+ * seen(id): already shown (or queued) once.
+ */
+export function spottedHints(seen: (id: HintId) => boolean, flashlightOn: boolean, roomLit: boolean | null): { now: HintId | null; later: HintId | null } {
+  const light = flashlightOn && roomLit === false && !seen('flashlight');
+  if (!seen('spotted')) return { now: 'spotted', later: light ? 'flashlight' : null };
+  return { now: light ? 'flashlight' : null, later: null };
+}

@@ -14,9 +14,20 @@ export const REPO = resolve(import.meta.dirname, '../..');
 
 export interface Server { port: number; base: string; proc: ChildProcess; log: () => string; stop(): Promise<void> }
 
+/** never the live server (game :3000, STT :3100, play.dead-air.io): throws for that port or base. Called before anything
+ *  is reused (a BASE_URL a test would talk to) or spawned (mirrors tests/stealth/bot.ts ensureServer) */
+export function refuseLive(port: number, base?: string): void {
+  const b = (base ?? `http://127.0.0.1:${port}`).replace(/\/$/, '');
+  if (port === 3000 || port === 3100 || /:(3000|3100)(\/|$)|dead-air\.io/i.test(b)) throw new Error(`refusing the live server (${b}, port ${port})`);
+}
+
 /** dev server (NODE_ENV=development => dbg.* requests) on `port`. Saves + session go to a temp dir unless SAVES_DIR /
- *  SESSION_FILE are set (tests never touch the live saves/). */
+ *  SESSION_FILE are set (tests never touch the live saves/). Never on the live server's port, nor with a BASE_URL that
+ *  points at it (refuseLive) */
 export async function startServer(port: number, extraEnv: Record<string, string> = {}): Promise<Server> {
+  refuseLive(port);
+  if (extraEnv.PORT !== undefined) refuseLive(Number(extraEnv.PORT));
+  for (const b of [process.env.BASE_URL, extraEnv.BASE_URL]) if (b) refuseLive(port, b);
   const scratch = join(tmpdir(), 'dead-air-monsters-test');
   const proc = spawn(process.execPath, ['apps/server/src/index.ts', '--dev'], {
     cwd: REPO,

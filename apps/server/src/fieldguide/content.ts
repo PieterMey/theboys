@@ -163,7 +163,8 @@ export const PAGES: readonly PageDef[] = [
     title: 'IT IS NOT DEAF. IT IS LISTENING.',
     text: [
       'The Listener sleeps when you arrive. When it wakes, every light on site flickers at once and every walkie squelches. From then on, assume it heard everything.',
-      'It does not care how loud you are. It cares what you say: room names, colleagues\' names, numbers, plans. Say "meet me in the boiler room" and it will be there first.',
+      'It hears your feet: walking within about {{const.NOISE_M.walkStep}} m, sprinting within about {{const.NOISE_M.sprintStep}} m. It never hears you creep (C), and carpet or overshoes make a walk too soft for it. It goes to where the sound came from and looks around.',
+      'Mostly it cares what you say: room names, colleagues\' names, numbers, plans. Say "meet me in the boiler room" and it will be there first.',
       'The Company recommends code words, lies and silence, in that order.',
     ].join('\n'),
   },
@@ -173,7 +174,8 @@ export const PAGES: readonly PageDef[] = [
     text: [
       'When it notices you, it stops. Its head snaps toward you with a sound like a knuckle cracking. You now have about {{monsters.listener.noticeSec|1.2}} seconds. Use them.',
       'It hunts at {{monsters.listener.huntSpeed|4.6}} m/s. You walk at {{const.MOVE.walk}} and sprint at {{const.MOVE.sprint}}. Do the maths, then do the sprinting.',
-      'It cannot pounce on anyone it has not warned first, so the head snap is a courtesy. The Company does not extend courtesies twice.',
+      'Once you are out of its sight, stop sprinting: it follows running feet. Walk somewhere quiet, or creep (C), with your flashlight off.',
+      'It cannot pounce on anyone it has not warned first, so the head snap is a courtesy. Shake it off and you get the courtesy again. Do not expect the same from the Company.',
     ].join('\n'),
     titleV11: 'IT SEES FURTHER IN THE LIGHT',
     textV11: [
@@ -186,6 +188,7 @@ export const PAGES: readonly PageDef[] = [
     title: 'GET DOWN',
     text: [
       'Crouched (C), you are much harder to spot: about {{calc.listenerCrouchLitM}} m in the light and {{calc.listenerCrouchDarkM}} m in the dark, instead of {{monsters.listener.sightLitM}} and {{monsters.listener.sightDarkM}}.',
+      'Your own flashlight counts as light, even in a dark room. Switch it off when it is near.',
       'Crouch behind anything at least {{monsters.listener.lowCoverMinH|0.75}} m tall (a desk, a counter, a shelf, a cabinet) and it looks straight past you. A low desk only hides you within about {{monsters.listener.lowCoverRangeM|2.5}} m of it; shelving taller than {{monsters.listener.tallCoverMinH|1.7}} m hides you even standing.',
       'Crouching does not make you invisible. It makes you furniture. Be good furniture.',
     ].join('\n'),
@@ -201,8 +204,9 @@ export const PAGES: readonly PageDef[] = [
     text: [
       'Things that slow it down, in order of preference.',
       'A closed door: about {{monsters.listener.huntDoorPauseSec|1.4}} s to get through. A door slammed in its face from up close: stunned for {{monsters.listener.doorSlamStunSec|1}} s, and it usually loses you.',
-      'A burning flare: it will not come within {{monsters.listener.flareRepelM|3}} m of one. A crowbar to the head: it staggers for {{monsters.listener.staggerSec|2}} s and then backs off.',
-      'Lockers also work, if it did not see you get in.',
+      'A flashbulb fired at it from within {{monsters.listener.flashFlinchRangeM|14}} m, aimed within {{calc.listenerFlashAimDeg|25}} degrees of it: it flinches and is gone for {{monsters.listener.flashFlinchRetreatSec|15}} s. It also lets go of whoever it is holding, you included.',
+      'A burning flare: it will not come within {{monsters.listener.flareRepelM|3}} m of one, but it waits nearby and sees you again the moment the flare dies. Leave while it burns.',
+      'A crowbar to the head: it staggers for {{monsters.listener.staggerSec|2}} s and then backs off. Lockers also work, if it did not see you get in.',
       '✎ the flare is not a torch. do not wave it at people',
     ].join('\n'),
     titleV11: 'CROWBARS AND SHOVES',
@@ -217,8 +221,8 @@ export const PAGES: readonly PageDef[] = [
     text: [
       'It will not grab anyone with a teammate within {{monsters.listener.grabAloneM}} m. It follows at a distance instead and waits for one of you to wander off.',
       'The first time it gets its hands on you it only knocks you down: {{monsters.listener.knockdownSec|2}} seconds on the floor and a dead flashlight for {{monsters.listener.knockdownLightOffSec|6}}. Consider it a performance review.',
-      'After that it holds on for {{monsters.listener.grabSec}} seconds. MASH E to struggle free, or have a colleague within {{monsters.listener.shoveRangeM}} m shove it (E) or use the crowbar.',
-      'A crew of one gets {{monsters.listener.soloGrabSec|6}} seconds and an easier struggle, because Management believes in you. Statistically.',
+      'After that it holds on for {{monsters.listener.grabSec}} seconds. MASH E to struggle free (at least {{calc.listenerMashHz|3}} presses a second, or it wins), or have a colleague within {{monsters.listener.shoveRangeM}} m shove it (E) or use the crowbar.',
+      'A crew of one gets {{monsters.listener.soloGrabSec|6}} seconds and an easier struggle (at least {{calc.listenerSoloMashHz|2}} presses a second), because Management believes in you. Statistically.',
     ].join('\n'),
     textV11: [
       'It will not grab anyone with a teammate within {{monsters.listener.grabAloneM}} m. It follows at a distance instead and waits for one of you to wander off.',
@@ -379,6 +383,14 @@ const clockAt = (gameMin: number): string => {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 };
 
+/** Listener grab: presses per second that fill the struggle meter (+step a press, -decay a second) before the timer ends,
+ *  rounded up to half a press */
+const listenerMashHz = (b: BalanceLike, secKey: string, stepKey: string, decayKey: string): number | undefined => {
+  const sec = bal(b, `monsters.listener.${secKey}`), step = bal(b, `monsters.listener.${stepKey}`), decay = bal(b, `monsters.listener.${decayKey}`);
+  if (sec === undefined || step === undefined || decay === undefined || !(sec > 0) || !(step > 0)) return undefined;
+  return Math.ceil(((1 + decay * sec) / (step * sec)) * 2) / 2;
+};
+
 /** derived values ({{calc.<name>}}) */
 const CALC: Readonly<Record<string, (b: BalanceLike) => number | string | undefined>> = {
   listenerCrouchLitM: (b) => {
@@ -389,6 +401,13 @@ const CALC: Readonly<Record<string, (b: BalanceLike) => number | string | undefi
     const s = bal(b, 'monsters.listener.sightDarkM');
     return s === undefined ? undefined : s * (bal(b, 'monsters.listener.crouchSightMult') ?? 0.6);
   },
+  /** a flashbulb counts within half its flinch cone */
+  listenerFlashAimDeg: (b) => {
+    const c = bal(b, 'monsters.listener.flashFlinchConeDeg');
+    return c === undefined ? undefined : c / 2;
+  },
+  listenerMashHz: (b) => listenerMashHz(b, 'grabSec', 'grabStruggleStep', 'grabStruggleDecay'),
+  listenerSoloMashHz: (b) => listenerMashHz(b, 'soloGrabSec', 'soloStruggleStep', 'soloStruggleDecay'),
   mannequinSpawnClock: (b) => clockAt(bal(b, 'monsters.mannequin.spawnGameMin') ?? 90),
   snatcherStartMin: (b) => Math.max(1, Math.round((bal(b, 'monsters.snatcher.minStartSec') ?? 120) / 60)),
 };

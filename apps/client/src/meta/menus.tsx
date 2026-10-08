@@ -150,6 +150,8 @@ export function HowToTab({ ctx }: { ctx?: ClientContext } = {}) {
   // v1.2: the Listener rules follow listenerFairV12, so a rollback never shows rules that are not in the game
   const fair = ctx?.flags.listenerFairV12 !== false;
   const snatcher = ctx?.flags.snatcher !== false;
+  // v1.2 grab copy follows the balance (the field guide's numbers): it holds on for grabSec after a first knockdown
+  const grabSec = Number((ctx?.balance.monsters as { listener?: { grabSec?: unknown } } | undefined)?.listener?.grabSec) || 5;
   return (
     <div>
       <h3 class="m-h3">The job</h3>
@@ -157,7 +159,7 @@ export function HowToTab({ ctx }: { ctx?: ClientContext } = {}) {
       <div class="m-law">
         <Law who="HOUND" title="It is blind" body="It ignores whispers and crouch-steps. When it growls: FREEZE, or creep away (C). A second noise nearby and it charges. Bottles send it elsewhere." />
         {fair
-          ? <Law who="LISTENER" title="It understands" body="It acts on room names, player names, numbers and plans. It SEES you at 6 m when you are lit (3 m in the dark, less if you crouch). When it notices you it stops and its head snaps: run, close a door, light a flare. Crouch behind anything waist-high or taller and it cannot see you." />
+          ? <Law who="LISTENER" title="It understands" body="It acts on room names, player names, numbers and plans. It SEES you at 6 m when you are lit, your own flashlight included (3 m in the dark, less if you crouch). When it notices you its head snaps: sprint, break line of sight, then creep (C). A flare holds it off if you carry one. Crouch behind anything waist-high or taller and it cannot see you." />
           : <Law who="LISTENER" title="It understands" body="It hears what a teammate standing where it stands would hear, and acts on room names, player names, numbers and plans. It only grabs someone alone." />}
         <Law who="MANNEQUIN" title="Keep it lit" body="Frozen while someone watches it and it is lit. Your visor blinks; two watchers are safe. Risk 2 and every third contract." />
         {snatcher && <Law who="SNATCHER" title="Mind the vents" body="A rattling grate or falling dust means it is right above you. It drops on someone alone and drags them into the ducts: mash E to slow it, and a teammate holds E at the grate to pull them back. Risk 2 and later contracts of a shift." />}
@@ -165,7 +167,9 @@ export function HowToTab({ ctx }: { ctx?: ClientContext } = {}) {
       <div class="m-row" style={{ alignItems: 'stretch', gap: '14px', marginBottom: '16px' }}>
         <div class="m-sheet accent m-grow"><div class="m-h3">It hunts information, not noise</div><div class="m-small" style={{ lineHeight: 1.6 }}>Laughing and small talk are just loudness. Callsigns ("BOILER"), names, digits and plans ("meet", "wait", "code") give it a target. Use code words. Lie to it. The van cab is sealed: talk freely in there.</div></div>
         <div class="m-sheet accent m-grow"><div class="m-h3">Walkies are speakers</div><div class="m-small" style={{ lineHeight: 1.6 }}>What you say on the radio comes out of every other walkie, and whatever stands next to one hears it too. It can fake radio calls: no click before the voice, a red LED. Verify.</div></div>
-        <div class="m-sheet accent m-grow"><div class="m-h3">Nobody survives alone</div><div class="m-small" style={{ lineHeight: 1.6 }}>The console has the map and the codes, the field has the hands. A grabbed teammate has 3 seconds: hit it with a crowbar or shove it. If a friend can hear you, so can it.</div></div>
+        <div class="m-sheet accent m-grow"><div class="m-h3">Nobody survives alone</div><div class="m-small" style={{ lineHeight: 1.6 }}>{fair
+          ? `The console has the map and the codes, the field has the hands. The Listener's first grab only knocks you down; after that a grabbed teammate has ${grabSec} seconds: shove it (E) or hit it with a crowbar. If a friend can hear you, so can it.`
+          : 'The console has the map and the codes, the field has the hands. A grabbed teammate has 3 seconds: hit it with a crowbar or shove it. If a friend can hear you, so can it.'}</div></div>
       </div>
       <h3 class="m-h3">Controls</h3>
       <table class="m-table"><tbody>{CONTROLS.map(([k, d]) => <tr key={k}><td><span class="m-keys">{k}</span></td><td>{d}</td></tr>)}</tbody></table>

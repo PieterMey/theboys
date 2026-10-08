@@ -263,7 +263,7 @@ export function ruleCards(risk: number, mannequin: boolean, opts: { fair?: boole
       ? {
           monster: 'listener',
           title: 'THE LISTENER UNDERSTANDS',
-          rule: 'It hunts information: room names, player names, numbers and plans. It SEES you at 6 m when you are lit (3 m in the dark, less if you crouch). When it notices you it stops and its head snaps: run, close a door, light a flare.',
+          rule: 'It hunts information: room names, player names, numbers and plans. It SEES you at 6 m when you are lit, your own flashlight included (3 m in the dark, less if you crouch). When it notices you its head snaps: sprint, break line of sight, then creep (C). A flare holds it off if you carry one.',
           hint: risk >= 2 ? 'Lie to it. Crouch behind anything waist-high or taller and it cannot see you.' : 'Crouch behind anything waist-high or taller and it cannot see you.',
         }
       : {

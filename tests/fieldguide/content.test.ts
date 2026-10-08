@@ -83,6 +83,29 @@ test('the copy states the v1.2 rules (and the v1.1 variant for listenerFairV12 o
   assert.doesNotMatch(renderCard('listener', balance, false).join(' '), /knocks you down/);
 });
 
+test('Listener copy after the 2026-10-08 solo findings: hearing, light, flashbulb, flare, struggle rate', () => {
+  const lis = (balance.monsters as { listener: Record<string, number> }).listener;
+  const on = PAGES.filter((p) => p.monster === 'listener').map((p) => renderPage(p, balance, true).text).join(' ');
+  const off = PAGES.filter((p) => p.monster === 'listener').map((p) => renderPage(p, balance, false).text).join(' ');
+  for (const t of [on, off]) assert.doesNotMatch(t, /does not care how loud you are/, 'footsteps do reach it');
+  assert.match(on, /walking within about 5 m, sprinting within about 12 m/, 'hearing numbers (NOISE_M walk / sprint)');
+  assert.match(on, /never hears you creep/);
+  assert.match(on, /carpet or overshoes/);
+  assert.match(on, /stop sprinting/);
+  assert.match(on, /flashlight counts as light/);
+  assert.match(on, new RegExp(`flashbulb fired at it from within ${lis.flashFlinchRangeM} m, aimed within ${lis.flashFlinchConeDeg / 2} degrees`));
+  assert.match(on, new RegExp(`gone for ${lis.flashFlinchRetreatSec} s`));
+  assert.match(on, /lets go of whoever it is holding, you included/);
+  assert.match(on, /Leave while it burns/);
+  // presses a second that beat the timer: (1 + decay * sec) / (step * sec), rounded up to a half
+  const hz = (sec: number, step: number, decay: number) => Math.ceil(((1 + decay * sec) / (step * sec)) * 2) / 2;
+  const crew = hz(lis.grabSec, lis.grabStruggleStep, lis.grabStruggleDecay), solo = hz(lis.soloGrabSec, lis.soloStruggleStep, lis.soloStruggleDecay);
+  assert.match(on, new RegExp(`at least ${crew} presses a second, or it wins`));
+  assert.match(on, new RegExp(`at least ${solo} presses a second`));
+  assert.ok(solo <= 2 && crew <= 3, `struggle rates stay humane (crew ${crew}/s, solo ${solo}/s)`);
+  for (const w of [/flashbulb/, /presses a second/]) assert.doesNotMatch(off, w, `v1.1 copy has no ${w}`);
+});
+
 // ---------------------------------------------------------------- leak check
 
 function walk(dir: string, out: string[] = []): string[] {

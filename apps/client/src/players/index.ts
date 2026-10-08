@@ -24,7 +24,7 @@ import { EMOTE_ANIM, WHEEL, createPingMarkers, pushChat, ui, wheelPick } from '.
 import { rayGrid } from './collide.ts';
 import { ChatHud, CrawlHud, CrosshairHud, EmoteWheelHud, ScreenHintHud, StaminaHud, StanceHud, StealthHintHud } from './hud.tsx';
 import { createCrawl } from './vents.ts';
-import { HINT_TEXT, createHintStore, sameStance, stanceView, stepSfxFor, surfaceAt as floorUnder } from './stealth.ts';
+import { HINT_TEXT, createHintStore, roomLitAt, sameStance, spottedHints, stanceView, stepSfxFor, surfaceAt as floorUnder } from './stealth.ts';
 import type { HintId, StanceView } from './stealth.ts';
 import type { FlashlightInfo, LevelServiceShape, PlayersService, V3 } from './types.ts';
 import { useLoose } from './types.ts';
@@ -189,7 +189,8 @@ export async function install(ctx: ClientContext): Promise<void> {
 
   // ---------------- v1.2 one-time stealth hints (localStorage 'deadair.hints.v12'; meta's hints setting) ----------------
   const hints = createHintStore();
-  let hintQueue: { id: HintId; at: number } | null = null;
+  /** hints waiting for their moment (frame() shows each once it is due); a phase change drops them */
+  const hintQueue: { id: HintId; at: number }[] = [];
   let hintTimer: ReturnType<typeof setTimeout> | null = null;
   const showHint = (id: HintId) => {
     const ms = bal().hintMs ?? 6500;
@@ -204,7 +205,7 @@ export async function install(ctx: ClientContext): Promise<void> {
   };
   /** the same, after `delayMs` and only once the arrival / loading screen is gone (frame() shows it) */
   const queueHint = (id: HintId, delayMs: number) => {
-    if (!hints.seen(id)) hintQueue = { id, at: performance.now() + delayMs };
+    if (!hints.seen(id) && !hintQueue.some((q) => q.id === id)) hintQueue.push({ id, at: performance.now() + delayMs });
   };
 
   let synced = false;
@@ -237,6 +238,7 @@ export async function install(ctx: ClientContext): Promise<void> {
   ctx.bus.on('world:phase', ({ to }) => {
     syncFromServer(false, 'phase');
     input.resetCrouch(); // v1.2: a toggled crouch never carries into the next phase
+    hintQueue.length = 0; // a hint queued for one phase never shows in the next
     if (to === 'contract') queueHint('contract', 3500);
   });
 
@@ -508,11 +510,18 @@ export async function install(ctx: ClientContext): Promise<void> {
       if (loudStep && performance.now() - loudStep.at < 1600 && dist <= loudStep.radiusM + 3) hintOnce('kennel');
     } else if (ctx.world.phase === 'contract' && dist <= d.radius) hintOnce('growl');
   });
-  // the victim-only 'spotted' event (monsters-fair, plan check #24c), never the crew-wide notice cue
+  // the victim-only 'spotted' event (monsters-fair, plan check #24c), never the crew-wide notice cue. The first one shows
+  // 'spotted'; the first one that finds your own flashlight on in an unlit room (the room-light state interaction
+  // mirrors from the server: the Listener's sight reads it) shows 'flashlight', after 'spotted' has had its time
   (ctx.net.on as unknown as (e: string, fn: (d: unknown) => void) => () => void)('monsters.spotted', (d) => {
     const victim = (d as { victim?: unknown; pid?: unknown } | null)?.victim ?? (d as { pid?: unknown } | null)?.pid;
     if (typeof victim === 'string' && victim !== meId()) return;
-    if (!me.dead && ctx.world.phase === 'contract') hintOnce('spotted');
+    if (me.dead || ctx.world.phase !== 'contract') return;
+    const ix = ctx.services.use('interaction');
+    const lit = roomLitAt(ctx.world.layout, typeof ix?.lightOn === 'function' ? (space) => ix.lightOn(space) : undefined, me.pos.x, me.pos.z);
+    const plan = spottedHints((id) => hints.seen(id) || hintQueue.some((q) => q.id === id), me.light && me.lightEnabled, lit);
+    if (plan.now) hintOnce(plan.now);
+    if (plan.later) queueHint(plan.later, (bal().hintMs ?? 6500) + 400);
   });
 
   // ---------------- per-frame ----------------
@@ -627,9 +636,9 @@ export async function install(ctx: ClientContext): Promise<void> {
       avatars.update(dt, camera.position, { on: me.light && me.lightEnabled && !me.dead, pos: vm.lensPos, dir: vm.beamDir }, selfPose);
       markers.update();
       updateStance(now);
-      if (hintQueue && now >= hintQueue.at && inGame() && !me.dead && !document.querySelector('[data-loading-active]')) {
-        const id = hintQueue.id;
-        hintQueue = null;
+      const due = hintQueue.length ? hintQueue.findIndex((q) => now >= q.at) : -1;
+      if (due >= 0 && inGame() && !me.dead && !document.querySelector('[data-loading-active]')) {
+        const [{ id }] = hintQueue.splice(due, 1);
         if (ctx.world.phase === 'contract') hintOnce(id);
       }
   }

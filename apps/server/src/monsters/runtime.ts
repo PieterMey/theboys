@@ -11,7 +11,7 @@ import type { MonsterCue, MonsterEvent, MonsterKindX } from '@dead-air/shared/me
 import type { Crew, ServerContext, ServerPlayer } from '../core/types.ts';
 import { emitMonsterEvent } from './api.ts';
 import { extDoorOpen, extHiddenIn, extKill, extSetDoor, extUnhide, hasDoorApi, isAlive, isHidden } from './ext.ts';
-import { dist, inCab, perceive } from './geo.ts';
+import { dist, inCab, monsterCanOpen, perceive } from './geo.ts';
 import type { Perceived } from './geo.ts';
 import { bal, num } from './types.ts';
 import type { Agent, Bal, CrewMonsters, HoundAgent, ListenerAgent, MannequinAgent, Noise, SnatcherAgent } from './types.ts';
@@ -387,6 +387,8 @@ function processNoise(rt: Rt): void {
     }
     if (n.start === undefined) n.start = streamStart(rt, n);
     let field: Float32Array | null = null;
+    // the perceived doorway leads through doors the hearer can open (every monster opens the same doors today)
+    const canOpen = monsterCanOpen(cm.layout);
     const doorish = n.kind === 'door' || n.kind === 'securityDoor';
     for (const a of cm.agents) {
       if (!canHear(a) || inCab(cm.layout, a.x, a.z)) continue;
@@ -398,7 +400,7 @@ function processNoise(rt: Rt): void {
       }
       const d = fieldAt(cm.grid, field, a.x, a.z);
       if (!(d <= n.radiusM)) continue;
-      const per: Perceived = perceive(cm, field, a.x, a.z, n.x, n.z);
+      const per: Perceived = perceive(cm, field, a.x, a.z, n.x, n.z, canOpen);
       // any voice above a whisper from a hiding spot right next to a monster gives you away (a locker; never a duct
       // crawl 'duct:<vent>': nothing pulls a crawler out of the vent)
       if (n.kind === 'voice' && (n.band ?? 0) >= 2 && d <= 2.5 && n.source && (a.kind === 'hound' || a.kind === 'listener')) {

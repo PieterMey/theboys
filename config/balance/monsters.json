@@ -88,7 +88,7 @@
     "noticeSec": 1.2,
     "noticeCueRadiusM": 18,
     "noticeCooldownSec": 3,
-    "warnGraceSec": 1.0,
+    "warnGraceSec": 1.2,
     "warnValidSec": 15,
     "huntSpeed": 4.6,
     "huntMaxSec": 25,

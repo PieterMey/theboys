@@ -39,17 +39,36 @@ export function doorById(L: LevelLayout, id: number): LayoutDoor | null {
 }
 
 export interface Perceived {
+  /** where it heard the sound: a point PERCEIVED_DOOR_BACK_M off the doorway's line (see perceive), or the source */
   x: number;
   z: number;
   /** door id the sound came through (-1 = heard directly) */
   door: number;
 }
 
+/** a perceived doorway lies this far off the door line, inside a door cell (never ON the door edge) */
+export const PERCEIVED_DOOR_BACK_M = 0.4;
+
+/** the perceived doorway point leads through the door: it is open (or a doorless gap), or this monster can open it.
+ *  Rubble never does. canOpen omitted = it opens no doors. */
+export function perceivedThrough(cm: CrewMonsters, d: LayoutDoor, canOpen?: CanOpen): boolean {
+  if (d.kind === 'blocked') return false;
+  return d.kind === 'open' || cm.doorOpen(d.id) || (canOpen !== undefined && canOpen(d.id));
+}
+
 /**
  * Where a monster at (mx, mz) perceives a sound: descend the sound field (distance from the source) from the monster's
  * cell; the first significant doorway crossed is "where it came from". No doorway -> the source position itself.
+ * The doorway point is a reachable movement goal in the door cell the sound came through, centred on that cell along
+ * the door and PERCEIVED_DOOR_BACK_M off the door line, on the side picked by the door's state and whether THIS monster
+ * can open it (canOpen; omitted = it opens none):
+ *  - open door or doorless gap: just past the line on the sound's side (it steps into the doorway and looks in);
+ *  - closed door it can open: the same point, so its path crosses the door: follow() pauses, opens it, steps in;
+ *  - closed door it cannot open (locked / security / vault / exit, rubble): back on its own side (it stops in front).
+ * Never the door centre: a goal ON a closed door's edge (a 2-cell door's centre is even a grid vertex) can never be
+ * reached, and follow() replanned to it forever (the 2026-10-08 live freeze).
  */
-export function perceive(cm: CrewMonsters, field: Float32Array, mx: number, mz: number, sx: number, sz: number): Perceived {
+export function perceive(cm: CrewMonsters, field: Float32Array, mx: number, mz: number, sx: number, sz: number, canOpen?: CanOpen): Perceived {
   const g = cm.grid, W = g.W, H = g.H;
   let c = cellOf(g, mx, mz);
   if (!Number.isFinite(field[c])) return { x: sx, z: sz, door: -1 };
@@ -79,8 +98,11 @@ export function perceive(cm: CrewMonsters, field: Float32Array, mx: number, mz: 
     if (bestDoor >= 0 && significantDoor(cm.layout, bestDoor)) {
       const d = doorById(cm.layout, bestDoor);
       if (d) {
-        const [cx, cz] = doorCenter(d);
-        return { x: cx, z: cz, door: bestDoor };
+        // (x, y) is the door cell on the monster's side, `best` the one on the sound's side (same row / column): through
+        // the line into `best`, or back toward (x, y); centred on that row / column along the door
+        const off = perceivedThrough(cm, d, canOpen) ? PERCEIVED_DOOR_BACK_M : -PERCEIVED_DOOR_BACK_M;
+        const [nx, nz] = throughDoor(d, x + 0.5, y + 0.5, off);
+        return d.dir === 'v' ? { x: nx, z: y + 0.5, door: bestDoor } : { x: x + 0.5, z: nz, door: bestDoor };
       }
     }
     c = best;
@@ -88,7 +110,7 @@ export function perceive(cm: CrewMonsters, field: Float32Array, mx: number, mz: 
   return { x: sx, z: sz, door: -1 };
 }
 
-/** point 0.6 m beyond a door centre on the side away from (fromX, fromZ) (or toward it with sign -1) */
+/** point `dist` (0.6) m beyond a door centre on the side away from (fromX, fromZ) (toward it with a negative dist) */
 export function throughDoor(d: LayoutDoor, fromX: number, fromZ: number, dist = 0.6): [number, number] {
   const [cx, cz] = doorCenter(d);
   if (d.dir === 'v') return [cx + (fromX < cx ? dist : -dist), cz];

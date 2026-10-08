@@ -5,9 +5,10 @@
 import { ANIM } from '../../packages/shared/src/anim.ts';
 import { waitForGame } from '../lib/launch.ts';
 import { launchStable, shot } from './browser.ts';
-import { Bot, sleep, startServer, waitFor } from './bot.ts';
+import { Bot, refuseLive, sleep, startServer, waitFor } from './bot.ts';
 
 const PORT = Number(process.env.PORT ?? 3013);
+refuseLive(PORT, process.env.BASE_URL); // never the live server, before reusing BASE_URL or spawning one
 const srv = process.env.BASE_URL ? null : await startServer(PORT);
 const base = process.env.BASE_URL ?? srv!.base;
 const crew = 'SNSH';
