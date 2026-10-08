@@ -1,0 +1,18 @@
+// DEAD AIR: SteamPipe app build script. Source: apps/desktop/steam/app_build.vdf.template (committed);
+// apps/desktop/scripts/steam-vdf.mjs fills it in as apps/desktop/.steam-build/app_build_<APP_ID>.vdf (gitignored).
+// Edit the template, never a generated copy. The script never uploads: you run steamcmd yourself (docs/STEAM.md).
+// Preview and SetLive appear only when asked for (--preview, --branch NAME).
+// Paths are relative to this file. Reference: https://partner.steamgames.com/doc/sdk/uploading
+"AppBuild"
+{
+	"AppID" "{{APP_ID}}"
+	"Desc" "{{BUILD_DESC}}" // shown in Steamworks under SteamPipe > Builds
+	"Preview" "{{PREVIEW}}" // dry run: steamcmd scans the content and writes logs, nothing is uploaded
+	"SetLive" "{{BRANCH}}" // a beta branch; SteamPipe cannot set the default branch live (do that in Steamworks)
+	"ContentRoot" "{{CONTENT_ROOT}}" // the packed app: apps/desktop/out/win-unpacked (scripts/pack.mjs)
+	"BuildOutput" "{{BUILD_OUTPUT}}" // steamcmd logs and chunk cache, never inside the content root
+	"Depots"
+	{
+		"{{DEPOT_ID}}" "{{DEPOT_SCRIPT}}"
+	}
+}

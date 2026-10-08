@@ -1,0 +1,21 @@
+// DEAD AIR: SteamPipe depot build script for the Windows x64 depot. Source: apps/desktop/steam/depot_build.vdf.template
+// (committed); apps/desktop/scripts/steam-vdf.mjs fills it in as apps/desktop/.steam-build/depot_build_<DEPOT_ID>.vdf
+// (gitignored). Edit the template, never a generated copy.
+// Paths are relative to this file. Reference: https://partner.steamgames.com/doc/sdk/uploading
+"DepotBuild"
+{
+	"DepotID" "{{DEPOT_ID}}"
+	"ContentRoot" "{{CONTENT_ROOT}}"
+	// everything in win-unpacked, keeping its folders, at the root of the install folder
+	"FileMapping"
+	{
+		"LocalPath" "*"
+		"DepotPath" "."
+		"Recursive" "1"
+	}
+	// never ship debug symbols, logs or crash dumps (the app writes its own logs to %APPDATA%\DEAD AIR\logs)
+	"FileExclusion" "*.pdb"
+	"FileExclusion" "*.log"
+	"FileExclusion" "*.dmp"
+	"FileExclusion" "logs\*"
+}
