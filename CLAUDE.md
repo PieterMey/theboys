@@ -38,6 +38,7 @@ To change saves while the server is down (for example a scrub), stop the old hos
 
 **Working from another PC.**
 - Clone and run `npm ci`.
+- Build the desktop app (tested from a clean GitHub clone on 2026-10-09): `node node_modules/electron/install.js` once (Electron 44 has no postinstall, so `npm ci` doesn't fetch its binary), then `node apps/desktop/scripts/pack.mjs`. The app lands in `apps/desktop/out/win-unpacked` (`DeadAir.exe`). It needs no `.env` or `.assets`, because it loads the game from play.dead-air.io; without the host PC's `%APPDATA%\DEAD AIR\host.json` it simply has no host rights.
 - Copy `.env` from the host PC by a secure route (never commit it).
 - `.assets/` is gitignored: copy it from the host PC. Rebuilding with `tools/fetch-assets.mjs` re-downloads the CC0 sources, and new ElevenLabs takes cost credits.
 - The STT sidecar's `.venv` and models are gitignored too (`services/stt/`); voice works without them, the Listener just hears loudness only.
