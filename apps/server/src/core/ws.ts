@@ -14,6 +14,34 @@ import { rateLimited } from './log.ts';
 
 const fin = (v: unknown, d = 0): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
+// ---- v1.3 P8: protocol-level ping RTT per socket. A WebSocket ping is answered by the browser's network stack (not
+// the page's main thread), so it is network time; the app-level 'ping' op waits for the page's frame. Every RTT_PING_MS
+// each joined socket gets a ping carrying its send time; one '[ws] ping rtt' line per crew per RTT_LOG_MS (player ids
+// only, never names). core/diag.ts puts the same numbers next to the client's app RTT.
+const RTT_PING_MS = 5000;
+const RTT_LOG_MS = 60_000;
+const RTT_KEEP = 12;
+/** a socket's ping round trips over the last minute (null before the first pong) */
+export interface PingRtt { p50: number; max: number; n: number }
+const rttSamples = new WeakMap<WebSocket, { ms: number; at: number }[]>();
+
+function noteRtt(ws: WebSocket, ms: number): void {
+  let s = rttSamples.get(ws);
+  if (!s) rttSamples.set(ws, (s = []));
+  s.push({ ms, at: performance.now() });
+  if (s.length > RTT_KEEP) s.shift();
+}
+
+/** ping round trips of this socket in the last `windowMs` (default one minute) */
+export function pingRttOf(ws: WebSocket | null | undefined, windowMs = RTT_LOG_MS): PingRtt | null {
+  const s = ws ? rttSamples.get(ws) : undefined;
+  if (!s) return null;
+  const since = performance.now() - windowMs;
+  const ms = s.filter((x) => x.at >= since).map((x) => x.ms).sort((a, b) => a - b);
+  if (!ms.length) return null;
+  return { p50: Math.round(ms[ms.length >> 1]), max: Math.round(ms[ms.length - 1]), n: ms.length };
+}
+
 // ---- additive (track ① Net): tiny GET/HEAD route table for JSON APIs (e.g. /api/invite), checked before
 // the static/Vite handlers. Register at track install time (before the server listens).
 export type HttpRoute = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
@@ -126,7 +154,14 @@ export function attachWs(http: HttpServer, ctx: ServerContext, internals: Intern
     const conn: Conn = { ws, isAlive: true, crew: null, player: null };
     conns.set(ws, conn);
     const helloTimer = setTimeout(() => { if (!conn.player) ws.close(4002, 'no hello'); }, 10_000);
-    ws.on('pong', () => { conn.isAlive = true; });
+    ws.on('pong', (data: Buffer) => {
+      conn.isAlive = true;
+      // our pings carry their send time (8 bytes); a pong echoes it (RFC 6455)
+      if (data?.length === 8) {
+        const ms = performance.now() - data.readDoubleLE(0);
+        if (ms >= 0 && ms < 120_000) noteRtt(ws, ms);
+      }
+    });
     ws.on('message', (data, isBinary) => {
       conn.isAlive = true;
       if (!isBinary || !(data instanceof Uint8Array) || data.length < 1) return;
@@ -150,20 +185,53 @@ export function attachWs(http: HttpServer, ctx: ServerContext, internals: Intern
     ws.on('error', (e) => warn('socket error', e.message));
   });
 
+  /** a ping that carries its send time (performance.now(), float64) for the RTT */
+  const stamped = (): Buffer => {
+    const b = Buffer.alloc(8);
+    b.writeDoubleLE(performance.now(), 0);
+    return b;
+  };
   let pingTimer: NodeJS.Timeout | null = null;
   const pingAll = () => {
     for (const [ws, conn] of conns) {
       if (!conn.isAlive) { ws.terminate(); continue; }
       conn.isAlive = false;
-      try { ws.ping(); } catch { /* closing */ }
+      try { ws.ping(stamped()); } catch { /* closing */ }
     }
     pingTimer = setTimeout(pingAll, NET.pingMs);
   };
   pingTimer = setTimeout(pingAll, NET.pingMs);
 
+  // v1.3 P8: RTT pings between the liveness pings (a pong also counts as alive, as before)
+  let rttTimer: NodeJS.Timeout | null = null;
+  let lastRttLog = performance.now();
+  const logRtt = () => {
+    for (const crew of ctx.crews.list()) {
+      const parts: string[] = [];
+      for (const p of crew.players.values()) {
+        const r = p.connected ? pingRttOf(p.socket) : null;
+        if (r) parts.push(`${p.id} ${r.p50}/${r.max} ms (n ${r.n})`);
+      }
+      if (parts.length) log.info(`ping rtt crew ${crew.code} (p50/max): ${parts.join(', ')}`);
+    }
+  };
+  const rttPing = () => {
+    for (const [ws, conn] of conns) {
+      if (!conn.player || ws.readyState !== 1) continue;
+      try { ws.ping(stamped()); } catch { /* closing */ }
+    }
+    if (performance.now() - lastRttLog >= RTT_LOG_MS) {
+      lastRttLog = performance.now();
+      try { logRtt(); } catch (e) { warn('rtt log failed', e instanceof Error ? e.message : e); }
+    }
+    rttTimer = setTimeout(rttPing, RTT_PING_MS);
+  };
+  rttTimer = setTimeout(rttPing, RTT_PING_MS);
+
   return {
     close() {
       if (pingTimer) clearTimeout(pingTimer);
+      if (rttTimer) clearTimeout(rttTimer);
       for (const ws of conns.keys()) ws.terminate();
       wss.close();
     },

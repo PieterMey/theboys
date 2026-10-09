@@ -6,6 +6,7 @@ import type { EventName, EventPayload, ReqArgs, ReqName, ReqResult } from '@dead
 import { POSE_HZ } from '@dead-air/shared/constants.ts';
 import { randomProfile } from '@dead-air/shared/profile.ts';
 import type { Profile } from '@dead-air/shared/profile.ts';
+import { defaultName, nameBlocked } from '@dead-air/shared/names.ts';
 import type { World } from './world.ts';
 import type { Bus } from './bus.ts';
 
@@ -62,6 +63,11 @@ export interface Net {
   readonly lastDrop: DropInfo | null;
   /** returns the pending drop report once it reconnected (null otherwise) and clears it */
   consumeDrop(): DropInfo | null;
+  // --- additive (v1.3 integrator) ---
+  /** STT voice chunks skipped because the socket's send buffer held more than VOICE_BACKLOG_BYTES (this page) */
+  readonly voiceSkipped: number;
+  /** bytes queued in the game socket's send buffer right now (0 when closed) */
+  readonly bufferedAmount: number;
 }
 
 /** browser-side view of a dropped game socket (sent to the server by core/telemetry.ts after the reconnect) */
@@ -84,6 +90,8 @@ export interface DropInfo {
 const JOIN_TIMEOUT_MS = 30_000;
 /** close code for a deliberate leave: the server releases the held slot at once (apps/server/src/core/crews.ts) */
 const LEAVE_CLOSE_CODE = 4100;
+/** v1.3 P8: STT voice chunks are skipped while more than this many bytes wait in the socket's send buffer */
+export const VOICE_BACKLOG_BYTES = 32 * 1024;
 
 const LS = { key: 'deadair.key', name: 'deadair.name', profile: 'deadair.profile', admin: 'deadair.admin' } as const;
 
@@ -126,6 +134,7 @@ export function createNet(world: World, bus: Bus, onError: (msg: string) => void
   const rttSample = { ms: 0, at: 0 };
   let lastDrop: DropInfo | null = null;
   let openedAt = 0;
+  let voiceSkipped = 0;
 
   const setStatus = (s: NetStatus) => {
     if (status === s) return;
@@ -137,7 +146,12 @@ export function createNet(world: World, bus: Bus, onError: (msg: string) => void
   const identity = () => {
     let playerKey = lsGet(LS.key);
     if (!playerKey) lsSet(LS.key, (playerKey = randomKey()));
-    const name = lsGet(LS.name) || `Contractor-${playerKey.slice(0, 3).toUpperCase()}`;
+    // v1.3: the default name is names.ts defaultName() (the key's first 3 hex digits, re-derived when they read as a
+    // refused word or carry 88); a stored copy of the v1.2 default that the name filter now refuses is swapped for it,
+    // so the server never renames a player who never picked a name
+    const fallback = defaultName(playerKey);
+    const stored = lsGet(LS.name);
+    const name = !stored || (stored === `Contractor-${playerKey.slice(0, 3).toUpperCase()}` && nameBlocked(stored)) ? fallback : stored;
     let profile: Profile | null = null;
     try { profile = JSON.parse(lsGet(LS.profile) ?? 'null') as Profile | null; } catch { profile = null; }
     if (!profile || typeof profile !== 'object') profile = randomProfile(name);
@@ -215,6 +229,9 @@ export function createNet(world: World, bus: Bus, onError: (msg: string) => void
         } else if (m.e === 'phase') {
           const d = m.d as EventPayload<'phase'>;
           const from = world.phase;
+          // v1.3 P2a: before the new state is applied (its layout can rebuild the level synchronously, and the next
+          // frames compile its shaders): the drive preload request leaves from here, ahead of any of that work
+          if (from !== d.phase) bus.emit('net:phase-incoming', { from, to: d.phase });
           world.applyFull(d.state);
           bus.emit('world:phase', { from, to: d.phase });
         }
@@ -241,7 +258,9 @@ export function createNet(world: World, bus: Bus, onError: (msg: string) => void
         rtt = [...rttWindow].sort((a, b) => a - b)[rttWindow.length >> 1];
         rttSample.ms = sample;
         rttSample.at = performance.now();
-        world.observeServerTime(m.s + sample / 2);
+        // v1.3 P8: the pong midpoint no longer feeds the render clock. On a slow client the pong waits for the end of
+        // the frame it lands in, so `m.s + rtt/2` overshoots and the max-filter jumped the clock up every 2 s (65-78 ms
+        // at 14 fps); snapshot arrivals alone (world.applySnap) keep it smooth (perf-server-net clock simulation).
         return;
       }
       case 'err': {
@@ -338,9 +357,14 @@ export function createNet(world: World, bus: Bus, onError: (msg: string) => void
       wantOnline = true;
       joinWaiter?.reject(new JoinError('closed', 'superseded'));
       return new Promise<WelcomeMsg>((resolve, reject) => {
-        const waiter = { resolve, reject };
+        // the timeout timer is cleared once the join settles (welcome, error or superseded)
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const waiter = {
+          resolve: (w: WelcomeMsg) => { clearTimeout(timer); resolve(w); },
+          reject: (e: Error) => { clearTimeout(timer); reject(e); },
+        };
         joinWaiter = waiter;
-        setTimeout(() => {
+        timer = setTimeout(() => {
           if (joinWaiter !== waiter) return;
           joinWaiter = null;
           reject(new JoinError('closed', 'joining timed out: reload the page'));
@@ -384,7 +408,11 @@ export function createNet(world: World, bus: Bus, onError: (msg: string) => void
     setPoseSource(fn) { poseSource = fn; },
     sendLoud: (band, radio) => send({ op: 'loud', band, radio }),
     sendVoiceChunk(h, pcm) {
-      if (ws && ws.readyState === WebSocket.OPEN && status === 'joined') ws.send(encodeVoiceChunk(h, pcm) as Uint8Array<ArrayBuffer>);
+      if (!ws || ws.readyState !== WebSocket.OPEN || status !== 'joined') return;
+      // v1.3 P8: a backed-up socket (after a frozen frame, ~0.5 MB of queued PCM per 16 s) skips STT chunks instead of
+      // burst-sending them ahead of poses and pings; the STT side drops stale segments anyway
+      if (ws.bufferedAmount > VOICE_BACKLOG_BYTES) { voiceSkipped++; return; }
+      ws.send(encodeVoiceChunk(h, pcm) as Uint8Array<ArrayBuffer>);
     },
     send,
     onStatus(fn) {
@@ -410,6 +438,8 @@ export function createNet(world: World, bus: Bus, onError: (msg: string) => void
       lastDrop = null;
       return d;
     },
+    get voiceSkipped() { return voiceSkipped; },
+    get bufferedAmount() { return ws && ws.readyState === WebSocket.OPEN ? ws.bufferedAmount : 0; },
   };
   return net;
 }

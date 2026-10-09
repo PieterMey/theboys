@@ -6,6 +6,19 @@ import preact from '@preact/preset-vite';
 
 const here = import.meta.dirname;
 const repo = resolve(here, '../..').split('\\').join('/');
+/** '/assets/' is reserved for .assets/dist (game assets) */
+const ASSETS_DIR = 'app';
+
+/**
+ * Chunk file names. Both pages (index + voicetest) share one chunk with the client core (context, frame loop, net,
+ * world) and the voice code; rolldown named it after a voice module, so the [diag] LoAF 'top script' read
+ * 'voice-<hash>.js:frame' for every long frame. The chunk that holds core/loop.ts is 'core-<hash>.js' instead; the
+ * rest keep Vite's default ('[name]-[hash].js' under ASSETS_DIR).
+ */
+function chunkFileNames(chunk: { moduleIds: readonly string[] }): string {
+  const hasLoop = chunk.moduleIds.some((id) => id.split('\\').join('/').endsWith('/apps/client/src/core/loop.ts'));
+  return `${ASSETS_DIR}/${hasLoop ? 'core' : '[name]'}-[hash].js`;
+}
 
 /** Writes dist/build.json; the prod server rejects hellos from other builds with 'stale_build'. */
 function buildInfo(build: string): Plugin {
@@ -32,13 +45,13 @@ export default defineConfig(({ command }) => {
     build: {
       outDir: resolve(here, 'dist'),
       emptyOutDir: true,
-      assetsDir: 'app', // '/assets/' is reserved for .assets/dist (game assets)
+      assetsDir: ASSETS_DIR,
       target: 'es2023',
       sourcemap: true,
       chunkSizeWarningLimit: 4096,
       rolldownOptions: {
         input: { main: resolve(here, 'index.html'), voicetest: resolve(here, 'voicetest.html') },
-        output: { keepNames: true },
+        output: { keepNames: true, chunkFileNames },
       },
     },
     worker: { format: 'es' },

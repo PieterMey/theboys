@@ -10,6 +10,9 @@ export interface BusEvents {
   /** after 'welcome' was applied to the world (first join or resume) */
   'net:welcome': { you: string; resumed: boolean };
   'world:phase': { from: Phase; to: Phase };
+  /** v1.3: a 'phase' event arrived and is about to be applied (world.phase is still `from`; its layout may rebuild the
+   *  level synchronously right after). Send requests that must leave before any heavy work here; do no work. */
+  'net:phase-incoming': { from: Phase; to: Phase };
   'audio:unlocked': { ctx: AudioContext };
   'error': { msg: string };
 }

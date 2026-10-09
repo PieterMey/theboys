@@ -1,6 +1,7 @@
 // HTTP: dev = Vite middleware (HMR on the same server); prod/test = sirv for apps/client/dist + <ASSETS_DIR>/dist at
 // /assets/, SPA fallback for extension-less routes, 404 for everything else. Dotfiles, saves, logs, .git: always 404.
-// Every mode: /healthz {ok, mode, crews, uptimeSec, flags} (flags: the live flags clients merge at page load).
+// Every mode: /healthz {ok, mode, crews, uptimeSec, flags} (flags: the live flags clients merge at page load); dev
+// adds the process pid, so a test that spawned a server can tell its own child from another one on the port.
 import { createServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { existsSync, readFileSync } from 'node:fs';
@@ -62,6 +63,10 @@ export async function createHttp(ctx: ServerContext): Promise<{ server: Server; 
   const env = ctx.env;
   const log = ctx.log('http');
   const server = createServer();
+  // v1.3 P8: outlive cloudflared's 90 s origin keep-alive pool (Node's 5 s default closed connections the tunnel still
+  // meant to reuse); the headers timeout must stay above it
+  server.keepAliveTimeout = 95_000;
+  server.headersTimeout = 96_000;
   const assetsDir = join(env.ASSETS_DIR, 'dist');
   // dev:true = live lookups (assets keep landing during the night); setHeaders overrides its no-store
   const assets = mount('/assets', sirv(assetsDir, { dev: true, etag: true, dotfiles: false, setHeaders: cacheHeaders }) as Handler);
@@ -74,7 +79,9 @@ export async function createHttp(ctx: ServerContext): Promise<{ server: Server; 
   const health = (res: ServerResponse) => {
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Cache-Control', 'no-store');
-    res.end(JSON.stringify({ ok: true, mode: env.mode, crews: ctx.crews.list().length, uptimeSec: Math.round(process.uptime()), flags: ctx.flags }));
+    // dev only: the pid lets tests/core/lib.ts startServer tell its own child from another server on the port
+    const pid = env.dev ? { pid: process.pid } : {};
+    res.end(JSON.stringify({ ok: true, mode: env.mode, crews: ctx.crews.list().length, uptimeSec: Math.round(process.uptime()), flags: ctx.flags, ...pid }));
   };
 
   if (env.dev) {

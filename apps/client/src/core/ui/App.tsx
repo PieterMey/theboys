@@ -23,6 +23,17 @@ function Slot({ ctx, slot }: { ctx: ClientContext; slot: HudSlot }) {
   );
 }
 
+/** Toasts, top centre. In the van (hub) they keep to the centre column between the crew panel (top-left) and the shift
+ *  panel (top-right) and wrap there, instead of running under the crew panel's edge (styles.css .toasts-hub). */
+function Toasts({ ctx }: { ctx: ClientContext }) {
+  useWorld(ctx);
+  return (
+    <div class={ctx.world.phase === 'hub' ? 'toasts toasts-hub' : 'toasts'}>
+      {ctx.ui.toasts.value.map((t) => <div key={t.id} class={`toast toast-${t.kind}`}>{t.text}</div>)}
+    </div>
+  );
+}
+
 function App({ ctx }: { ctx: ClientContext }) {
   const { name, props } = ctx.ui.screen.value;
   void ctx.ui.screensVersion.value;
@@ -39,9 +50,7 @@ function App({ ctx }: { ctx: ClientContext }) {
           <Screen ctx={ctx} {...props} />
         </div>
       )}
-      <div class="toasts">
-        {ctx.ui.toasts.value.map((t) => <div key={t.id} class={`toast toast-${t.kind}`}>{t.text}</div>)}
-      </div>
+      <Toasts ctx={ctx} />
     </>
   );
 }

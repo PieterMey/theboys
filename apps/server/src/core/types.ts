@@ -46,6 +46,9 @@ export interface ServerPlayer {
   disconnectedAt: number;
   /** per-track per-player scratch data, keyed by track name (e.g. slices.players, slices.voice) */
   slices: Record<string, unknown>;
+  /** v1.3 P2b (additive): a scripted test client (its hello said build 'bot'); set on every hello by core/crews.ts.
+   *  meta's drive wait (crewLoaded) never waits for one. Also: core/crews.ts isBot(p). */
+  bot?: boolean;
 }
 
 export interface Crew {

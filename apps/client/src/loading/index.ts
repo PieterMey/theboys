@@ -1,4 +1,4 @@
-// Owner: v1.1 loading screen (apps/client/src/loading/**). Provides services.loading and installs core telemetry.
+// Owner: v1.1 loading screen (apps/client/src/loading/**). Provides services.loading and installs core telemetry (+ v1.3 core.diag).
 // (a) JOIN: the full-screen loading screen replaces the plain 'ENTERING THE LOT…' wait. It opens inside the JOIN
 //     click and stays until the hub is built, its assets are in, every pipeline is warmed (render.warmupAll) and
 //     frames have been stable for ~1 s (cap 45 s; progress + step + elapsed, so it never looks hung).
@@ -14,6 +14,7 @@ import type { Signal } from '@preact/signals';
 import type { LevelLayout } from '@dead-air/shared/layout.ts';
 import type { ClientContext } from '../core/context.ts';
 import { installTelemetry } from '../core/telemetry.ts';
+import { installDiag } from '../core/diag.ts';
 import { propsPending } from '../level/assets.ts';
 import type { RenderService } from '../render/types.ts';
 import { LoadingScreen } from './LoadingScreen.tsx';
@@ -56,6 +57,8 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 export function install(ctx: ClientContext): void {
   installTracker();
   installTelemetry(ctx);
+  // v1.3 telemetry v2 (core.diag): GPU / browser buckets per join, frame-gap / LoAF / pipeline windows (no names)
+  try { installDiag(ctx); } catch (e) { ctx.reportError(`diag: ${e instanceof Error ? e.message : e}`); }
   const testGate = !ctx.testMode || ctx.params.get('loading') === '1';
   const preloadOn = ctx.params.get('preload') !== '0' && testGate;
   const freezeOn = !ctx.testMode || ctx.params.get('loadfreeze') === '1';
@@ -226,7 +229,31 @@ export function install(ctx: ClientContext): void {
   });
 
   // ---------------- (b) drive preload ----------------
+  // v1.3 P2a: 'net.preload' leaves the moment the drive event arrives (net:phase-incoming fires before the world applies
+  // the event, so before its layout can rebuild the level and before the next frames compile shaders): the server
+  // then holds the van for this client (meta crewLoaded, capped by driveLoadWaitSec) even if this page freezes for
+  // seconds. The reply may sit behind a long frame, hence the long timeout. The build still waits for the drive
+  // screen to paint (cards + typewriter, 1.2 s). A client that did not finish the preload gets a 45 s arrival cover.
   let preloadFor = '';
+  /** hash of the facility this page finished preloading (the arrival cover is short only for that one) */
+  let preloadedHash = '';
+  const loose = ctx.net as unknown as { req(r: string, a: unknown, t?: number): Promise<unknown> };
+  const askPreload = (): Promise<LevelLayout | null> => loose.req('net.preload', {}, 45_000)
+    .then((rep) => (rep as { layout?: LevelLayout | null } | null)?.layout ?? null, () => null);
+  /** the request sent from net:phase-incoming (consumed by runPreload a moment later) */
+  let early: { at: number; reply: Promise<LevelLayout | null> } | null = null;
+  /** timings of the last drive preload (performance.now() ms; __game.state().diag.preload, core.diag) */
+  type PreloadTrace = { incomingAt: number; askedAt: number; phaseAt: number; replyAt: number; buildAt: number; rebuiltAt: number; doneAt: number; ok: boolean | null; from: 'early' | 'late' };
+  const trace: PreloadTrace = { incomingAt: -1, askedAt: -1, phaseAt: -1, replyAt: -1, buildAt: -1, rebuiltAt: -1, doneAt: -1, ok: null, from: 'late' };
+  const now = () => Math.round(performance.now());
+  ctx.diag.preload = trace;
+  ctx.bus.on('net:phase-incoming', ({ to }) => {
+    if (!preloadOn || to !== 'drive') return;
+    Object.assign(trace, { incomingAt: now(), askedAt: now(), phaseAt: -1, replyAt: -1, buildAt: -1, rebuiltAt: -1, doneAt: -1, ok: null, from: 'early' });
+    early = { at: performance.now(), reply: askPreload() };
+  });
+  // the facility rebuild (whoever triggers it: the drive event's own layout today, or the preload's build)
+  void ctx.services.wait('level').then((lv) => lv.onRebuild((L) => { if (L.kind === 'facility' && ctx.world.phase === 'drive') trace.rebuiltAt = now(); }));
   const runPreload = async () => {
     if (!preloadOn || ctx.world.phase !== 'drive') return;
     const d = (ctx.world.full as { meta?: { drive?: { orderId?: string; endsAt?: number } | null } | null } | null)?.meta?.drive;
@@ -235,16 +262,20 @@ export function install(ctx: ClientContext): void {
     preloadFor = key;
     const t0 = performance.now();
     drive.value = { state: 'loading', pct: 5, label: 'receiving site data', waiting: drive.value.waiting };
-    // let the drive screen paint (cards + typewriter) before the main thread builds the site
+    // the early request when it is fresh (this drive), else ask now (a welcome straight into a drive)
+    const fresh = early && performance.now() - early.at < 10_000 ? early : null;
+    early = null;
+    if (!fresh) Object.assign(trace, { incomingAt: -1, askedAt: now(), replyAt: -1, buildAt: -1, rebuiltAt: -1, doneAt: -1, ok: null, from: 'late' });
+    trace.phaseAt = now();
+    const asked = (fresh?.reply ?? askPreload()).then((L) => { trace.replyAt = now(); return L; });
     await sleep(1200);
     if (ctx.world.phase !== 'drive') return;
-    let L: LevelLayout | null = null;
-    try {
-      const rep = await (ctx.net as unknown as { req(r: string, a: unknown, t?: number): Promise<{ layout: LevelLayout | null }> }).req('net.preload', {}, 15_000);
-      L = rep?.layout ?? null;
-    } catch { L = null; }
+    let L: LevelLayout | null = await asked;
+    // no answer (an old server, a timeout behind a frozen page): the drive event's own facility, when it carried one
+    if (!L && ctx.world.layout?.kind === 'facility') L = ctx.world.layout;
     if (!L || ctx.world.phase !== 'drive') { drive.value = { ...drive.value, state: 'idle', label: '' }; return; }
     const hash = L.hash;
+    trace.buildAt = now();
     drive.value = { ...drive.value, pct: 15, label: 'building the site' };
     // the level track rebuilds from world.layout (content-compared); the 'contract' phase event later carries the
     // same layout, so it does not rebuild again at arrival
@@ -260,8 +291,11 @@ export function install(ctx: ClientContext): void {
     } catch { ok = false; }
     if (ctx.world.phase !== 'drive' && ctx.world.phase !== 'contract') return;
     drive.value = { ...drive.value, state: ok ? 'done' : 'failed', pct: 100, label: ok ? 'site ready' : 'site partly loaded' };
+    trace.doneAt = now();
+    trace.ok = ok;
+    if (ok) preloadedHash = hash;
     try {
-      await (ctx.net as unknown as { req(r: string, a: unknown, t?: number): Promise<unknown> }).req('net.loaded', { hash, ok, ms: performance.now() - t0 }, 10_000);
+      await loose.req('net.loaded', { hash, ok, ms: performance.now() - t0 }, 10_000);
     } catch { /* the server's cap covers it */ }
   };
   (ctx.net.on as unknown as (e: string, fn: (d: unknown) => void) => () => void)('net.loading', (d) => {
@@ -277,8 +311,13 @@ export function install(ctx: ClientContext): void {
     const my = ++arriveSession;
     show('arrive');
     // at least 2.6 s: other tracks build per-contract visuals right after the phase change (monster models re-warm
-    // 1.5 s in, objectives' levers / Core), and those compiles must happen behind this screen too
-    void prepare(12_000, (step, k, detail) => { if (arriveSession === my) setStep(step, k, detail); }, () => arriveSession === my && ctx.world.phase === 'contract', 2600)
+    // 1.5 s in, objectives' levers / Core), and those compiles must happen behind this screen too.
+    // v1.3 P2a: 12 s once this page preloaded this very site; up to 45 s for a cold one (no preload, a preload the van
+    // did not wait for, or a failed one), so its warm-up happens here and not mid-contract
+    const warm = drive.value.state === 'done' && !!preloadedHash && preloadedHash === ctx.world.layout?.hash;
+    const capMs = warm ? 12_000 : 45_000;
+    ctx.diag.arrival = { warm, capMs, at: Math.round(performance.now()) };
+    void prepare(capMs, (step, k, detail) => { if (arriveSession === my) setStep(step, k, detail); }, () => arriveSession === my && ctx.world.phase === 'contract', 2600)
       .then(() => { if (arriveSession === my) return hide(); })
       .catch(() => hide());
   };

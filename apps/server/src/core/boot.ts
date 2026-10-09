@@ -8,6 +8,7 @@ import { createHttp } from './http.ts';
 import { attachWs } from './ws.ts';
 import { startLoop } from './loop.ts';
 import { installCoreDbg } from './dbg.ts';
+import { installCoreDiag } from './diag.ts';
 import { makeLogger } from './log.ts';
 import type { ServerContext } from './types.ts';
 
@@ -36,6 +37,8 @@ export async function boot(opts: BootOpts): Promise<Booted> {
   const crews = createCrews(ctx);
   setCrews(crews);
   installCoreDbg(ctx, internals);
+  // v1.3 telemetry v2: 'core.diag' (logged without names)
+  installCoreDiag(ctx);
 
   const installErrors: string[] = [];
   for (const [name, install] of opts.tracks) {

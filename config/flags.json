@@ -33,5 +33,9 @@
   "siteThemes": true,
   "paranormal": true,
   "mirrors": true,
-  "itemModels": true
+  "itemModels": true,
+  "deadPokes": false,
+  "earwigs": false,
+  "companyLine": false,
+  "siteRules": false
 }

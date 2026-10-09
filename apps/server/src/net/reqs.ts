@@ -2,17 +2,22 @@
 // consent.set, admin.createCrew. ('claim' belongs to the meta track's PlayerSave flow and is NOT registered here.)
 import { PROFILE_LIMITS } from '@dead-air/shared/profile.ts';
 import type { Profile } from '@dead-air/shared/profile.ts';
+import { renameNotice, safeDisplayName } from '@dead-air/shared/names.ts';
+import type { SafeDisplayName } from '@dead-air/shared/names.ts';
 import type { ServerContext } from '../core/types.ts';
 import type { CrewCore } from '../core/crews.ts';
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
-function cleanProfile(p: unknown, prev: Profile): Profile {
-  if (!p || typeof p !== 'object') return prev;
+function cleanProfile(p: unknown, prev: Profile, id: string): { profile: Profile; renamed: SafeDisplayName | null } {
+  if (!p || typeof p !== 'object') return { profile: prev, renamed: null };
   const q = p as Partial<Profile>;
   const hex = (v: unknown, d: string) => (typeof v === 'string' && HEX.test(v) ? v : d);
-  const name = String(q.name ?? prev.name).replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, PROFILE_LIMITS.nameMax) || prev.name;
-  return {
+  // v1.3 P1b (integrator exception in the frozen net track): the join's name filter (names.ts), so a rename cannot
+  // bring back a name the join refused; a blocked or reserved name becomes Contractor-NNNN from the player id
+  const named = safeDisplayName(q.name ?? prev.name, id);
+  const name = named.reason === 'empty' ? prev.name : named.name;
+  const profile: Profile = {
     name,
     body: q.body === 'f' ? 'f' : q.body === 'm' ? 'm' : prev.body,
     suit: [hex(q.suit?.[0], prev.suit[0]), hex(q.suit?.[1], prev.suit[1])],
@@ -23,6 +28,7 @@ function cleanProfile(p: unknown, prev: Profile): Profile {
     },
     badge: Number.isInteger(q.badge) && (q.badge as number) > 0 && (q.badge as number) < 100000 ? (q.badge as number) : prev.badge,
   };
+  return { profile, renamed: named.blocked ? named : null };
 }
 
 export function installReqs(ctx: ServerContext): void {
@@ -47,9 +53,12 @@ export function installReqs(ctx: ServerContext): void {
   });
 
   ctx.registerReq('profile.set', (crew, player, args) => {
-    player.profile = cleanProfile(args?.profile, player.profile);
+    const { profile, renamed } = cleanProfile(args?.profile, player.profile, player.id);
+    player.profile = profile;
     player.name = player.profile.name;
     ctx.crews.broadcastRoster(crew);
+    // v1.3 P1b: only this player hears why (the refused name is never logged or shown to the crew)
+    if (renamed) ctx.emit(crew, 'notice', { text: renameNotice(renamed), kind: 'warn' }, { to: [player.id] });
     return { ok: true as const };
   });
 

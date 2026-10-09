@@ -9,6 +9,8 @@ import type { ErrCode } from '@dead-air/shared/envelope.ts';
 import { CREW_CODE_ALPHABET, CREW_CODE_LEN, MAX_PLAYERS, NET } from '@dead-air/shared/constants.ts';
 import { PROFILE_LIMITS, randomProfile } from '@dead-air/shared/profile.ts';
 import type { Profile } from '@dead-air/shared/profile.ts';
+import { renameNotice, safeDisplayName } from '@dead-air/shared/names.ts';
+import type { SafeDisplayName } from '@dead-air/shared/names.ts';
 import type { CrewPublic } from '@dead-air/shared/state.ts';
 import type { Crew, CrewRegistry, HelloMsg, ServerContext, ServerPlayer, WelcomeMsg } from './types.ts';
 import { runHooks } from './hooks.ts';
@@ -55,6 +57,11 @@ export function isObserver(p: ServerPlayer): boolean {
   return (p.slices as { observer?: unknown }).observer === true;
 }
 
+/** v1.3 P2b: a scripted test client (hello.build === 'bot'); meta's drive wait never waits for one. */
+export function isBot(p: ServerPlayer): boolean {
+  return p.bot === true;
+}
+
 /** Sticky observer: alive reads false whatever other tracks assign (revive-all, phase resets). */
 function markObserver(p: ServerPlayer): void {
   p.slices.observer = true;
@@ -77,9 +84,15 @@ function safeEq(a: string, b: string): boolean {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
-function cleanName(n: unknown): string {
-  const s = String(n ?? '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, PROFILE_LIMITS.nameMax);
-  return s || 'Contractor';
+/**
+ * v1.3 P1a: the display name everyone else sees (packages/shared/src/names.ts): cleaned (controls, zero-width, bidi
+ * overrides, angle brackets out; at most PROFILE_LIMITS.nameMax), and a hate / sexual / harassment term or a reserved
+ * name (Listener, Company, HR, Admin, Claude, System) becomes Contractor-NNNN from the player id ('blocked': tell the
+ * player privately). Empty -> 'Contractor'. Only this player's exact defaults skip the filter: its Contractor-NNNN and
+ * the client's default for its key (names.ts defaultName); any other Contractor-... name is checked like every name.
+ */
+function cleanName(n: unknown, id: string, key: string): SafeDisplayName {
+  return safeDisplayName(n, id, key);
 }
 
 function cleanProfile(p: unknown, name: string): Profile {
@@ -219,6 +232,7 @@ export function createCrews(ctx: ServerContext): CrewCore {
       const isAdmin = typeof hello.admin === 'string' && safeEq(hello.admin, env.ADMIN_TOKEN);
       const id = playerIdFromKey(key);
       if (isAdmin) admins.add(id);
+      const named = cleanName(hello.name, id, key);
 
       // 1) resume token (this process, then a restored session), 2) crew code, 3) create
       let crew: Crew | undefined;
@@ -265,7 +279,7 @@ export function createCrews(ctx: ServerContext): CrewCore {
             removePlayer(other, dup, 'replaced');
           }
         }
-        const name = cleanName(hello.name);
+        const name = named.name;
         player = {
           id, key, name, profile: cleanProfile(hello.profile, name),
           connected: false, ready: false, alive: true, consent: { transcribe: false, mimic: false }, level: 1,
@@ -276,11 +290,13 @@ export function createCrews(ctx: ServerContext): CrewCore {
         crew.players.set(id, player);
         resumes.set(player.resume, { code: crew.code, id });
       }
-      if (cleanName(hello.name).toLowerCase() === 'voicetest' && !isObserver(player)) markObserver(player);
+      if (named.name.toLowerCase() === 'voicetest' && !isObserver(player)) markObserver(player);
       if (resumed) {
-        player.name = cleanName(hello.name);
+        player.name = named.name;
         player.profile = cleanProfile(hello.profile, player.name);
       }
+      // v1.3 P2b: scripted test clients say build 'bot' (tests/bots, tests/meta); the drive wait skips them
+      player.bot = hello.build === 'bot';
       player.socket = conn.ws;
       player.connected = true;
       player.disconnectedAt = 0;
@@ -300,6 +316,11 @@ export function createCrews(ctx: ServerContext): CrewCore {
       reg.broadcastRoster(crew);
       ctx.notice(crew, `${player.name} ${resumed ? 'reconnected' : 'joined'}`, 'info');
       log.info(`${player.name} (${player.id}) ${resumed ? 'resumed' : 'joined'} crew ${crew.code} [${crew.players.size}]`);
+      if (named.blocked) {
+        // only this player hears why; the log never carries the refused name
+        ctx.emit(crew, 'notice', { text: renameNotice(named), kind: 'warn' }, { to: [player.id] });
+        log.info(`name filter: ${player.id} shown as ${player.name} (${named.reason})`);
+      }
     },
 
     handleClose(conn, deliberate) {

@@ -111,6 +111,11 @@
 .toast-warn { border-left-color: var(--amber); }
 .toast-error { border-left-color: var(--red); }
 @keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } }
+/* In the van the crew panel (top-left, 14 + 318 px) and the shift panel (top-right) frame the top centre: toasts stay
+   centred in the column 346 px clear of either edge and wrap there (at 1280 px: x 346-934, where a long toast used to
+   start at the crew panel's edge). Never wider than elsewhere (50%); 260 px at the least on small windows. */
+.toasts-hub { width: max-content; max-width: max(260px, min(50%, calc(100% - 692px))); }
+.toasts-hub .toast { max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere; }
 
 /* Join screen sits left so the scene stays visible */
 .screen-join {
