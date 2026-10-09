@@ -169,6 +169,24 @@ function emitBuilt(st: CrewPara, w: ParaWorld, b: ParaBalance, out: ParaOut, bui
   return ev;
 }
 
+/**
+ * v1.3: an event the haunt did not plan (a dead player's poke): active + synced + witnessed + recorded like any
+ * phenomenon, but outside the haunt's budgets, novelty, spacing, per-player gaps and quiet window, and seeded by the
+ * caller (the haunt rng stays untouched, so its seeded schedule never shifts).
+ */
+export function emitExtra(st: CrewPara, b: ParaBalance, out: ParaOut, built: Built, now: number, seed: number): ParanormalEvent {
+  const id = nextId();
+  const at = now + Math.max(250, b.leadMs);
+  const ev: ParanormalEvent = { id, kind: built.kind, tier: built.tier, at, seed, ...built.ev };
+  const rec: PhenomenonRecord = {
+    id, kind: built.kind, tier: built.tier, t: Math.round((at - st.startedAt) / 100) / 10, space: ev.space, target: built.target,
+    witnesses: [], tell: !!built.tell,
+  };
+  st.active.set(id, { ev, rec, endAt: at + (built.activeMs ?? ev.ms), armed: false, litSince: 0 });
+  out.event(ev);
+  return ev;
+}
+
 /** weighted order without replacement over the candidate kinds (seeded) */
 function weightedOrder(st: CrewPara, b: ParaBalance, defs: KindDef[], cap: Tier): KindDef[] {
   const pool = defs.map((d) => ({ d, w: Math.max(0.0001, (b.weights[d.kind] ?? 1) * (d.tier >= 1 && cap >= d.tier ? b.tierBoost : 1)) }));
@@ -264,7 +282,8 @@ function addWitness(a: ActiveEv, pid: string): void {
 /** knocks, rattles and falls are heard: living players within hearM (sound path metric) witness them */
 function addHeardWitnesses(st: CrewPara, w: ParaWorld, b: ParaBalance, a: ActiveEv): void {
   const k = a.ev.kind;
-  const hear = k === 'knock' || k === 'handle_rattle' ? b.knock.hearM : k === 'object_fall' || k === 'poltergeist' ? b.props.hearM : 0;
+  const hear = k === 'knock' || k === 'handle_rattle' ? b.knock.hearM : k === 'object_fall' || k === 'poltergeist' ? b.props.hearM
+    : k === 'dead_poke' && a.ev.data?.poke === 'knock' ? b.poke.hearM : 0;
   if (!hear || !a.ev.p) return;
   const [x, , z] = a.ev.p;
   for (const p of w.players()) {
@@ -323,7 +342,7 @@ function tickActive(st: CrewPara, w: ParaWorld, b: ParaBalance, out: ParaOut, no
       const r = Number(ev.data?.r ?? 2) + 0.5;
       for (const p of players) if (p.alive && dist2(p.x, p.z, ev.p[0], ev.p[2]) <= r) addWitness(a, p.id);
     }
-    if (ev.kind === 'brownout_breath') {
+    if (ev.kind === 'brownout_breath' || (ev.kind === 'dead_poke' && ev.data?.poke === 'flicker')) {
       for (const p of players) if (p.alive && spaceAtXZ(w.layout, p.x, p.z) === ev.space) addWitness(a, p.id);
     }
     if (a.armed) {

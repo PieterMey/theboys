@@ -34,7 +34,27 @@ export const ui = {
   hint: signal<{ id: string; text: string; until: number } | null>(null),
   /** v1.2 crawl vents: you are in a duct until performance.now() reaches `until` (null = not crawling) */
   crawl: signal<{ until: number; total: number } | null>(null),
+  /** v1.3 dead pokes (flag deadPokes): the spectator's poke bar (keys 1-3 knock, 4 flicker); ready times on performance.now() */
+  poke: signal<PokeUi>({ on: false, knockReadyAt: 0, flickerReadyAt: 0, knockMs: 8000, flickerMs: 20_000, room: null, msg: null, msgUntil: 0, pending: false }),
 };
+
+/** v1.3 dead pokes: what the spectator's poke bar shows */
+export interface PokeUi {
+  /** the bar is up (spectating in a contract, flags deadPokes + paranormal on); digits poke instead of switching slots */
+  on: boolean;
+  knockReadyAt: number;
+  flickerReadyAt: number;
+  /** full cooldowns (ms), for the bars */
+  knockMs: number;
+  flickerMs: number;
+  /** callsign of the room the camera watches (null = a corridor / unknown) */
+  room: string | null;
+  /** the last result line ('KNOCKED TWICE', 'TOO FAR FROM THE LIVING', ...) until msgUntil */
+  msg: string | null;
+  msgUntil: number;
+  /** a request is in flight */
+  pending: boolean;
+}
 
 interface Marker { mesh: THREE.Group; until: number; born: number; mat: THREE.MeshBasicNodeMaterial; ring: THREE.MeshBasicNodeMaterial }
 

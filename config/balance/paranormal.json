@@ -27,7 +27,7 @@
     "footprints": 0.7, "dark_walk": 0.9, "mirror_writing": 0.8, "presence": 0.9, "silhouette": 0.6, "mirror_figure": 0.7
   },
   "tierBoost": 1.5,
-  "kinds": { "footprints": true, "poltergeist": true, "object_fall": true, "cold_spot": true, "brownout_breath": true, "radio_on": false, "phone_ring": false, "dead_poke": false },
+  "kinds": { "footprints": true, "poltergeist": true, "object_fall": true, "cold_spot": true, "brownout_breath": true, "radio_on": false, "phone_ring": false, "dead_poke": true },
   "guarantees": { "t1ClockMin": 120, "t2ClockMin": 240, "mirrorM": 5, "mirrorPendingSec": 60 },
   "gates": { "monsterM": 6, "mannequinLightM": 25, "grateM": 6, "vanM": 6 },
   "darkWalk": {
@@ -44,5 +44,17 @@
   "cold": { "minM": 2, "maxM": 5, "rMin": 1.5, "rMax": 2.3, "msMin": 12000, "msMax": 20000, "density": 0.32 },
   "breath": { "msMin": 2500, "msMax": 4000, "depth": 0.55, "puffs": 3 },
   "seenPerSec": 10,
-  "witnessM": 25
+  "witnessM": 25,
+  "_pokeDoc": "v1.3 dead pokes (flag deadPokes; kinds.dead_poke false = balance kill switch): per dead player knock / flicker cooldowns, crew-wide gap, per-contract caps; knock on the closed door within knockM or the wall within wallM of the camera (doors win ties within 1.5 m), never within hiddenM of a hidden player; the camera must be within nearLivingM of a living teammate; the knock makes a noiseM deadStatic noise; living players within hearM witness it",
+  "poke": {
+    "knockCooldownSec": 8, "flickerCooldownSec": 20, "crewGapMs": 1200, "knockMax": 40, "flickerMax": 15, "maxCount": 3,
+    "knockM": 6, "wallM": 6, "nearLivingM": 8, "hiddenM": 3, "noiseM": 4, "hearM": 14, "amp": 0.85, "flickerMs": 2400
+  },
+  "_siteRulesDoc": "v1.3 site rules (flag siteRules): talk-level speech (band >= minBand) or typed proximity text; leadMs wind-up before the first strike / ring. foundry_bell: one strike per everyMs (a spoken number 1-12 strikes that many, a longer code once per digit, maxStrikes), a noiseM bell noise per strike, cooldownSec rest. exchange_phone: the named room rings rings x ringMs every everyMs, a noiseM phone noise per ring, roomCooldownSec per room, crewGapSec crew-wide",
+  "siteRules": {
+    "minBand": 2,
+    "leadMs": 900,
+    "bell": { "everyMs": 2200, "maxStrikes": 12, "noiseM": 25, "cooldownSec": 3, "y": 2.7 },
+    "phone": { "rings": 2, "everyMs": 4000, "ringMs": 2000, "noiseM": 25, "roomCooldownSec": 12, "crewGapSec": 3, "y": 1.3 }
+  }
 }

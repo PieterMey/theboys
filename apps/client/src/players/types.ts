@@ -142,6 +142,8 @@ declare module '../core/bus.ts' {
     'players:ping': { id: string; p: V3 };
     /** chat line submitted from the HUD (players track sends it) */
     'players:chatSend': { text: string };
+    /** v1.3 dead pokes: a spectator's poke (keys 1-3 knock that many times, 4 flickers; or the poke bar's buttons) */
+    'players:poke': { kind: 'knock' | 'flicker'; count?: number };
   }
 }
 

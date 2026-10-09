@@ -5,10 +5,11 @@
 //   stealthV12): speed from a >= 0.5 s seq window (./stealth.ts), a crouch claim needs a creep speed, sprint speed is
 //   always a sprint step, hidden only in a real hiding spot, no steps while grabbed, radius = stepNoiseRadius(kind,
 //   floorSurface, overshoes); recordStat stepsCrept/Walked/Sprinted per step; stealthStance(crew, pid) for monsters
-// - requests: players.emote, players.ping (LOS-filtered), players.chat (proximity text, talk-band path distance)
+// - requests: players.emote, players.ping (LOS-filtered), players.chat (proximity text, talk-band path distance; v1.3
+//   P1d: blocked words masked here with names.ts maskText before the line reaches anyone, see the handler)
 // - crawl vents (flag crawlVents): ./vents.ts
 // - dev: dbg.players.testLevel, dbg.players.kill, dbg.players.noise, dbg.players.pose, dbg.players.stealth,
-//   dbg.players.surfaces
+//   dbg.players.surfaces, dbg.players.proxText
 import type { Crew, ServerContext, ServerPlayer } from '../core/types.ts';
 import { SYSTEM_ORDER } from '../core/types.ts';
 import type { LevelLayout } from '@dead-air/shared/layout.ts';
@@ -19,13 +20,14 @@ import { BAND, BAND_RADIUS_M, NOISE_M } from '@dead-air/shared/constants.ts';
 import type { EmoteKind, StepKind } from '@dead-air/shared/messages/players.ts';
 import { EMOTE_KINDS, stepNoiseRadius } from '@dead-air/shared/messages/players.ts';
 import { floorSurface } from '@dead-air/shared/procgen/themes.ts';
+import { maskText } from '@dead-air/shared/names.ts';
 import { buildEdgeGrid, initialDoorOpen, soundFlood, fieldAt, los } from '@dead-air/shared/nav/index.ts';
 import type { DoorOpenFn, EdgeGrid } from '@dead-air/shared/nav/index.ts';
 import * as IX from '../interaction/api.ts';
 import { isGrabbed } from '../monsters/api.ts';
 import { recordStat } from '../meta/api.ts';
 import { bindStealthStance } from './api.ts';
-import { emitNoise, emitProxText, noiseBus, recentNoises, setNoiseClock } from './noise.ts';
+import { emitNoise, emitProxText, noiseBus, onProxText, recentNoises, setNoiseClock } from './noise.ts';
 import { DEFAULT_TRACK_OPTS, feedPose, judgeStance, newTrack, resetTrack, speedAt, sprintProbeAt, stepKindOf } from './stealth.ts';
 import type { StealthTrack, TrackOpts } from './stealth.ts';
 import { installVents } from './vents.ts';
@@ -369,17 +371,23 @@ export function install(ctx: ServerContext): void {
   });
 
   // ---- proximity text ----
+  // v1.3 P1d: the server masks blocked words itself (names.ts maskText, '*' per character), before the per-player emit
+  // and before emitProxText, so a modified client's line reaches the other clients, the Listener's memory, the AI hub
+  // and the site rules masked. (An honest client masks before sending too: apps/client/src/players/chatmask.ts.) Bidi
+  // embedding / override / isolate controls are dropped first: they could show a reversed word the right way round,
+  // while the filter reads the characters in typing order.
   ctx.registerReq('players.chat', (crew, player, args) => {
     if (ctx.flags.proxText === false) return { ok: false, heardBy: 0 };
     const raw = (args as { text?: unknown } | null)?.text;
     if (typeof raw !== 'string') return { ok: false, heardBy: 0 };
     const maxLen = num(bal().chatMaxLen, 140);
-    const text = raw.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, maxLen);
-    if (!text) return { ok: false, heardBy: 0 };
+    const cleaned = raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/[\u202a-\u202e\u2066-\u2069]/g, '').trim().slice(0, maxLen);
+    if (!cleaned) return { ok: false, heardBy: 0 };
     const s = slice(player);
     const now = performance.now();
     if (now - s.lastChatAt < 250) return { ok: false, heardBy: 0 };
     s.lastChatAt = now;
+    const text = maskText(cleaned);
     const voiceBal = (ctx.balance.voice as Record<string, unknown> | undefined) ?? {};
     const radii = Array.isArray(voiceBal.bandRadiusM) ? (voiceBal.bandRadiusM as number[]) : null;
     const radius = num(radii?.[BAND.talk], BAND_RADIUS_M[BAND.talk]);
@@ -398,9 +406,21 @@ export function install(ctx: ServerContext): void {
       }
       ctx.emit(crew, 'players.chat', { id: player.id, name: player.name, text, dist: Math.round(dist * 10) / 10 }, { to: [other.id] });
     }
-    emitProxText(crew, { player, text, x: sx, z: sz, radiusM: radius, heardBy, t: ctx.now() });
+    emitProxText(crew, { player, text, masked: text !== cleaned, x: sx, z: sz, radiusM: radius, heardBy, t: ctx.now() });
     return { ok: true, heardBy: heardBy.length };
   });
+  // dev/test: the proximity-text stream as its listeners get it (the Listener, the AI hub, the site rules), last 16
+  // lines per crew, in memory only (never logged or saved); a dev server only
+  if (ctx.env.dev) {
+    const proxSeen = new WeakMap<Crew, { id: string; text: string; masked: boolean; heardBy: string[]; t: number }[]>();
+    onProxText((crew, e) => {
+      let list = proxSeen.get(crew);
+      if (!list) proxSeen.set(crew, (list = []));
+      list.push({ id: e.player.id, text: e.text, masked: e.masked === true, heardBy: [...e.heardBy], t: e.t });
+      if (list.length > 16) list.splice(0, list.length - 16);
+    });
+    ctx.registerDbg('players.proxText', (crew) => proxSeen.get(crew) ?? []);
+  }
 
   // ---- dev helpers (NODE_ENV=development only) ----
   ctx.registerDbg('players.testLevel', async (crew, _player, args) => {

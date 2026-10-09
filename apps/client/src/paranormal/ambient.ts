@@ -30,7 +30,8 @@ export class Knock implements Effect {
       this.started = true;
       if (!late) {
         const pattern = (d.pattern === 'metal' || d.pattern === 'locker' ? d.pattern : 'wood') as 'wood' | 'metal' | 'locker';
-        if (this.ev.kind === 'knock') {
+        // v1.3: a dead player's knock (dead_poke, data.poke 'knock') sounds exactly like the building's own
+        if (this.ev.kind === 'knock' || this.ev.kind === 'dead_poke') {
           const count = Math.max(1, Math.min(8, Number(d.count ?? 3)));
           this.env.synth('knock', p, { seed: this.ev.seed, pattern, count, volume: amp }, { key: pattern === 'wood' ? 'sfx.wood_hit' : 'sfx.metal_hit', volume: 0.55 * amp });
           if (door >= 0) this.env.level()?.rattleDoor?.(door, Math.min(this.ev.ms, 260 * count), 0.35 * amp);

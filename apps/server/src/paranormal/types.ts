@@ -216,4 +216,26 @@ export interface ParaBalance {
   breath: { msMin: number; msMax: number; depth: number; puffs: number };
   seenPerSec: number;
   witnessM: number;
+  /**
+   * v1.3 dead pokes (flag deadPokes, pokes.ts): cooldowns per dead player, a crew-wide gap, per-contract caps, the knock
+   * search radii around the camera (doors knockM, walls wallM), the living teammate the camera must be near
+   * (nearLivingM), no knock within hiddenM of a hidden player, the knock's noise (noiseM, 'deadStatic') and hearing
+   * radius for witnesses (hearM), and the flicker's length (flickerMs)
+   */
+  poke: {
+    knockCooldownSec: number; flickerCooldownSec: number; crewGapMs: number; knockMax: number; flickerMax: number; maxCount: number;
+    knockM: number; wallM: number; nearLivingM: number; hiddenM: number; noiseM: number; hearM: number; amp: number; flickerMs: number;
+  };
+  /**
+   * v1.3 site rules (flag siteRules, siterules.ts): talk-level speech or typed text at minBand+; leadMs of mechanical
+   * wind-up before the first strike / ring; the foundry bell strikes every everyMs (maxStrikes), a noiseM noise per
+   * strike, then rests cooldownSec; the exchange phone rings `rings` times (ringMs each, every everyMs), a noiseM noise
+   * per ring, per-room roomCooldownSec and crew-wide crewGapSec
+   */
+  siteRules: {
+    minBand: number;
+    leadMs: number;
+    bell: { everyMs: number; maxStrikes: number; noiseM: number; cooldownSec: number; y: number };
+    phone: { rings: number; everyMs: number; ringMs: number; noiseM: number; roomCooldownSec: number; crewGapSec: number; y: number };
+  };
 }

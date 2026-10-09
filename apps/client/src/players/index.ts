@@ -22,7 +22,8 @@ import { loadRigLib } from './rig.ts';
 import { createViewModel } from './viewmodel.ts';
 import { EMOTE_ANIM, WHEEL, createPingMarkers, pushChat, ui, wheelPick } from './social.ts';
 import { rayGrid } from './collide.ts';
-import { ChatHud, CrawlHud, CrosshairHud, EmoteWheelHud, ScreenHintHud, StaminaHud, StanceHud, StealthHintHud } from './hud.tsx';
+import { outgoingChat, shownChat } from './chatmask.ts';
+import { ChatHud, CrawlHud, CrosshairHud, EmoteWheelHud, PokeBarHud, ScreenHintHud, StaminaHud, StanceHud, StealthHintHud } from './hud.tsx';
 import { createCrawl } from './vents.ts';
 import { HINT_TEXT, createHintStore, roomLitAt, sameStance, spottedHints, stanceView, stepSfxFor, surfaceAt as floorUnder } from './stealth.ts';
 import type { HintId, StanceView } from './stealth.ts';
@@ -66,6 +67,10 @@ declare global {
       svc(): PlayersService;
       /** the longest wall- and prop-free run along +X inside one closed space (walk tests): its first cell centre */
       lane(): { x: number; z: number; len: number } | null;
+      /** v1.3 dead pokes: poke like the bar's buttons (resolves with the server reply, null when not sent) */
+      poke(kind: 'knock' | 'flicker', count?: number): Promise<unknown>;
+      /** v1.3 dead pokes: the poke bar's state (ready times as ms from now) */
+      pokeUi(): { on: boolean; room: string | null; knockInMs: number; flickerInMs: number; msg: string | null; pending: boolean };
     };
   }
 }
@@ -320,9 +325,13 @@ export async function install(ctx: ClientContext): Promise<void> {
     ui.chatOpen.value = open;
     input.setChatOpen(open);
   });
-  const chat = (text: string) => ctx.net.req('players.chat', { text }).catch(() => null);
+  // v1.3 P1d (chatmask.ts): names.ts masks blocked words on the way out and again on display
+  const chat = (text: string) => ctx.net.req('players.chat', { text: outgoingChat(text) }).catch(() => null);
   ctx.bus.on('players:chatSend', ({ text }) => { void chat(text); });
-  ctx.net.on('players.chat', (d) => pushChat(ctx, d.name, d.text, d.id === meId()));
+  ctx.net.on('players.chat', (d) => {
+    const line = shownChat(d);
+    pushChat(ctx, line.name, line.text, d.id === meId());
+  });
 
   // ---------------- spectating ----------------
   const cycleTarget = () => {
@@ -337,6 +346,62 @@ export async function install(ctx: ClientContext): Promise<void> {
   const specCam = new THREE.Vector3();
   const specLook = new THREE.Vector3();
   let specInit = false;
+
+  // ---------------- v1.3 dead pokes (flag deadPokes): the spectator's poke bar ----------------
+  // keys 1-3 knock that many times, 4 flickers the watched room (input.ts routes the digits while the bar is up); the
+  // server (paranormal.poke) decides where and whether, and owns the cooldowns: the bar only mirrors them
+  const pokesFlag = () => ctx.flags.deadPokes === true && ctx.flags.paranormal !== false;
+  const pokeBal = (k: string, d: number): number => {
+    const v = ((ctx.balance.paranormal as { poke?: Record<string, unknown> } | undefined)?.poke ?? {})[k];
+    return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : d;
+  };
+  const POKE_REFUSED: Record<string, string> = {
+    off: 'THE LINE IS DEAD', alive: 'ONLY THE DEAD CAN DO THAT', phase: 'NOTHING TO HAUNT HERE', cooldown: 'NOT YET', budget: 'YOU ARE SPENT FOR THIS CONTRACT',
+    busy: 'SOMEONE ELSE IS KNOCKING', far: 'TOO FAR FROM THE LIVING', nothing: 'NOTHING TO KNOCK ON HERE', dark: 'NO LIGHT TO FLICKER HERE',
+  };
+  const KNOCKED = ['', 'KNOCKED ONCE', 'KNOCKED TWICE', 'KNOCKED THREE TIMES'];
+  const pokeRoomAt = (x: number, z: number): string | null => {
+    const L = ctx.world.layout;
+    if (!L) return null;
+    const cx = Math.floor(x), cz = Math.floor(z);
+    if (cx < 0 || cz < 0 || cx >= L.W || cz >= L.H) return null;
+    return L.spaces[L.owner[cz * L.W + cx]]?.callsign ?? null;
+  };
+  const poke = async (kind: 'knock' | 'flicker', count = 1): Promise<unknown> => {
+    const st = ui.poke.value;
+    if (!st.on || st.pending) return null;
+    const n = Math.max(1, Math.min(3, Math.round(count) || 1));
+    const t0 = performance.now();
+    const readyAt = kind === 'knock' ? st.knockReadyAt : st.flickerReadyAt;
+    if (t0 < readyAt) {
+      ui.poke.value = { ...st, msg: `NOT YET · ${Math.ceil((readyAt - t0) / 1000)} s`, msgUntil: t0 + 1600 };
+      return null;
+    }
+    ui.poke.value = { ...st, pending: true };
+    const r = await ctx.net.req('paranormal.poke', kind === 'knock' ? { kind, count: n } : { kind }, 4000).catch(() => null);
+    const t = performance.now();
+    const next = { ...ui.poke.value, pending: false, msgUntil: t + 2600 };
+    if (!r) next.msg = 'NO SIGNAL';
+    else {
+      if (typeof r.knockMs === 'number') next.knockReadyAt = t + r.knockMs;
+      if (typeof r.flickerMs === 'number') next.flickerReadyAt = t + r.flickerMs;
+      const wait = (r.reason === 'cooldown' || r.reason === 'busy') && r.cooldownMs ? ` · ${Math.ceil(r.cooldownMs / 1000)} s` : '';
+      next.msg = r.ok ? (kind === 'knock' ? KNOCKED[n] : `FLICKERED ${next.room ?? 'THE LIGHTS'}`) : `${POKE_REFUSED[r.reason ?? 'off'] ?? 'THE LINE IS DEAD'}${wait}`;
+    }
+    ui.poke.value = next;
+    return r;
+  };
+  ctx.bus.on('players:poke', ({ kind, count }) => { void poke(kind === 'flicker' ? 'flicker' : 'knock', count ?? 1); });
+  /** keep the bar's visibility + watched room in step with the camera (signal writes only on change) */
+  const updatePokeBar = () => {
+    const on = me.dead && pokesFlag() && ctx.world.phase === 'contract';
+    const room = on ? pokeRoomAt(me.cam.x, me.cam.z) : null;
+    const pv = ui.poke.value;
+    if (pv.on === on && pv.room === room) return;
+    ui.poke.value = on && !pv.on
+      ? { ...pv, on, room, knockMs: pokeBal('knockCooldownSec', 8) * 1000, flickerMs: pokeBal('flickerCooldownSec', 20) * 1000, msg: null, msgUntil: 0 }
+      : { ...pv, on, room };
+  };
 
   // ---------------- pose source (20 Hz) ----------------
   ctx.net.setPoseSource(() => {
@@ -451,6 +516,8 @@ export async function install(ctx: ClientContext): Promise<void> {
   // untransformed slot: its position:fixed lines resolve against the viewport (spectator banner, click-to-look)
   ctx.ui.registerHud('top-left', ScreenHintHud, { id: 'players-screen-hints', order: 80 });
   ctx.ui.registerHud('top-left', StealthHintHud, { id: 'players-stealth-hint', order: 81 });
+  // v1.3 dead pokes: the spectator's poke bar (screen-anchored like the spectator banner)
+  ctx.ui.registerHud('top-left', PokeBarHud, { id: 'players-poke-bar', order: 82 });
   ctx.ui.registerHud('top-left', CrawlHud, { id: 'players-crawl', order: 5 });
   ctx.ui.registerHud('center', EmoteWheelHud, { id: 'players-emotes', order: 20 });
   // v1.2: next to voice's band meter (order 10): your voice, then your feet
@@ -603,9 +670,12 @@ export async function install(ctx: ClientContext): Promise<void> {
           me.camQuat.setFromEuler(new THREE.Euler(me.pitch, me.yaw + Math.PI, 0, 'YXZ'));
         }
         avatars.hideNameplate(a ? specTarget : null);
-        ui.spectating.value = { on: true, target: a ? (ctx.world.crew?.players.find((p) => p.id === specTarget)?.name ?? null) : null };
+        const specName = a ? (ctx.world.crew?.players.find((p) => p.id === specTarget)?.name ?? null) : null;
+        if (!ui.spectating.value.on || ui.spectating.value.target !== specName) ui.spectating.value = { on: true, target: specName };
+        updatePokeBar();
       } else {
         if (ui.spectating.value.on) { ui.spectating.value = { on: false, target: null }; avatars.hideNameplate(null); }
+        if (ui.poke.value.on) updatePokeBar();
         const step = stepLocal(ctx, me, input, dt);
         if (ctx.testMode) ctx.diag.players = { st: input.state(), typing: input.typing(), vel: [me.vel.x, me.vel.z], frozen: [...me.frozen], dt };
         if (step) {
@@ -699,6 +769,15 @@ export async function install(ctx: ClientContext): Promise<void> {
       },
       showHint: (id) => showHint(id),
       svc: () => playersService,
+      poke: (kind, count) => poke(kind, count ?? 1),
+      pokeUi: () => {
+        const p = ui.poke.value;
+        const t = performance.now();
+        return {
+          on: p.on, room: p.room, knockInMs: Math.max(0, Math.round(p.knockReadyAt - t)), flickerInMs: Math.max(0, Math.round(p.flickerReadyAt - t)),
+          msg: p.msg && t < p.msgUntil ? p.msg : null, pending: p.pending,
+        };
+      },
       lane: () => {
         const nav = levelNav(ctx);
         if (!nav) return null;

@@ -3,7 +3,7 @@
 // simulated crews). Never: strobes, walkies, intercoms, vents, ceiling scratching, the scrape loop, breath/whisper.
 import { astar, cellOf, floodCells, los, walkClear } from '@dead-air/shared/nav/index.ts';
 import type { EdgeGrid } from '@dead-air/shared/nav/index.ts';
-import { PARANORMAL_PHRASES, mirrorName } from '@dead-air/shared/messages/paranormal.ts';
+import { PARANORMAL_PHRASES, safeMirrorName } from '@dead-air/shared/messages/paranormal.ts';
 import type { ParanormalKind } from '@dead-air/shared/messages/paranormal.ts';
 import type { MirrorSpot } from '@dead-air/shared/procgen/mirrors.ts';
 import {
@@ -204,8 +204,12 @@ export function writingText(c: BuildCtx, t: Targets): { text: string; tell: bool
   if (b.tells.intercept && st.room && now - st.room.at < b.writing.roomSec * 1000 && st.room.callsign) {
     return { text: st.room.callsign.toUpperCase(), tell: true };
   }
-  const lone = t.all.filter((p) => p.alive && !p.inVan && isLone(t.all, p.id, b.darkWalk.loneM) && mirrorName(p.name)).sort((p, q) => (p.id < q.id ? -1 : 1));
-  if (lone.length) return { text: mirrorName(lone[Math.floor(st.rng.next() * lone.length)].name), tell: false };
+  // v1.3 P1d: only a name names.ts passes, in its mirror form too (safeMirrorName); else the phrase below
+  const lone = t.all.filter((p) => p.alive && !p.inVan && isLone(t.all, p.id, b.darkWalk.loneM) && safeMirrorName(p.name, p.id)).sort((p, q) => (p.id < q.id ? -1 : 1));
+  if (lone.length) {
+    const p = lone[Math.floor(st.rng.next() * lone.length)];
+    return { text: safeMirrorName(p.name, p.id), tell: false };
+  }
   return { text: PARANORMAL_PHRASES[Math.floor(st.rng.next() * PARANORMAL_PHRASES.length)], tell: false };
 }
 

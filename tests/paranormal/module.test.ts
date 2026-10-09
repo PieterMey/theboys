@@ -35,7 +35,8 @@ function fakeCtx(flags: Record<string, boolean>, para: Record<string, unknown> =
     cfg: {} as never, flags, balance, env: { dev: true } as never,
     log: () => logger,
     crews: {} as never,
-    registerSystem: (s: ServerSystem) => { sys = s; },
+    // v1.3: install also registers the site-rules system (order 78): keep the haunt's
+    registerSystem: (s: ServerSystem) => { if (s.name === 'paranormal') sys = s; },
     registerReq: (n: string, h: (crew: Crew, p: ServerPlayer, a: unknown) => unknown) => { reqs.set(n, h); },
     registerDbg: (n: string, h: (crew: Crew, p: ServerPlayer, a: unknown) => unknown) => { reqs.set(n.startsWith('dbg.') ? n : `dbg.${n}`, h); },
     onVoiceChunk: noop,

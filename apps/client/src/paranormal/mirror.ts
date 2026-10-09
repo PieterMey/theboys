@@ -6,7 +6,9 @@
 //    stands 1.2-1.8 m behind them in handle.ghost (reflections only, no shadow); it is gone when they turn or after
 //    1.2 s. Not live (Low preset, flag mirrors off) or subtle mode: fog + a handprint instead.
 import * as THREE from 'three/webgpu';
+import { PARANORMAL_PHRASES } from '@dead-air/shared/messages/paranormal.ts';
 import type { ParanormalEvent } from '@dead-air/shared/messages/paranormal.ts';
+import { nameBlocked, textBlocked } from '@dead-air/shared/names.ts';
 import type { MirrorHandle } from '../render/api.ts';
 import type { Effect, Env, V3, WitnessSpec } from './env.ts';
 import { seeded, smooth01 } from './env.ts';
@@ -79,7 +81,11 @@ export class MirrorWriting implements Effect {
     if (this.revealAt !== null) {
       if (!this.mask) {
         const w = Number(this.ev.data?.w ?? 0.8), hh = Number(this.ev.data?.h ?? 1);
-        this.mask = writingMask(String(this.ev.data?.text ?? ''), w, hh, this.ev.seed);
+        // v1.3 P1d, belt and braces (the server writes only safeMirrorName names): never draw a blocked word, even one an
+        // older server sent; a fixed phrase instead (seeded: every client draws the same)
+        const raw = String(this.ev.data?.text ?? '');
+        const text = raw && (nameBlocked(raw) || textBlocked(raw)) ? PARANORMAL_PHRASES[Math.abs(this.ev.seed) % PARANORMAL_PHRASES.length] : raw;
+        this.mask = writingMask(text, w, hh, this.ev.seed);
       }
       const revealMs = Number(this.ev.data?.revealMs ?? 2000);
       const k = smooth01((now - this.revealAt) / revealMs);

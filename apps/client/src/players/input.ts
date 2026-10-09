@@ -186,10 +186,16 @@ export function createInput(ctx: ClientContext, settings: PlayerSettings): Input
       case 'KeyQ': if (!repeat) bus.emit('action:radio', { down }); return true;
       case 'KeyV': if (!repeat) bus.emit('action:ptt', { down }); return true;
       case 'KeyT': if (!repeat) bus.emit('action:emote', { down }); return true;
-      case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4':
+      case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4': {
+        if (!down || repeat) return true;
+        const slot = Number(code.slice(5)) - 1;
         // with the emote wheel open the digits pick an emote and must not also switch the inventory slot
-        if (down && !repeat) bus.emit(ui.wheelOpen.value ? 'action:wheelKey' : 'action:slot', { slot: Number(code.slice(5)) - 1 });
+        if (ui.wheelOpen.value) bus.emit('action:wheelKey', { slot });
+        // v1.3 dead pokes: a spectator's digits poke (1-3 knock that many times, 4 flickers), never a dead hand's slot
+        else if (ui.spectating.value.on && ui.poke.value.on) bus.emit('players:poke', slot < 3 ? { kind: 'knock', count: slot + 1 } : { kind: 'flicker' });
+        else bus.emit('action:slot', { slot });
         return true;
+      }
       default: return false;
     }
   };

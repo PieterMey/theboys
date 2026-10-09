@@ -28,7 +28,10 @@ export type NoiseListener = (crew: Crew, n: NoiseEvent) => void;
 /** Proximity text line (flag proxText) that reached the server: the Listener/AI track can treat it like speech. */
 export interface ProxTextEvent {
   player: ServerPlayer;
+  /** the line as the crew got it: control characters out, blocked words masked by names.ts maskText (v1.3 P1d) */
   text: string;
+  /** v1.3 P1d: names.ts masked at least one blocked word in this line (absent = not checked) */
+  masked?: boolean;
   x: number;
   z: number;
   /** talk radius used (m) */

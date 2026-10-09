@@ -29,7 +29,7 @@ export const DEFAULTS: ParaBalance = {
     mirror_writing: 0.8, presence: 0.9, silhouette: 0.6, mirror_figure: 0.7,
   },
   tierBoost: 1.5,
-  kinds: { footprints: true, poltergeist: true, object_fall: true, cold_spot: true, brownout_breath: true, radio_on: false, phone_ring: false, dead_poke: false },
+  kinds: { footprints: true, poltergeist: true, object_fall: true, cold_spot: true, brownout_breath: true, radio_on: false, phone_ring: false, dead_poke: true },
   guarantees: { t1ClockMin: 120, t2ClockMin: 240, mirrorM: 5, mirrorPendingSec: 60 },
   gates: { monsterM: 6, mannequinLightM: 25, grateM: 6, vanM: 6 },
   darkWalk: {
@@ -47,6 +47,16 @@ export const DEFAULTS: ParaBalance = {
   breath: { msMin: 2500, msMax: 4000, depth: 0.55, puffs: 3 },
   seenPerSec: 10,
   witnessM: 25,
+  poke: {
+    knockCooldownSec: 8, flickerCooldownSec: 20, crewGapMs: 1200, knockMax: 40, flickerMax: 15, maxCount: 3,
+    knockM: 6, wallM: 6, nearLivingM: 8, hiddenM: 3, noiseM: 4, hearM: 14, amp: 0.85, flickerMs: 2400,
+  },
+  siteRules: {
+    minBand: 2,
+    leadMs: 900,
+    bell: { everyMs: 2200, maxStrikes: 12, noiseM: 25, cooldownSec: 3, y: 2.7 },
+    phone: { rings: 2, everyMs: 4000, ringMs: 2000, noiseM: 25, roomCooldownSec: 12, crewGapSec: 3, y: 1.3 },
+  },
 };
 
 type Obj = Record<string, unknown>;

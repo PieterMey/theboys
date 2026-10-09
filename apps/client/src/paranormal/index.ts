@@ -18,6 +18,8 @@ import { Footprints, footprintPool } from './footprints.ts';
 import { PropMove } from './props.ts';
 import { BrownoutBreath, ColdSpot, Knock, clearVolumes } from './ambient.ts';
 import { figures, warmTemplates } from './figure.ts';
+import { PokeFlicker } from './pokes.ts';
+import { SiteRuleSound } from './siterules.ts';
 
 export type { ParanormalSettings };
 export interface ParanormalClientService { settings(): ParanormalSettings; setSettings(p: Partial<ParanormalSettings>): void }
@@ -43,7 +45,9 @@ function makeEffect(env: Env, ev: ParanormalEvent, residue: boolean): Effect | n
     case 'handle_rattle': return residue ? null : new Knock(env, ev);
     case 'cold_spot': return residue ? null : new ColdSpot(env, ev);
     case 'brownout_breath': return residue ? null : new BrownoutBreath(env, ev);
-    default: return null; // stretch kinds (radio, phone, dead pokes) are off
+    // v1.3 dead pokes (flag deadPokes, server-gated): a knock sounds like any knock; a flicker pulses the room's lights
+    case 'dead_poke': return residue ? null : ev.data?.poke === 'flicker' ? new PokeFlicker(env, ev) : new Knock(env, ev);
+    default: return null; // stretch kinds (radio, phone) are off
   }
 }
 
@@ -65,7 +69,7 @@ export function install(ctx: ClientContext): void {
   let reduce = reduceFlickerOn();
   let reduceAt = 0;
   const seenQ = new Map<number, boolean>();
-  const diag = { active: 0, kinds: [] as string[], sent: 0, synced: 0, errors: 0, lastError: '', model: false, witness: { checks: 0, reports: 0, why: {} as Record<string, string> }, seenLog: [] as { id: number; end: boolean; ok: boolean | null; t: number }[] };
+  const diag = { active: 0, kinds: [] as string[], rules: 0, sent: 0, synced: 0, errors: 0, lastError: '', model: false, witness: { checks: 0, reports: 0, why: {} as Record<string, string> }, seenLog: [] as { id: number; end: boolean; ok: boolean | null; t: number }[] };
   ctx.diag.paranormal = diag;
   const log = (m: string) => { diag.lastError = m; console.warn(`[paranormal] ${m}`); };
 
@@ -113,6 +117,8 @@ export function install(ctx: ClientContext): void {
   };
 
   const effects = new Map<number, Effect>();
+  /** v1.3 site rules: the bell strikes / phone rings in progress */
+  const rules: SiteRuleSound[] = [];
   const witness = new WitnessTracker(env);
   let needSync = false;
   let syncing = false;
@@ -136,6 +142,7 @@ export function install(ctx: ClientContext): void {
       try { e.dispose(); } catch { /* best effort */ }
     }
     effects.clear();
+    rules.length = 0;
     witness.clear();
     seenQ.clear();
     clearVolumes(env);
@@ -150,6 +157,11 @@ export function install(ctx: ClientContext): void {
     if (e) { try { e.end(d.reason); } catch { /* best effort */ } }
   });
   ctx.net.on('paranormal.reveal', (d) => effects.get(d.id)?.reveal?.(d.at));
+  // v1.3 site rules (flag siteRules, server-gated): the building answers what was said
+  ctx.net.on('paranormal.rule', (ev) => {
+    if (ctx.world.phase !== 'contract' || !ev || typeof ev.id !== 'number' || rules.some((r) => r.ev.id === ev.id)) return;
+    try { rules.push(new SiteRuleSound(env, ev)); } catch (err) { diag.errors++; log(`rule: ${err instanceof Error ? err.message : err}`); }
+  });
   ctx.bus.on('net:welcome', () => { needSync = true; });
   ctx.bus.on('world:phase', ({ to }) => {
     if (to !== 'contract') clear();
@@ -205,6 +217,7 @@ export function install(ctx: ClientContext): void {
     (window as unknown as { __paranormal?: unknown }).__paranormal = {
       diag: () => JSON.parse(JSON.stringify(diag)) as unknown,
       effects: () => [...effects.values()].map((e) => ({ id: e.ev.id, kind: e.ev.kind, at: e.ev.at })),
+      rules: () => rules.map((r) => ({ id: r.ev.id, rule: r.ev.rule, at: r.ev.at })),
       setFlashlight: (on: boolean) => env.players()?.setFlashlight?.(on),
       flashlightOn: () => env.players()?.flashlightOn?.() ?? null,
       mirrors: () => (env.render()?.mirrors?.list() ?? []).map((h) => ({ item: h.itemId, live: h.live() })),
@@ -244,6 +257,12 @@ export function install(ctx: ClientContext): void {
           effects.delete(id);
         }
       }
+      for (let i = rules.length - 1; i >= 0; i--) {
+        let keep = true;
+        try { keep = rules[i].update(now); } catch (err) { keep = false; diag.errors++; log(`rule: ${err instanceof Error ? err.message : err}`); }
+        if (!keep) rules.splice(i, 1);
+      }
+      diag.rules = rules.length;
       witness.update(dt, effects.values());
       // witness reports: at most 10/s
       seenAcc += dt;

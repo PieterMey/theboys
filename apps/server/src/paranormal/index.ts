@@ -2,16 +2,22 @@
 // synced ('paranormal.event' with at = now + 350 and a seed), fair (blocks, gates, budgets, spacing), never spammy.
 // Tell language: brownouts, dying tubes, frost, knocks, shadows, wet prints; never strobes, walkies, intercoms, vents,
 // ceiling scratching or the scrape loop. Gated by flags.paranormal and balance.paranormal.enabled.
-//   reqs: paranormal.sync (residue + active), paranormal.seen (rate-limited witness / end), paranormal.poke (stretch, off)
+//   reqs: paranormal.sync (residue + active), paranormal.seen (rate-limited witness / end),
+//         paranormal.poke (v1.3 dead pokes, flag deadPokes: pokes.ts)
 //   dbg:  paranormal.fire {kind, target?, force?}, paranormal.state, paranormal.tune {...}, paranormal.reset
-import type { ParanormalData, ParanormalKind } from '@dead-air/shared/messages/paranormal.ts';
+// v1.3 site rules (flag siteRules): siterules.ts, installed from here.
+import type { ParanormalData, ParanormalKind, PokeKind, PokeRefusal } from '@dead-air/shared/messages/paranormal.ts';
 import type { Crew, ServerContext } from '../core/types.ts';
 import { listener, onMonsterEvent } from '../monsters/api.ts';
+import { emitNoise } from '../players/noise.ts';
 import { bindParanormalImpl, emitPhenomenon } from './api.ts';
 import type { PhenomenonRecord } from './api.ts';
 import { resolveBalance } from './balance.ts';
-import { firePara, hauntDebug, leavePara, newCrewPara, resetPara, seenPara, syncPara, tickPara } from './plan.ts';
+import { emitExtra, firePara, hauntDebug, leavePara, newCrewPara, resetPara, seenPara, syncPara, tickPara } from './plan.ts';
 import { KIND_BY_NAME } from './kinds.ts';
+import { newPokeState, pokeCooldowns, pokeOnce } from './pokes.ts';
+import { installSiteRules } from './siterules.ts';
+import type { PokeState } from './pokes.ts';
 import type { CrewPara, ParaOut } from './types.ts';
 import { makeLiveWorld } from './world.ts';
 import type { LiveWorld } from './world.ts';
@@ -157,8 +163,37 @@ export function install(ctx: ServerContext): void {
     s.w.refresh();
     return { ok: seenPara(s.st, s.w, b, outFor(crew), player.id, id, a?.end === true) };
   });
-  // stretch (dead pokes): off this round
-  ctx.registerReq('paranormal.poke', () => ({ ok: false }));
+  // v1.3 dead pokes (flag deadPokes; balance kinds.dead_poke false is a kill switch): a dead player knocks near their
+  // camera or flickers the room they watch. Outside the haunt's budgets; the knock's noise reaches monsters.
+  const pokeStates = new WeakMap<Crew, PokeState>();
+  const pokeStateOf = (crew: Crew, s: Slot): PokeState => {
+    let ps = pokeStates.get(crew);
+    if (!ps || ps.key !== s.st.key) { ps = newPokeState(s.st.key); pokeStates.set(crew, ps); }
+    return ps;
+  };
+  const pokesOn = () => ctx.flags.deadPokes === true && enabled() && b.kinds.dead_poke !== false;
+  type PokeReply = { ok: boolean; cooldownMs?: number; reason?: PokeRefusal; id?: number; knockMs?: number; flickerMs?: number };
+  ctx.registerReq('paranormal.poke', (crew, player, a): PokeReply => {
+    const raw = (a ?? {}) as { kind?: unknown; count?: unknown };
+    const kind: PokeKind | null = raw.kind === 'knock' ? 'knock' : raw.kind === 'flicker' || raw.kind === 'brownout' ? 'flicker' : null;
+    if (!kind || !pokesOn()) return { ok: false, reason: 'off' };
+    const s = slotFor(crew, true);
+    if (!s) return { ok: false, reason: 'phase' };
+    s.w.refresh();
+    const ps = pokeStateOf(crew, s);
+    const now = ctx.now();
+    const r = pokeOnce(ps, s.w, b, player.id, kind, Number(raw.count ?? 1), now);
+    if (!r.ok || !r.built) {
+      const cd = pokeCooldowns(ps, b, player.id, now);
+      return { ok: false, reason: r.reason, ...(r.cooldownMs !== undefined ? { cooldownMs: r.cooldownMs } : {}), knockMs: cd.knockMs, flickerMs: cd.flickerMs };
+    }
+    const ev = emitExtra(s.st, b, outFor(crew), r.built, now, r.seed ?? 1);
+    // the dead make no noise for monsters as players (monsters drop a dead source): the knock is the building's
+    if (r.noise) emitNoise(crew, { x: r.noise.x, z: r.noise.z, radiusM: r.noise.radiusM, kind: 'deadStatic', source: '' });
+    const cd = pokeCooldowns(ps, b, player.id, now);
+    log.debug(`crew ${crew.code}: dead poke ${kind}${kind === 'knock' ? ` x${String(ev.data?.count ?? 1)}` : ''} (space ${ev.space})`);
+    return { ok: true, id: ev.id, ...(r.cooldownMs !== undefined ? { cooldownMs: r.cooldownMs } : {}), knockMs: cd.knockMs, flickerMs: cd.flickerMs };
+  });
 
   // ---------------- api ----------------
   bindParanormalImpl({
@@ -201,10 +236,12 @@ export function install(ctx: ServerContext): void {
     if (!s) return { enabled: enabled(), running: false, records: side(crew).records };
     s.w.refresh();
     const st = s.st;
+    const ps = pokeStates.get(crew);
     return {
       enabled: enabled(), running: true, ...hauntDebug(st, s.w, b), records: side(crew).records,
       avgTickMs: st.stats.ticks ? Math.round((st.stats.tickMs / st.stats.ticks) * 10000) / 10000 : 0,
       stalk: st.stalk, room: st.room, lore: st.loreTargets,
+      pokes: { on: pokesOn(), stats: ps && ps.key === st.key ? ps.stats : null },
     };
   });
   ctx.registerDbg('paranormal.tune', (crew, _p, args) => {
@@ -228,6 +265,9 @@ export function install(ctx: ServerContext): void {
     if (s) drop(crew, s);
     return { ok: true };
   });
+
+  // v1.3 site rules (flag siteRules): the building answers what the crew says (siterules.ts)
+  installSiteRules(ctx, () => b, enabled);
 
   log.info(`installed (order ${PARANORMAL_ORDER}, ${enabled() ? 'on' : 'off'})`);
 }

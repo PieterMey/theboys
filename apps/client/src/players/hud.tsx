@@ -1,5 +1,6 @@
 // Owner: track ⑤ Players (v1.2 stance HUD + stealth hints: players-stealth). HUD widgets: stamina, crosshair + "click
-// to look" hint, emote wheel, proximity chat, spectator banner, stance (how far your steps carry), one-time hints.
+// to look" hint, emote wheel, proximity chat, spectator banner, stance (how far your steps carry), one-time hints,
+// v1.3 the spectator's poke bar (dead pokes).
 // State lives in ./social.ts signals.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { HudProps } from '../core/ui/api.ts';
@@ -146,6 +147,77 @@ export function ScreenHintHud(_p: HudProps) {
   return (
     <div style={{ position: 'fixed', left: 0, right: 0, top: '58%', textAlign: 'center', whiteSpace: 'nowrap', font: `600 12px ${mono}`, letterSpacing: '0.25em', color: 'rgba(230,224,206,0.8)', textShadow: '0 0 6px #000', pointerEvents: 'none' }}>
       CLICK TO LOOK AROUND
+    </div>
+  );
+}
+
+/**
+ * Where the poke bar sits: the inventory hotbar's place at the bottom edge (the hotbar hides while spectating, and the
+ * same keys 1-4 poke now), under interaction's revive line (.ix-spec, 96 px up) and clear of the followed teammate,
+ * whom the follow camera frames mid-screen. On a window narrower than 960 px the corner HUD (band meter and chat,
+ * render chip) would reach it, so there it steps up above the revive line instead: (960px - 100vw) * 1000 is hugely
+ * negative on a wide window and hugely positive on a narrow one, and the clamp turns that into 14 px or 124 px.
+ */
+const POKE_BAR_BOTTOM = 'clamp(14px, calc((960px - 100vw) * 1000), 124px)';
+
+/**
+ * v1.3 dead pokes (flag deadPokes): the spectator's poke bar at the bottom edge (POKE_BAR_BOTTOM): one line (what this
+ * is, then the last result or the hint) over the buttons. [1]-[3] knock that many times on the door or wall nearest
+ * your camera (one shared cooldown), [4] flickers the lights of the room you watch. Keys work while the mouse is
+ * captured; the buttons take clicks once it is free. The server decides where and whether.
+ */
+export function PokeBarHud({ ctx }: HudProps) {
+  const p = ui.poke.value;
+  const spec = ui.spectating.value;
+  const [, setTick] = useState(0);
+  const now = performance.now();
+  const live = p.on && (now < p.knockReadyAt || now < p.flickerReadyAt || (!!p.msg && now < p.msgUntil));
+  useEffect(() => {
+    if (!live) return;
+    const t = setInterval(() => setTick((x) => x + 1), 150);
+    return () => clearInterval(t);
+  }, [live, p.knockReadyAt, p.flickerReadyAt, p.msgUntil]);
+  if (!ui.inGame.value || !spec.on || !p.on) return null;
+  const knockLeft = Math.max(0, p.knockReadyAt - now);
+  const flickerLeft = Math.max(0, p.flickerReadyAt - now);
+  const msg = p.msg && now < p.msgUntil ? p.msg : null;
+  const btn = (key: string, label: string, left: number, full: number, send: () => void, testid: string) => {
+    const busy = left > 0 || p.pending;
+    const k = full > 0 ? Math.max(0, Math.min(1, 1 - left / full)) : 1;
+    return (
+      <button key={testid} type="button" data-no-lock="1" data-testid={testid} data-ready={busy ? '0' : '1'} disabled={busy}
+        onClick={(e) => { e.preventDefault(); send(); }}
+        style={{
+          position: 'relative', overflow: 'hidden', minWidth: '108px', padding: '7px 11px 8px', cursor: busy ? 'default' : 'pointer',
+          font: `700 11.5px/15px ${mono}`, letterSpacing: '0.16em', textAlign: 'left', whiteSpace: 'nowrap',
+          color: busy ? 'rgba(159,215,255,0.45)' : '#d8eeff', background: 'rgba(4,8,12,0.72)',
+          border: `1px solid ${busy ? 'rgba(159,215,255,0.16)' : 'rgba(159,215,255,0.5)'}`, borderRadius: '3px',
+          boxShadow: busy ? 'none' : '0 0 14px rgba(110,190,255,0.16)', textShadow: '0 0 6px #000',
+        }}>
+        <span style={{ color: busy ? 'rgba(232,201,90,0.4)' : '#e8c95a', marginRight: '7px' }}>{key}</span>
+        {label}
+        {left > 0 && <span style={{ marginLeft: '7px', fontWeight: 500, color: 'rgba(216,238,255,0.6)' }}>{Math.ceil(left / 1000)} s</span>}
+        <span style={{ position: 'absolute', left: 0, bottom: 0, height: '2px', width: `${Math.round(k * 100)}%`, background: busy ? 'rgba(159,215,255,0.35)' : 'rgba(159,215,255,0.8)' }} />
+      </button>
+    );
+  };
+  const send = (kind: 'knock' | 'flicker', count?: number) => () => ctx.bus.emit('players:poke', count ? { kind, count } : { kind });
+  return (
+    <div data-testid="poke-bar" style={{
+      position: 'fixed', left: 0, right: 0, bottom: POKE_BAR_BOTTOM, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px',
+      textAlign: 'center', pointerEvents: 'none',
+    }}>
+      <div data-testid="poke-line" style={{ maxWidth: '92vw', font: `500 11px/14px ${mono}`, letterSpacing: '0.07em', textShadow: '0 0 6px #000' }}>
+        <span style={{ fontSize: '10px', fontWeight: 600, letterSpacing: '0.22em', color: 'rgba(159,215,255,0.72)' }}>REACH THROUGH THE STATIC</span>
+        <span style={{ margin: '0 8px', color: 'rgba(159,215,255,0.38)' }}>·</span>
+        <span data-testid="poke-msg" style={{ color: msg ? '#f2e6c4' : 'rgba(217,212,198,0.62)' }}>{msg ?? 'THE LIVING HEAR YOUR KNOCKS. SO DOES THE HOUND.'}</span>
+      </div>
+      <div data-testid="poke-buttons" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '8px', maxWidth: '92vw', pointerEvents: 'auto' }}>
+        {btn('1', 'KNOCK', knockLeft, p.knockMs, send('knock', 1), 'poke-knock-1')}
+        {btn('2', 'KNOCK ×2', knockLeft, p.knockMs, send('knock', 2), 'poke-knock-2')}
+        {btn('3', 'KNOCK ×3', knockLeft, p.knockMs, send('knock', 3), 'poke-knock-3')}
+        {btn('4', p.room ? `FLICKER ${p.room}` : 'FLICKER', flickerLeft, p.flickerMs, send('flicker'), 'poke-flicker')}
+      </div>
     </div>
   );
 }
