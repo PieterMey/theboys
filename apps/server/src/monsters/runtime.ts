@@ -19,6 +19,7 @@ import { houndHear, houndTick, makeHound } from './hound.ts';
 import { litAt, makeMannequin, mannequinTick, blinkTick } from './mannequin.ts';
 import { listenerHearNoise, listenerTick, makeListener } from './listener.ts';
 import { makeSnatcher, snatcherTick, snatchVictim } from './snatcher.ts';
+import { earsHearVoice, earsTick, setupEars } from './earwigs.ts';
 
 /** Runtime services handed to the per-monster modules. */
 export interface Rt {
@@ -127,12 +128,16 @@ export function startContract(ctx: ServerContext, crew: Crew, o: StartOpts): Cre
     const ms = spawnItems(L, 'spawn_mannequin')[0];
     cm.agents.push(makeMannequin('mannequin0', ms?.x ?? L.van.x, ms?.z ?? L.van.z, ms?.rot ?? 0));
   }
-  // snatcher (v1.1): risk >= 2 or the crew's 2nd contract onward (flag 'snatcher'); max 1; hunts after minStartSec
+  // snatcher (v1.1): risk >= 2 or (v1.3) the crew's 3rd contract onward (contractIndex >= minContractIndex 2; flag
+  // 'snatcher'); max 1; hunts after minStartSec
   const sb = bal(ctx, 'snatcher');
-  if (ctx.flags.snatcher !== false && (cm.risk >= num(sb, 'minRisk', 2) || cm.contractIndex >= num(sb, 'minContractIndex', 1))) {
+  if (ctx.flags.snatcher !== false && (cm.risk >= num(sb, 'minRisk', 2) || cm.contractIndex >= num(sb, 'minContractIndex', 2))) {
     const sn = makeSnatcher('snatcher0', L, num(sb, 'minStartSec', 120));
     if (sn) cm.agents.push(sn);
   }
+  // v1.3 Earwigs (flag earwigs, off by default): the Listener's ears on the crew's route
+  const ears = setupEars(ctx, cm);
+  if (ears.length) ctx.log('monsters').info(`crew ${crew.code}: ${ears.length} earwigs on the route (${ears.map((e) => e.callsign ?? 'corridor').join(', ')})`);
   crew.slices.monsters = cm;
   return cm;
 }
@@ -329,10 +334,16 @@ function voiceNoise(rt: Rt, dt: number): void {
     ac.x = px;
     ac.z = pz;
   }
+  const lis = cm.mode === 'contract' ? (cm.agents.find((a) => a.kind === 'listener') as ListenerAgent | undefined) : undefined;
   for (const p of crew.players.values()) {
     if (p.band <= BAND.silent || !isAlive(crew, p)) continue;
     const [x, , z] = p.pose.p;
     if (inCab(cm.layout, x, z)) continue;
+    // v1.3 telemetry: the nearest living speaker this contract (straight line; the contract-end log line)
+    if (lis) {
+      const d = dist(x, z, lis.x, lis.z);
+      if (Number.isFinite(d) && d < (lis.nearestSpeakerM ?? Infinity)) lis.nearestSpeakerM = d;
+    }
     const r = bandRadius(ctx, p.band);
     if (r > 0) cm.noiseQ.push({ x, z, radiusM: r, kind: 'voice', source: p.id, band: p.band });
   }
@@ -410,6 +421,8 @@ function processNoise(rt: Rt): void {
       if (a.kind === 'hound') houndHear(rt, a as HoundAgent, n, d, per);
       else if (a.kind === 'listener') listenerHearNoise(rt, a as ListenerAgent, n, d, per);
     }
+    // v1.3 (flag earwigs): the Listener's ears hear voices too (same flood) and pass them on
+    if (n.kind === 'voice' && cm.ears?.length) earsHearVoice(rt, n, field);
   }
 }
 
@@ -423,6 +436,8 @@ export function tickRuntime(rt: Rt, dt: number): void {
   cm.time += dt;
   if (cm.selfNoise.length) cm.selfNoise = cm.selfNoise.filter((s) => s.until >= cm.time);
   voiceNoise(rt, dt);
+  // v1.3 (flag earwigs): a flashlight on an ear deafens it before this tick's voices reach it
+  if (cm.ears?.length) earsTick(rt, dt);
   processNoise(rt);
   for (const a of cm.agents) {
     a.st += dt;

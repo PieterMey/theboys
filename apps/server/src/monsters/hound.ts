@@ -1,7 +1,8 @@
 // Owner: track (c) Monsters. THE HOUND (blind; every risk). Ignores anything below talk-level loudness (whispers,
 // crouch steps). First heard sound -> ALERT (1.5 s head tilt + growl audible 10 m) -> INVESTIGATE the doorway the sound
 // came through at 4 m/s -> CHARGE (7.5 m/s after a 300-600 ms wind-up, kills on contact) only if a second noise comes
-// within 6 s and within 12 m. Loses interest after 10 s of quiet. Bottles override everything.
+// within 6 s and within 12 m. Loses interest after 10 s of quiet. Bottles (and v1.3 noise lures, isBait) override
+// everything.
 // Chained kennel variant (hub): whisper ignored, talk -> turns + growls, shout -> lunges at the fence. Never kills.
 // v1.1 fairness: it never winds up on / kills a player its growl has not reached first (>= alertGraceSec earlier,
 // <= warnValidSec ago): a noise or bump from an unwarned player re-alerts it with a growl that reaches them instead
@@ -42,6 +43,12 @@ export function noiseLabel(n: Pick<Noise, 'kind' | 'band'>): string {
     case 'deadStatic': return 'STATIC';
     default: return n.kind.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase();
   }
+}
+
+/** v1.3: bait noises it goes for like a thrown bottle: 'bottle' and G3's noise lure (any noise kind containing 'lure',
+ *  e.g. 'lure' / 'noiseLure': it rattles where it lands) */
+export function isBait(kind: string): boolean {
+  return kind === 'bottle' || /lure/i.test(kind);
 }
 
 function setState(h: HoundAgent, s: string, timer = 0): void {
@@ -131,8 +138,8 @@ export function houndHear(rt: Rt, h: HoundAgent, n: Noise, d: number, per: Perce
   if (!h.active || h.state === 'eat' || h.state === 'out') return;
   if (h.chained) return kennelHear(rt, h, n, d);
   const now = rt.cm.time;
-  if (n.kind === 'bottle') {
-    // bottles override everything: go to the impact point and sniff
+  if (isBait(n.kind)) {
+    // bottles (and v1.3 noise lures) override everything: go to the impact point and sniff
     h.tx = n.x;
     h.tz = n.z;
     setState(h, 'bottle');
@@ -214,7 +221,7 @@ export function houndHear(rt: Rt, h: HoundAgent, n: Noise, d: number, per: Perce
  */
 function kennelHear(rt: Rt, h: HoundAgent, n: Noise, d = 0): void {
   const step = n.kind === 'walkStep' || n.kind === 'sprintStep';
-  if (n.kind !== 'voice' && n.kind !== 'airhorn' && n.kind !== 'bottle' && n.kind !== 'radio' && !step) return;
+  if (n.kind !== 'voice' && n.kind !== 'airhorn' && !isBait(n.kind) && n.kind !== 'radio' && !step) return;
   if (n.radiusM < num(rt.hound, 'hearMinRadiusM', 4)) return; // whisper, crouch steps: ignored
   if (n.kind === 'walkStep' && d > num(rt.hound, 'kennelWalkM', 6)) return;
   if (n.kind === 'sprintStep' && d > num(rt.hound, 'kennelSprintM', 10)) return;

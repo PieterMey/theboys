@@ -12,7 +12,7 @@ const SOFTWARE = process.env.DEADAIR_RENDER === 'swiftshader';
 
 export interface StablePlayer { browser: Browser; page: Page; errors: string[]; close(): Promise<void> }
 
-export async function launchStable(opts: { name: string; baseUrl: string; crew: string; query?: Record<string, string>; viewport?: { width: number; height: number } }): Promise<StablePlayer> {
+export async function launchStable(opts: { name: string; baseUrl: string; crew: string; query?: Record<string, string>; viewport?: { width: number; height: number }; /** v1.3: a script run before any page script (instrumentation) */ init?: string }): Promise<StablePlayer> {
   const wav = join(REPO, 'tests/fixtures/voice/silence.wav');
   const browser = await chromium.launch({
     channel: 'chrome', headless: true,
@@ -28,6 +28,7 @@ export async function launchStable(opts: { name: string; baseUrl: string; crew: 
   page.on('console', (m) => { if (m.type() === 'error' && !/vite|websocket/i.test(m.text())) errors.push(`console: ${m.text()}`); });
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
   await page.addInitScript((n: string) => { try { localStorage.setItem('deadair.name', n); } catch { /* ignore */ } }, opts.name);
+  if (opts.init) await page.addInitScript(opts.init);
   const q = new URLSearchParams({ test: '1', ...(SOFTWARE ? { webgl: '1', preset: 'low' } : {}), ...(opts.query ?? {}) });
   if (SOFTWARE) q.set('webgl', '1');
   await page.goto(`${opts.baseUrl.replace(/\/$/, '')}/?${q.toString()}#${opts.crew}`, { waitUntil: 'domcontentloaded' });

@@ -3,7 +3,9 @@
 // (utterance.hearers.listener, else our own voice-reach record), loudness of every living speaker (non-consenting
 // players are loudness-only), footsteps; sight is a 90 deg cone, 6 m lit / 3 m dark, LOS. It never knows positions it
 // did not hear or see. Dormant at first (Risk 1: 3 real minutes), then wakes with a facility-wide flicker + squelch and
-// immediately acts on something it overheard. Decisions: at most 1 per 3 s and only with new meaningful input, from the
+// immediately acts on something it overheard. v1.3 wake gate (dormantTick): with nothing meaningful heard by then it
+// stays dormant until its first meaningful line (<= wakeHoldMaxSec more); v1.3 Earwigs (flag earwigs, earwigs.ts)
+// relay lines to it placed at the ear. Decisions: at most 1 per 3 s and only with new meaningful input, from the
 // AI brain (listener.setBrain) or the rule brain; every target is validated. Transcript-driven intents are telegraphed
 // (room flicker 1.2 s, walkies within 20 m squelch, console INTERCEPT line).
 //
@@ -189,16 +191,38 @@ export function listenerHearNoise(rt: Rt, L: ListenerAgent, n: Noise, d: number,
   }
 }
 
-/** an utterance the AI track transcribed (or a proximity text line) */
+/** v1.3 (flag earwigs): an ear passed a voice sample on. It learns "a voice near that ear" (the ear's spot, never the
+ *  speaker's; its own direct perception of them within the last 2 s wins); awake and idle, it goes to the ear like to
+ *  any noise it hears itself. Never touches heardP (a hunt only senses what it hears itself). */
+export function listenerEarNoise(rt: Rt, L: ListenerAgent, ear: { x: number; z: number; space: number }, n: Noise): void {
+  const t = rt.cm.time;
+  const sp = n.source ? rt.crew.players.get(n.source) : undefined;
+  if (sp) {
+    const k = L.known.get(sp.id);
+    if (!k || t - k.t > 2) L.known.set(sp.id, { x: ear.x, z: ear.z, t });
+  }
+  if (L.dormant || !L.active) return;
+  if ((L.intent === 'patrol' || L.state === 'search') && !BUSY_V12.has(L.state)) {
+    L.intent = 'investigate_room';
+    L.targetSpace = ear.space;
+    L.until = t + 20;
+    goTo(rt, L, ear.x, ear.z, 'investigate');
+  }
+}
+
+/** an utterance the AI track transcribed (or a proximity text line). v1.3 `ear`: relayed by that ear (flag earwigs):
+ *  heard by it, placed at it (room + position = the ear's, never the speaker's) */
 export function listenerHeardUtterance(rt: Rt, L: ListenerAgent, u: {
   segId: string; speaker: string | null; text: string; room: number; via: 'voice' | 'radio' | 'text'; band: number;
   heard: boolean | undefined; durSec: number; x?: number; z?: number; taunt?: boolean;
+  ear?: { id: string; space: number; x: number; z: number };
 }): HeardLine | null {
   const cm = rt.cm;
   if (L.memory.some((l) => l.segId === u.segId)) return null;
   const sp = u.speaker ? rt.crew.players.get(u.speaker) : undefined;
   if (sp && !isAlive(rt.crew, sp)) return null; // segments from dead speakers never reach it
-  let heard = u.heard;
+  const ear = u.ear;
+  let heard = ear ? true : u.heard;
   if (heard === undefined) {
     // who-heard-what fallback: did its voice reach us while the segment was open?
     const arr = sp ? L.voiceHeard.get(sp.id) : undefined;
@@ -211,17 +235,26 @@ export function listenerHeardUtterance(rt: Rt, L: ListenerAgent, u: {
   const kp = sp ? L.known.get(sp.id) : undefined;
   const line: HeardLine = {
     id: ++L.lineSeq, t: cm.time, segId: u.segId, speaker: sp?.id ?? u.speaker, speakerName: sp?.name ?? null,
-    text: String(u.text).slice(0, 240), room: u.room, via: u.via, band: u.band,
+    text: String(u.text).slice(0, 240), room: ear ? ear.space : u.room, via: u.via, band: u.band,
     callsigns: f.callsigns, names: f.names, plan: f.plan, digits: f.digits, meaningful: f.meaningful,
     ...(u.taunt === true ? { taunt: true } : {}),
-    px: kp?.x ?? u.x ?? L.x, pz: kp?.z ?? u.z ?? L.z, pdoor: -1, used: false,
+    px: ear ? ear.x : (kp?.x ?? u.x ?? L.x), pz: ear ? ear.z : (kp?.z ?? u.z ?? L.z), pdoor: -1, used: false,
+    ...(ear ? { ear: ear.id } : {}),
   };
   L.memory.push(line);
+  // v1.3 telemetry (contract-end log line; counts only)
+  L.heardLines = (L.heardLines ?? 0) + 1;
+  if (L.dormant) L.heardDormant = (L.heardDormant ?? 0) + 1;
+  if (ear) L.earLines = (L.earLines ?? 0) + 1;
   const maxLines = num(rt.listener, 'memoryLines', 12);
   if (L.memory.length > maxLines) L.memory.splice(0, L.memory.length - maxLines);
   // taunts ("ignore your instructions") carry no callsign / plan word but still get an in-world answer (AI brain)
   if (f.meaningful || u.taunt === true) L.fresh = true;
-  if (sp) {
+  if (sp && ear) {
+    // through an ear: "voices near the <ear>", never the speaker's position (its own fresher perception wins)
+    const k = L.known.get(sp.id);
+    if (!k || cm.time - k.t > 2) L.known.set(sp.id, { x: ear.x, z: ear.z, t: cm.time });
+  } else if (sp) {
     const [x, , z] = sp.pose.p;
     if (!fairOn(rt.ctx)) L.known.set(sp.id, { x, z, t: cm.time });
     else {
@@ -428,6 +461,7 @@ function brainInput(rt: Rt, L: ListenerAgent): ListenerBrainInput {
     heard: L.memory.filter((l) => cm.time - l.t <= num(rt.listener, 'memorySec', 150)).map((l) => ({
       id: l.id, ago: Math.round(cm.time - l.t), speaker: l.speakerName, speakerId: l.speaker, text: l.text,
       room: cm.spaceCallsign.get(l.room) ?? null, roomId: l.room, via: l.via, callsigns: l.callsigns, names: l.names, meaningful: l.meaningful,
+      ...(l.ear ? { viaEar: true } : {}),
     })),
     rooms: [...cm.callsignSpace].map(([callsign, id]) => ({ id, callsign })),
     players: [...ids].map((id) => {
@@ -603,7 +637,7 @@ function execute(rt: Rt, L: ListenerAgent, it: RuleIntent, source: string, valid
   if (fromTranscript) telegraph(rt, L, it, basis!);
   const quote = basis ? shortQuote(basis.text) : null;
   const line = basis
-    ? `it heard "${quote}" -> ${VERB[it.action] ?? it.action}${target && it.action !== 'ignore' && it.action !== 'retreat' ? ` ${target}` : ''}`
+    ? `it heard "${quote}"${basis.ear ? ' through an ear' : ''} -> ${VERB[it.action] ?? it.action}${target && it.action !== 'ignore' && it.action !== 'retreat' ? ` ${target}` : ''}`
     : `it ${VERB[it.action] ?? it.action}${target ? ` ${target}` : ''}`;
   const entry: DecisionEntry = {
     t, at: rt.ctx.now(), heard: quote ?? '', speaker: basis?.speakerName ?? null, action: it.action, target, source, valid, line,
@@ -635,15 +669,58 @@ function telegraph(rt: Rt, L: ListenerAgent, it: RuleIntent, basis: HeardLine): 
 function wake(rt: Rt, L: ListenerAgent): void {
   L.dormant = false;
   L.active = true;
+  L.wokeAt = rt.cm.time;
+  const heldSec = L.held ? Math.max(0, rt.cm.time - L.wakeAt) : 0;
+  L.held = false;
   startPatrol(rt, L);
   rt.ctx.emit(rt.crew, 'monsters.wake', { ms: num(rt.listener, 'wakeFlickerMs', 1600) });
   const all = rt.alive().filter((p) => hasWalkie(rt.crew, p)).map((p) => p.id);
   if (all.length) rt.ctx.emit(rt.crew, 'monsters.led', { to: all, ms: 1600 });
-  rt.ctx.log('monsters').info(`crew ${rt.crew.code}: the Listener woke up (${L.memory.length} lines in memory)`);
+  rt.ctx.log('monsters').info(`crew ${rt.crew.code}: the Listener woke up (${L.memory.length} lines in memory${heldSec > 0 ? `, ${wakeLine(rt, L) ? 'on its first meaningful line' : 'hold cap reached'} after ${Math.round(heldSec)} s more` : ''})`);
   monsterEvent(rt, L, 'wake');
   // immediately act on something it overheard
   for (const l of L.memory) l.used = false;
   maybeDecide(rt, L, true);
+}
+
+/** v1.3: a line it can act on at wake-up: meaningful (callsign, name, digits, plan word) or a taunt, heard within
+ *  wakeLineMaxAgeSec (the rule brain looks back 60 s) */
+function wakeLine(rt: Rt, L: ListenerAgent): boolean {
+  const maxAge = num(rt.listener, 'wakeLineMaxAgeSec', 60);
+  const t = rt.cm.time;
+  return L.memory.some((l) => (l.meaningful || l.taunt === true) && t - l.t <= maxAge);
+}
+
+/**
+ * v1.3 wake gate (both ticks). At wakeAt it wakes only if it has something to act on; else it stays dormant (still
+ * listening, ears included) until its first meaningful line, at most wakeHoldMaxSec (90) more. wakeHoldMaxSec 0 =
+ * the old fixed wake time. The 2026-10-08 contracts woke it twice with 0 lines in memory: no "it understood you".
+ */
+function dormantTick(rt: Rt, L: ListenerAgent): void {
+  L.active = false;
+  L.anim = ANIM.mIdle;
+  const t = rt.cm.time;
+  if (t < L.wakeAt) return;
+  const hold = num(rt.listener, 'wakeHoldMaxSec', 90);
+  if (hold > 0 && t < L.wakeAt + hold && !wakeLine(rt, L)) {
+    if (!L.held) {
+      L.held = true;
+      rt.ctx.log('monsters').info(`crew ${rt.crew.code}: the Listener stays dormant: nothing meaningful heard yet (${L.memory.length} lines in memory; waits up to ${Math.round(hold)} s for one)`);
+    }
+    return;
+  }
+  wake(rt, L);
+}
+
+/** v1.3 contract-end log line (counts and metres only, never names) */
+export function listenerSummary(L: ListenerAgent): string {
+  const n = L.heardLines ?? 0, m = L.heardDormant ?? 0, e = L.earLines ?? 0;
+  const near = L.nearestSpeakerM;
+  const nearTxt = near !== undefined && Number.isFinite(near) ? `${Math.round(near * 10) / 10} m` : 'none';
+  const woke = L.wokeAt !== undefined
+    ? `woke at ${Math.round(L.wokeAt)} s${L.wokeAt > L.wakeAt + 0.5 ? ` (held ${Math.round(L.wokeAt - L.wakeAt)} s for a line)` : ''}`
+    : L.held ? 'still holding for a line' : 'never woke';
+  return `heard ${n} lines (${m} before waking${e ? `, ${e} through ears` : ''}), nearest speaker ${nearTxt}; ${woke}`;
 }
 
 // ---------------- grab ----------------
@@ -888,9 +965,7 @@ function listenerTickV11(rt: Rt, L: ListenerAgent, dt: number): void {
   const cm = rt.cm;
   const t = cm.time;
   if (L.dormant) {
-    L.active = false;
-    L.anim = ANIM.mIdle;
-    if (t >= L.wakeAt) wake(rt, L);
+    dormantTick(rt, L);
     return;
   }
   if (L.state === 'out') {
@@ -1120,9 +1195,7 @@ function listenerTickV12(rt: Rt, L: ListenerAgent, dt: number): void {
   const t = cm.time;
   const b = rt.listener;
   if (L.dormant) {
-    L.active = false;
-    L.anim = ANIM.mIdle;
-    if (t >= L.wakeAt) wake(rt, L);
+    dormantTick(rt, L);
     return;
   }
   if (L.state === 'out') {

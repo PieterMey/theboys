@@ -57,6 +57,8 @@
   "listener": {
     "dormantRealSecRisk1": 180,
     "dormantGameMin": 3,
+    "wakeHoldMaxSec": 90,
+    "wakeLineMaxAgeSec": 60,
     "patrolSpeed": 2.6,
     "investigateSpeed": 4.0,
     "lungeSpeed": 5.0,
@@ -137,7 +139,7 @@
   },
   "snatcher": {
     "minRisk": 2,
-    "minContractIndex": 1,
+    "minContractIndex": 2,
     "minStartSec": 120,
     "aloneM": 10,
     "aloneSec": 8,
@@ -169,6 +171,26 @@
   "retreat": {
     "afterDeathSec": 20,
     "radiusM": 25
+  },
+  "earwigs": {
+    "_doc": "v1.3 flag earwigs (off by default): the Listener's ears on the crew's route (apps/server/src/monsters/earwigs.ts). count2/count4/count6 = ears for up to 2 / 3-4 / 5-6 players; placed at depth depthMin..depthMax on the route entrance -> levers -> keypad -> Core (sampled every stepM), >= minSepM apart, greedy coverage of the route within talkM path metres (the first preShare of the route weighs preWeight); mounted at heightMin..heightMax m. A flashlight within litRangeM and litHalfAngleDeg of it makes it deaf for deafSec. Tick cue tickRadiusM, at most every tickEverySec while it passes voices on (always on a relayed line).",
+    "count2": 2,
+    "count4": 3,
+    "count6": 4,
+    "minSepM": 10,
+    "depthMin": 0.1,
+    "depthMax": 0.7,
+    "talkM": 10,
+    "stepM": 3,
+    "preShare": 0.4,
+    "preWeight": 2,
+    "heightMin": 1.25,
+    "heightMax": 1.75,
+    "deafSec": 6,
+    "litRangeM": 8,
+    "litHalfAngleDeg": 22,
+    "tickRadiusM": 4,
+    "tickEverySec": 2
   },
   "director": {
     "eventMinSec": 20,

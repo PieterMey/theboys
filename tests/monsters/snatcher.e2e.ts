@@ -1,5 +1,6 @@
 // Owner: track (c) Monsters. v1.1 THE SNATCHER with ws bots (no browser):
-//  - spawn rules: none at risk 1 / 1st contract, present at risk 2 or the 2nd contract, dormant for the first 2 minutes
+//  - spawn rules: none at risk 1 / 1st + 2nd contract, present at risk 2 or (v1.3) from the 3rd contract, dormant for
+//    the first 2 minutes
 //  - snatch -> rescue: a player alone >= 8 s near a grate is stalked (rattle + dust + soft clicks first), dropped on,
 //    dragged into the grate; a teammate holding E (pull heartbeat) for 2 s at the grate frees them; it retreats
 //  - buddy system: a teammate arriving within 10 m during the stalk makes it pull back (no snatch)
@@ -37,8 +38,12 @@ try {
   await a.dbg('monsters.start', { seed: 'snatch-r1', players: 2, risk: 1, contractIndex: 0 });
   check('risk 1, 1st contract: no Snatcher', !(await sn()));
   await a.dbg('monsters.stop');
+  // v1.3: from the crew's 3rd contract (snatcher.minContractIndex 2), no longer the 2nd
   await a.dbg('monsters.start', { seed: 'snatch-r1b', players: 2, risk: 1, contractIndex: 1 });
-  check('risk 1, 2nd contract: Snatcher present', !!(await sn()));
+  check('risk 1, 2nd contract: no Snatcher (v1.3: from the 3rd)', !(await sn()));
+  await a.dbg('monsters.stop');
+  await a.dbg('monsters.start', { seed: 'snatch-r1b', players: 2, risk: 1, contractIndex: 2 });
+  check('risk 1, 3rd contract: Snatcher present', !!(await sn()));
   await a.dbg('monsters.stop');
   await a.dbg('monsters.start', { seed: 'snatch-1', players: 2, risk: 2, contractIndex: 0 });
   const s0 = await sn();

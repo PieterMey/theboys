@@ -27,6 +27,9 @@ export interface ListenerBrainInput {
     /** player ids named in the line */
     names: string[];
     meaningful: boolean;
+    /** v1.3 (flag earwigs): relayed by an ear; room / roomId are then the EAR's room, not the speaker's.
+     *  TODO(ai): say "(heard through an ear in <room>)" in the Listener prompt; ignored until then */
+    viaEar?: boolean;
   }[];
   /** callsigned rooms of this facility */
   rooms: { id: number; callsign: string }[];

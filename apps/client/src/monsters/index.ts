@@ -22,8 +22,10 @@ import type { DoorOpenFn, EdgeGrid } from '@dead-air/shared/nav/index.ts';
 import type { ClientContext } from '../core/context.ts';
 import { SYS } from '../core/loop.ts';
 import type { SnatchEvent } from '@dead-air/shared/messages/monsters.ts';
-import { addKennelGlow, instantiate, loadMonsterLib, poseSnatcher } from './models.ts';
+import { addKennelGlow, instantiate, listenerSkin, loadMonsterLib, poseSnatcher } from './models.ts';
 import type { MonsterLib, MonsterModel } from './models.ts';
+import { EAR_PREFIX, createEars } from './earwigs.ts';
+import type { EarEntry } from './earwigs.ts';
 
 interface SfxHandleLike { stop(): void; setPos?(p: Vec3): void }
 interface SfxLike {
@@ -102,6 +104,10 @@ export function install(ctx: ClientContext): void {
   const views = new Map<string, View>();
   let lib: MonsterLib | null = null;
   let libRequested = false;
+  // v1.3 Earwigs (flag earwigs, read like every client flag: missing = off): the ear meshes (earwigs.ts). The flag
+  // only decides whether the warm-up compiles the ear program; ears the server sends are always shown.
+  const earsFlag = (ctx.flags as Record<string, unknown>).earwigs === true;
+  const ears = createEars();
   const use = <T,>(name: string) => (ctx.services.use as unknown as (n: string) => T | undefined)(name);
   const sfx = () => use<SfxLike>('sfx');
   const render = () => use<RenderLike>('render');
@@ -140,8 +146,8 @@ export function install(ctx: ClientContext): void {
   };
 
   // ---------------- views ----------------
-  // readiness part 'monsters' (loading screen): models loaded + every monster pipeline compiled (compileAsync on the
-  // warm-up group against the real scene); never blocks for long (15 s safety, failure = done)
+  // readiness part 'monsters' (loading screen): models loaded + the warm set drawn by the real scene pass (warm-up
+  // below); never blocks for long (15 s safety, failure = done)
   const monstersReady = ctx.readiness.require('monsters');
   let readyDone = false;
   const finishReady = () => { if (!readyDone) { readyDone = true; monstersReady(); } };
@@ -153,63 +159,128 @@ export function install(ctx: ClientContext): void {
       lib = l;
       if (!l) { finishReady(); return; }
       for (const v of views.values()) attachModel(v);
+      ears.setSkin(listenerSkin(l));
       const tryWarm = (n: number) => {
         if (!ctx.services.use('three')) { if (n < 40) setTimeout(() => tryWarm(n + 1), 250); else finishReady(); return; }
-        startWarmup(true);
+        startWarmup();
       };
       tryWarm(0);
     });
   };
 
-  // ---- shader warm-up: draw every monster once (tiny, at the camera) so its pipelines compile now, not the first
-  // time it appears (a 1-2 s compile hitch there would let the mannequin move while you watch it) ----
+  // ---- shader warm-up (v1.3 P2d: once per page). Every monster template (+ the kennel's eye glow), the duct, the
+  // REAL Snatcher dust + drag-trail InstancedMeshes (three keys every InstancedMesh by its uuid and names its matrix
+  // buffer by a global node id: a proxy's programs are never reused, so v1.2's per-phase proxies compiled 2-4 big lit
+  // programs per phase change for nothing) and, with the earwigs flag, the ear mesh are drawn tiny at the camera BY
+  // THE REAL RENDERPIPELINE scene pass until the main camera has drawn them in 2 frames (draws are counted, not update
+  // ticks: covered views draw capped or not at all; never drawn within WARM_MAX_TICKS = give up, retry at the next
+  // phase change). The warm set is kept for the page: a phase change does nothing, unless the render preset changed
+  // since the last warm (a rebuilt pipeline = a new render context), then the kept set is drawn again. No
+  // compileAsync: it compiles for the renderer's default render context, never the pipeline's MRT scene pass, so those
+  // pipelines were never used. Measured (tests/monsters/warm.e2e.ts, software lane): 0 monster pipelines and 0 node
+  // builds at hub -> contract -> hub, at the Hound's / the Listener's / an ear's first sight. ----
   let warmGroup: THREE.Group | null = null;
-  let warmFrames = 0;
-  const startWarmup = (compile = false) => {
-    const three = ctx.services.use('three');
-    if (!three || !lib) return;
-    warmGroup?.removeFromParent();
-    warmGroup = new THREE.Group();
-    warmGroup.name = 'monsters:warmup';
-    for (const t of Object.values(lib.templates)) {
+  /** a warm is running (the group is in the scene) */
+  let warming = false;
+  /** main-camera draws of the warm set in the current warm (counted once per update tick) / seen since the last tick */
+  let warmDraws = 0;
+  let warmDrawnNow = false;
+  let warmTicks = 0;
+  /** render preset of the last warm that was drawn (null = none yet, or it was never drawn) */
+  let warmPreset: string | null = null;
+  /** dust / trail state the warm overrides (restored when it ends) */
+  let warmFx: { dustParent: boolean; trailParent: boolean; trailOwned: boolean } | null = null;
+  const WARM_DRAWS = 2, WARM_MAX_TICKS = 1800;
+  const warmStats = { warms: 0, lastMs: 0, lastTicks: 0, lastDraws: 0, preset: null as string | null, phaseSkips: 0, rewarms: 0 };
+  ctx.diag.monstersWarm = warmStats;
+  const renderPreset = (): string | null => use<{ preset?: string }>('render')?.preset ?? null;
+  let warmT0 = 0;
+  const buildWarmSet = (three: { camera: THREE.Camera }): THREE.Group => {
+    const g = new THREE.Group();
+    g.name = 'monsters:warmup';
+    for (const t of Object.values(lib?.templates ?? {})) {
       if (!t) continue;
       const m = instantiate(t);
+      if (t.kind === 'hound') addKennelGlow(m); // the hub kennel's eye halos
       m.root.scale.setScalar(0.004);
       m.mixer.update(0);
-      warmGroup.add(m.root);
-    }
-    // the Snatcher's local effects (dust motes, drag trail, duct) get their pipelines now too
-    for (const src of [dust, trail]) {
-      const im = new THREE.InstancedMesh(src.geometry, src.material, 1);
-      im.setMatrixAt(0, new THREE.Matrix4().makeScale(0.004, 0.004, 0.004));
-      im.castShadow = false;
-      warmGroup.add(im);
+      g.add(m.root);
     }
     for (const src of [ductBox, ductEnd]) {
       const mm = new THREE.Mesh(src.geometry, src.material);
+      mm.castShadow = src.castShadow;
+      mm.receiveShadow = src.receiveShadow;
       mm.scale.setScalar(0.004);
-      warmGroup.add(mm);
+      g.add(mm);
     }
+    // the ear (flag earwigs): the same geometry + Listener material + flags as every real ear mesh
+    if (earsFlag) { const e = ears.warmMesh(); if (e) { e.scale.setScalar(0.004); g.add(e); } }
+    const meshes: THREE.Object3D[] = [];
+    g.traverse((o) => {
+      if (!(o as THREE.Mesh).isMesh) return;
+      o.frustumCulled = false;
+      meshes.push(o);
+    });
+    // a draw by the main camera = the scene pass (shadow passes and mirrors use their own cameras)
+    const marker = meshes[0];
+    if (marker) marker.onAfterRender = (_r: unknown, _s: unknown, cam: THREE.Camera) => { if (cam === three.camera) warmDrawnNow = true; };
+    return g;
+  };
+  const startWarmup = () => {
+    const three = ctx.services.use('three');
+    if (!three || !lib || warming) return;
+    warmGroup ??= buildWarmSet(three);
     three.scene.add(warmGroup);
-    warmFrames = 4;
-    if (compile) {
-      const g = warmGroup;
-      const r = three.renderer as unknown as { compileAsync?(o: THREE.Object3D, c: THREE.Camera, s?: THREE.Scene): Promise<void> };
-      if (r.compileAsync) {
-        const t0 = performance.now();
-        void Promise.race([r.compileAsync(g, three.camera, three.scene), new Promise((res) => setTimeout(res, 8000))])
-          .then(() => { console.info(`[monsters] pipelines compiled in ${Math.round(performance.now() - t0)} ms`); finishReady(); }, () => finishReady());
-      } else finishReady();
+    warming = true;
+    warmDraws = 0;
+    warmDrawnNow = false;
+    warmTicks = 0;
+    warmFx = null;
+    warmT0 = performance.now();
+    warmStats.warms++;
+  };
+  const m4w = new THREE.Matrix4();
+  const camW = new THREE.Vector3(), fwdW = new THREE.Vector3();
+  const endWarmup = (confirmed: boolean) => {
+    warming = false;
+    warmGroup?.removeFromParent();
+    if (warmFx) {
+      // the real effects back to their own state (a burst / drag that started meanwhile owns them now)
+      if (!warmFx.dustParent && dust.count === 0) dust.removeFromParent();
+      if (warmFx.trailOwned && trailK === 0) trail.count = 0;
+      if (!warmFx.trailParent && trailK === 0) trail.removeFromParent();
+      warmFx = null;
     }
+    // never drawn (a long 'hold' cover): no preset recorded, so the next phase change tries again
+    warmPreset = confirmed ? (renderPreset() ?? '') : null;
+    warmStats.lastMs = Math.round(performance.now() - warmT0);
+    warmStats.lastTicks = warmTicks;
+    warmStats.lastDraws = warmDraws;
+    warmStats.preset = warmPreset;
+    console.info(`[monsters] warm-up ${confirmed ? `drawn in ${warmDraws} frames` : 'gave up (never drawn)'} after ${warmStats.lastMs} ms (${warmTicks} ticks, preset ${warmPreset || '?'})`);
+    finishReady();
   };
   const warmTick = () => {
     const three = ctx.services.use('three');
-    if (!warmGroup || !three) return;
-    if (warmFrames-- <= 0) { warmGroup.removeFromParent(); warmGroup = null; return; }
+    if (!warming || !warmGroup || !three) return;
+    // only draws after the first tick count (the real dust / trail instances below are set up by then)
+    if (warmDrawnNow && warmFx) warmDraws++;
+    warmDrawnNow = false;
+    if (warmDraws >= WARM_DRAWS) { endWarmup(true); return; }
+    if (++warmTicks > WARM_MAX_TICKS) { endWarmup(false); return; }
     const cam = three.camera;
-    const fwd = new THREE.Vector3();
-    cam.getWorldDirection(fwd);
-    warmGroup.position.copy(cam.getWorldPosition(new THREE.Vector3())).addScaledVector(fwd, 0.6);
+    cam.getWorldDirection(fwdW);
+    cam.getWorldPosition(camW).addScaledVector(fwdW, 0.6);
+    warmGroup.position.copy(camW);
+    warmGroup.updateMatrixWorld(true);
+    // the REAL dust + trail pools: one tiny instance at the warm spot while they have none of their own (dust is
+    // re-filled by updateDust every frame before this; the trail keeps its count)
+    m4w.makeScale(0.004, 0.004, 0.004).setPosition(camW);
+    warmFx ??= { dustParent: !!dust.parent, trailParent: !!trail.parent, trailOwned: false };
+    if (dust.count === 0) { dust.setMatrixAt(0, m4w); dust.count = 1; dust.instanceMatrix.needsUpdate = true; }
+    if (!dust.parent) three.scene.add(dust);
+    if (trail.count === 0) { trail.setMatrixAt(0, m4w); trail.count = 1; trail.instanceMatrix.needsUpdate = true; warmFx.trailOwned = true; }
+    if (!trail.parent) three.scene.add(trail);
   };
 
   const placeholder = (kind: string): THREE.Object3D => {
@@ -834,6 +905,14 @@ export function install(ctx: ClientContext): void {
       setTimeout(() => playAt('sfx.listener_click_tick', p, { volume: 0.75, radius: d.radius, rate: 0.58 }), 95);
       return;
     }
+    if (d.id.startsWith(EAR_PREFIX)) {
+      // v1.3 Earwig relay (flag earwigs): the ear twitches; a wet tick at the ear itself (p[1] = its height on the wall)
+      ears.twitch(d.id);
+      if (!within(d.p, d.radius)) return;
+      playAt('sfx.wet_footstep', d.p, { volume: 0.32, radius: d.radius, rate: 1.75 });
+      playAt('sfx.listener_click_tick', d.p, { volume: 0.5, radius: d.radius, rate: 0.62 });
+      return;
+    }
     const s = CUE_SFX[d.cue];
     if (d.cue === 'dust') addDust([d.p[0], d.p[1], d.p[2]], d.p[1] > 1.5 ? 56 : 40, d.p[1] > 1.5 ? 0.6 : 0.3);
     if (!s || !within(d.p, d.radius)) return;
@@ -966,7 +1045,13 @@ export function install(ctx: ClientContext): void {
     }
   });
   ctx.bus.on('world:phase', () => {
-    if (lib) { startWarmup(); setTimeout(() => startWarmup(), 1500); }
+    // v1.3 P2d: no per-phase re-warm (its pipelines stay valid across phases: one scene, fixed light pools); only a
+    // render preset changed since the last warm (a rebuilt pipeline), or a warm that was never drawn, draws the kept
+    // warm set again
+    if (lib && warmGroup && !warming) {
+      if (warmPreset === null || (renderPreset() ?? '') !== warmPreset) { warmStats.rewarms++; startWarmup(); } else warmStats.phaseSkips++;
+    }
+    ears.clear();
     endSnatchLocal(null);
     snatch.value = null;
     clearTrail();
@@ -982,6 +1067,32 @@ export function install(ctx: ClientContext): void {
   // load + warm the models early (menu/join), long before a monster first appears (loading screen: readiness)
   ctx.bus.on('net:welcome', () => ensureLib());
   setTimeout(() => ensureLib(), 0);
+
+  // ---------------- v1.3 Earwigs (flag earwigs): ear meshes from the snapshot's dyn entries ----------------
+  const earEntries = new Map<string, EarEntry>();
+  const collectEar = (b: { latest(): EarEntry | null }, id: string) => {
+    if (!id.startsWith(EAR_PREFIX)) return;
+    const s = b.latest();
+    if (s) earEntries.set(id, s);
+  };
+  // your own beam on it (the server makes an ear deaf while ANY beam is on it; the curl shows yours): flashlight on,
+  // within earLitRangeM, inside the beam's cone (camera forward), line of sight to the floor point in front of it
+  const camE = new THREE.Vector3(), fwdE = new THREE.Vector3(), toE = new THREE.Vector3();
+  const earLit = (p: THREE.Vector3): boolean => {
+    const pl = players();
+    if (!pl?.flashlightOn?.()) return false;
+    const cam = ctx.services.use('three')?.camera;
+    if (!cam) return false;
+    cam.getWorldPosition(camE);
+    toE.subVectors(p, camE);
+    const d = toE.length();
+    const eb = (ctx.balance.monsters as { earwigs?: Record<string, unknown> } | undefined)?.earwigs ?? {};
+    if (d > Number(eb.litRangeM ?? 8) || d < 1e-3) return false;
+    cam.getWorldDirection(fwdE);
+    if (toE.dot(fwdE) / d < Math.cos(((Number(eb.litHalfAngleDeg ?? 22)) * Math.PI) / 180)) return false;
+    const g = grid();
+    return !g || los(g, camE.x, camE.z, p.x + (camE.x - p.x) * (0.3 / d), p.z + (camE.z - p.z) * (0.3 / d), doorOpen());
+  };
 
   // ---------------- per-frame ----------------
   ctx.registerSystem({
@@ -1050,6 +1161,10 @@ export function install(ctx: ClientContext): void {
       for (const [id, v] of views) if (!seen.has(id)) { dropView(v); views.delete(id); }
       seeStats.reached++;
       snatchFrame(dt);
+      // v1.3 Earwigs: the server's 'ear:<n>' dyn entries (static transforms), contract only
+      earEntries.clear();
+      if (w.phase === 'contract' && w.dyn.size) w.dyn.forEach(collectEar);
+      ears.update(earEntries, three.scene, dt, earLit);
       warmTick();
       reportSightings(dt);
       if (performance.now() > blinkUntil && overlay.style.opacity !== '0' && overlay.style.opacity !== '') overlay.style.opacity = '0';
@@ -1066,6 +1181,9 @@ export function install(ctx: ClientContext): void {
       views: () => [...views.values()].map((v) => ({ id: v.id, kind: v.kind, model: !!v.model, visible: v.root.visible, anim: v.current, state: v.state, loop: v.loopKey })),
       loaded: () => !!lib,
       layout: () => ctx.world.layout,
+      /** v1.3: the once-per-page warm-up (P2d) and the ear meshes (F6) */
+      warm: () => ({ ...warmStats, warming, draws: warmDraws, ticks: warmTicks, warmPreset, renderPreset: renderPreset(), earsFlag }),
+      ears: () => ears.list(),
       /** v1.2: grab / knockdown HUD state + the 'spotted' vignette opacity */
       hud: () => ({ grab: grabState.value, knock: knock.value, spotted: Number(spotVig.style.opacity || 0), vignette: Number(vignette.style.opacity || 0) }),
       tint: (id: string, hex: number) => { const v = views.get(id); let n = 0; v?.root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && (m.material as THREE.MeshStandardNodeMaterial).color) { (m.material as THREE.MeshStandardNodeMaterial).color.setHex(hex); n++; } }); return n; },

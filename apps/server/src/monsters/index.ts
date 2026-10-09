@@ -12,9 +12,10 @@ import { isTaunt } from '../ai/text.ts';
 import { bindMonstersImpl, listener as listenerApi, onMonsterEvent } from './api.ts';
 import type { HeardUtterance, ListenerIntent, MonsterEvent, MonstersImpl } from './api.ts';
 import { coverNear } from './cover.ts';
+import { describeEars, earForText, earForUtterance, earRelayed, earsSnapshot } from './earwigs.ts';
 import { bindExternal, boundApis, holdingCrowbar, isAlive } from './ext.ts';
 import { inCab } from './geo.ts';
-import { ambushProbe, forceGrab, forceIntent, forceWake, grabPosition, knockedSpot, listenerDoorClosed, listenerFlash, listenerHeardUtterance, listenerMelee, listenerOf, listenerStruggle, listenerVentTrip, tryFree, warnState } from './listener.ts';
+import { ambushProbe, forceGrab, forceIntent, forceWake, grabPosition, knockedSpot, listenerDoorClosed, listenerFlash, listenerHeardUtterance, listenerMelee, listenerOf, listenerStruggle, listenerSummary, listenerVentTrip, tryFree, warnState } from './listener.ts';
 import { litAt, scheduleBlink } from './mannequin.ts';
 import { afterDeath, fillSnapshot, makeRt, runtimeStats, startContract, startHubRuntime, stopRuntime, tickRuntime } from './runtime.ts';
 import type { Rt } from './runtime.ts';
@@ -48,6 +49,14 @@ export function install(ctx: ServerContext): void | Promise<void> {
     return rt;
   };
 
+  /** v1.3 contract-end log line: what the Listener heard (counts and metres only; never names or text) */
+  const logContractEnd = (crew: Crew) => {
+    const cm = crewM(crew);
+    if (!cm || cm.mode !== 'contract') return;
+    const L = cm.agents.find((a) => a.kind === 'listener') as ListenerAgent | undefined;
+    if (L) log.info(`crew ${crew.code}: contract end: the Listener ${listenerSummary(L)}`);
+  };
+
   const startMonsters = (crew: Crew, o: { risk: number; contractIndex: number }): boolean => {
     const L = crew.layout;
     if (!L || L.kind !== 'facility') {
@@ -56,6 +65,7 @@ export function install(ctx: ServerContext): void | Promise<void> {
     }
     const cur = crewM(crew);
     if (cur && cur.mode === 'contract' && cur.layout === L) return true; // idempotent
+    logContractEnd(crew);
     stopRuntime(crew);
     resetDirector(crew);
     const cm = startContract(ctx, crew, o);
@@ -80,6 +90,7 @@ export function install(ctx: ServerContext): void | Promise<void> {
   const stopMonsters = (crew: Crew) => {
     const cm = crewM(crew);
     if (cm) lastLog.set(crew, cm.log);
+    logContractEnd(crew);
     stopRuntime(crew);
   };
 
@@ -94,7 +105,7 @@ export function install(ctx: ServerContext): void | Promise<void> {
     else if (typeof u.room === 'string' && u.room) room = rt.cm.callsignSpace.get(u.room.toUpperCase()) ?? (/^\d+$/.test(u.room) ? Number(u.room) : -1);
     if (room < 0 && sp) room = rt.cm.layout.owner[Math.floor(sp.pose.p[2]) * rt.cm.layout.W + Math.floor(sp.pose.p[0])] ?? -1;
     const durMs = Number(u.endedAt) - Number(u.startedAt);
-    const line = listenerHeardUtterance(rt, L, {
+    const seg = {
       segId: String(u.segId ?? `${u.speaker}:${ctx.now()}`),
       speaker: sp?.id ?? (u.speaker ? String(u.speaker) : null),
       text: u.text,
@@ -106,8 +117,18 @@ export function install(ctx: ServerContext): void | Promise<void> {
       x: Array.isArray(u.pos) ? Number(u.pos[0]) : undefined,
       z: Array.isArray(u.pos) ? Number(u.pos[1]) : undefined,
       taunt: u.taunt === true,
-    });
-    return !!line;
+    };
+    const line = listenerHeardUtterance(rt, L, seg);
+    if (line) return true;
+    // v1.3 (flag earwigs): it did not hear it itself; an ear that heard this speaker's voice (not deaf) relays it
+    if (sp) {
+      const ear = earForUtterance(rt, sp.id, seg.durSec);
+      if (ear) {
+        const viaEar = listenerHeardUtterance(rt, L, { ...seg, ear: { id: ear.id, space: ear.space, x: ear.x, z: ear.z } });
+        if (viaEar) { earRelayed(rt, ear); return true; }
+      }
+    }
+    return false;
   };
 
   const impl: MonstersImpl = {
@@ -219,7 +240,11 @@ export function install(ctx: ServerContext): void | Promise<void> {
     const f = soundFlood(rt.cm.grid, e.x, e.z, e.radiusM, rt.cm.doorOpen);
     const hearsIt = !inCab(rt.cm.layout, e.x, e.z) && fieldAt(rt.cm.grid, f, L.x, L.z) <= e.radiusM;
     const room = rt.cm.layout.owner[Math.floor(e.z) * rt.cm.layout.W + Math.floor(e.x)] ?? -1;
-    listenerHeardUtterance(rt, L, { segId: `text:${e.player.id}:${e.t}`, speaker: e.player.id, text: e.text, room, via: 'text', band: BAND.talk, heard: hearsIt, durSec: 1, x: e.x, z: e.z, taunt: isTaunt(e.text) });
+    const seg = { segId: `text:${e.player.id}:${e.t}`, speaker: e.player.id, text: e.text, room, via: 'text' as const, band: BAND.talk, heard: hearsIt, durSec: 1, x: e.x, z: e.z, taunt: isTaunt(e.text) };
+    if (listenerHeardUtterance(rt, L, seg) || hearsIt) return;
+    // v1.3 (flag earwigs): a line typed next to an ear reaches it the way speech does
+    const ear = earForText(rt, e.x, e.z, e.radiusM, f);
+    if (ear && listenerHeardUtterance(rt, L, { ...seg, ear: { id: ear.id, space: ear.space, x: ear.x, z: ear.z } })) earRelayed(rt, ear);
   });
 
   // ---- systems + hooks ----
@@ -259,7 +284,11 @@ export function install(ctx: ServerContext): void | Promise<void> {
 
   ctx.hooks.crewSnapshot.push((crew, snap) => {
     const cm = crewM(crew);
-    if (cm && cm.mode !== 'off') fillSnapshot(cm, snap);
+    if (cm && cm.mode !== 'off') {
+      fillSnapshot(cm, snap);
+      // v1.3 (flag earwigs): the ears as static dyn entries 'ear:<n>' (the client draws them)
+      if (cm.ears?.length) { const rt = rtFor(crew); if (rt) earsSnapshot(rt, snap); }
+    }
   });
 
   ctx.hooks.phase.push((crew, _from, to) => {
@@ -361,6 +390,8 @@ export function install(ctx: ServerContext): void | Promise<void> {
       sight: Object.fromEntries([...cm.sight].map(([k, v]) => [k, [...v.keys()]])),
       bound: boundApis(),
       stats: runtimeStats(),
+      // v1.3 (flag earwigs)
+      ears: (() => { const rt = rtFor(crew); return rt ? describeEars(rt) : []; })(),
     };
   });
   ctx.registerDbg('monsters.start', async (crew, _p, args) => {
@@ -473,7 +504,7 @@ export function install(ctx: ServerContext): void | Promise<void> {
   ctx.registerDbg('monsters.snatcher', (crew, _p, args) => {
     const rt = rtFor(crew);
     const sn = snatcherOf(rt?.cm ?? null);
-    if (!rt || !sn) return { ok: false, reason: 'no snatcher this contract (risk >= 2 or contractIndex >= 1, layout with vents)' };
+    if (!rt || !sn) return { ok: false, reason: 'no snatcher this contract (risk >= 2 or contractIndex >= snatcher.minContractIndex (2), layout with vents)' };
     const a = (args ?? {}) as { op?: string; grate?: string };
     if (a.op === 'ready') readyNow(rt, sn);
     if (a.op === 'rattle') {
@@ -517,7 +548,7 @@ export function install(ctx: ServerContext): void | Promise<void> {
   // flip a monsters flag in memory (dev only; config/flags.json is untouched; dbg.reloadConfig restores it)
   ctx.registerDbg('monsters.flag', (_crew, _p, args) => {
     const a = (args ?? {}) as { name?: string; on?: boolean };
-    const allowed = ['listenerFairV12', 'mannequin', 'snatcher', 'director', 'listenerAi'];
+    const allowed = ['listenerFairV12', 'mannequin', 'snatcher', 'director', 'listenerAi', 'earwigs'];
     if (!a.name || !allowed.includes(a.name)) return { ok: false, allowed };
     ctx.flags[a.name] = a.on !== false;
     return { ok: true, flags: Object.fromEntries(allowed.map((k) => [k, ctx.flags[k]])) };
@@ -597,11 +628,14 @@ function describe(a: Agent, t = 0): Record<string, unknown> {
     const L = a as ListenerAgent;
     Object.assign(base, {
       dormant: L.dormant, wakeAt: r2(L.wakeAt), intent: L.intent, targetSpace: L.targetSpace, targetPlayer: L.targetPlayer, grabVictim: L.grabVictim,
-      memory: L.memory.map((l) => ({ text: l.text, speaker: l.speakerName, callsigns: l.callsigns, meaningful: l.meaningful, used: l.used })),
+      memory: L.memory.map((l) => ({ text: l.text, speaker: l.speakerName, callsigns: l.callsigns, meaningful: l.meaningful, used: l.used, room: l.room, ear: l.ear ?? null, px: r2(l.px), pz: r2(l.pz) })),
       // v1.2
       grabStruggle: r2(L.grabStruggle), grabSolo: L.grabSolo, grabLeft: L.state === 'grab' ? r2(L.grabUntil - t) : 0,
       pouncing: L.pounceUntil > t, speed: r2(L.speed), knocks: Object.fromEntries(L.knocks), ventIds: L.ventIds,
       warned: Object.fromEntries([...L.warned].map(([k, v]) => [k, r2(t - v)])),
+      // v1.3: wake gate + hearing telemetry (memory entries: ear = the relaying ear id)
+      held: L.held === true, wokeAt: L.wokeAt === undefined ? null : r2(L.wokeAt), heardLines: L.heardLines ?? 0, heardDormant: L.heardDormant ?? 0,
+      earLines: L.earLines ?? 0, nearestSpeakerM: L.nearestSpeakerM === undefined ? null : r2(L.nearestSpeakerM), summary: listenerSummary(L),
     });
   } else if (a.kind === 'mannequin') {
     const m = a as MannequinAgent;

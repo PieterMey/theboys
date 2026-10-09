@@ -365,6 +365,16 @@ function collectBones(root: THREE.Object3D): Record<string, THREE.Object3D> {
   return out;
 }
 
+/** v1.3 (Earwigs): the Listener's wet-skin material (its first body mesh), shared by every clone and the ears */
+export function listenerSkin(lib: MonsterLib | null): THREE.Material | null {
+  let out: THREE.Material | null = null;
+  lib?.templates.listener?.scene.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!out && m.isMesh && !Array.isArray(m.material)) out = m.material as THREE.Material;
+  });
+  return out;
+}
+
 export interface MonsterModel {
   bones?: Record<string, THREE.Object3D>;
   root: THREE.Group;

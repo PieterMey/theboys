@@ -1,4 +1,4 @@
-// Owner: track (c) Monsters. THE SNATCHER (v1.1; risk >= 2 or the crew's 2nd contract onward; max 1 per contract;
+// Owner: track (c) Monsters. THE SNATCHER (v1.1; risk >= 2 or (v1.3) the crew's 3rd contract onward; max 1 per contract;
 // never in the first 2 minutes; never in the van). It lurks in the vent network (layout 'vent' grates) and teaches the
 // buddy system: a player who has had no living teammate within 10 m for >= 8 s and is within 16 m (walking) of a grate
 // gets stalked. Tells: the grate rattles, dust trickles from it and from the ceiling above the player, then a soft

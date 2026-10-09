@@ -172,6 +172,8 @@ export interface HeardLine {
   pz: number;
   pdoor: number;
   used: boolean;
+  /** v1.3 (flag earwigs): relayed by this ear (id 'ear:<n>'); room / px / pz are then the ear's, never the speaker's */
+  ear?: string;
 }
 
 export type ListenerAction = 'investigate_room' | 'ambush_room' | 'stalk_player' | 'radio_lure' | 'retreat' | 'ignore';
@@ -237,6 +239,17 @@ export interface ListenerAgent extends Agent {
   knocked: Map<string, { until: number; x: number; z: number }>;
   /** vent item ids of the current / planned vent trip (ventInUse) */
   ventIds: [string, string] | null;
+  // ---- v1.3 wake gate + hearing telemetry (counts only, never names) ----
+  /** past wakeAt but still dormant: nothing meaningful heard yet (waits for its first line, <= wakeHoldMaxSec) */
+  held?: boolean;
+  /** crew time it actually woke (undefined = still dormant) */
+  wokeAt?: number;
+  /** lines that reached its memory this contract / of them while dormant / of them relayed by an ear */
+  heardLines?: number;
+  heardDormant?: number;
+  earLines?: number;
+  /** straight-line distance (m) of the nearest living speaker (voice above silent) to it this contract */
+  nearestSpeakerM?: number;
 }
 
 export interface DecisionEntry {
@@ -303,6 +316,37 @@ export interface CrewMonsters {
   evLast?: Map<string, number>;
   /** cues emitted since the last seen/heard pass: agent + position + radius */
   cueLog?: { id: string; kind: MonsterKindX; x: number; z: number; r: number }[];
+  /** v1.3 (flag earwigs): the Listener's ears on the crew's route (earwigs.ts); placed at contract start */
+  ears?: Ear[];
+  /** accumulator of the ears' 5 Hz light check */
+  earAcc?: number;
+}
+
+/** v1.3 (flag earwigs): one Earwig, a fleshy ear on a route wall that relays what it hears to the Listener */
+export interface Ear {
+  /** 'ear:<n>' (snapshot dyn id + cue id) */
+  id: string;
+  space: number;
+  /** callsign of its space (null = a corridor) */
+  callsign: string | null;
+  /** hearing point: the floor cell centre in front of it (sound floods, light line of sight) */
+  x: number;
+  z: number;
+  /** mount point on the wall surface, its height and the wall normal (into the room) */
+  wx: number;
+  wz: number;
+  y: number;
+  nx: number;
+  nz: number;
+  /** crew time until which it is deaf (a flashlight was on it) */
+  deafUntil: number;
+  /** player id -> crew times it heard their voice (who-heard-what for transcripts, like a teammate standing there) */
+  heard: Map<string, number[]>;
+  /** crew time of its last tick cue */
+  tickAt: number;
+  /** transcript lines it relayed / voice samples it passed on */
+  relays: number;
+  samples: number;
 }
 
 export type Bal = Record<string, number>;
