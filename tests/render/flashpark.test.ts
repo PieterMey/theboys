@@ -179,13 +179,45 @@ test('dark fill beams (automatic mirror warm) take only idle slots: real beams k
   drawFrame([cam]);
   const before = pool.slots.map((s) => s.id);
   const fill = Array.from({ length: 4 }, (_, i) => ({ ...beam(`mwarm${i}`, false, [0, 1.5, 0]), on: false }));
-  pool.update([...real, ...fill], cam, 0.016, 1 / 60, opts);
+  // render/index.ts passes armDark on warm frames (v1.3: a dark beam's map otherwise sleeps)
+  pool.update([...real, ...fill], cam, 0.016, 1 / 60, { ...opts, armDark: true });
   pool.slots.forEach((s, i) => { if (before[i]) assert.equal(s.id, before[i], `slot ${i} keeps ${before[i]}`); });
   assert.deepEqual(drawFrame([cam]), [1, 1, 1, 1], 'every shadowed slot renders its map (the idle ones see the warm proxies)');
   for (const s of pool.slots) if (s.id?.startsWith('mwarm')) assert.equal(s.light.intensity, 0, 'a fill beam never lights anything');
   // the fill ends: the real beams stay, the fill slots render once more (parked) and sleep
   pool.update(real, cam, 0.032, 1 / 60, opts);
   assert.deepEqual(pool.slots.filter((s) => s.shadowed).map((s) => s.id).filter(Boolean).sort(), ['me', 'p2']);
+});
+
+test('v1.3 (4a): a dark beam keeps its slot but its map sleeps once the fade ends; lit again, it renders that frame', () => {
+  const { cam, pool, opts, drawFrame } = setup(2, 2);
+  cam.position.set(0, 1.6, 0);
+  cam.updateMatrixWorld();
+  const me = (on: boolean) => ({ ...beam('me', true), on });
+  const mate = (on: boolean) => ({ ...beam('p2', false, [0.5, 1.5, -3]), on });
+  let t = 0;
+  const step = (list: FlashlightInfo[], o: Record<string, unknown> = {}) => { t += 1 / 60; pool.update(list, cam, t, 1 / 60, { ...opts, ...o }); return drawFrame([cam]); };
+  step([me(true), mate(true)]);
+  assert.deepEqual(step([me(true), mate(true)]), [1, 1], 'both lit: both maps');
+  // both switch off: the fade (~0.1 s) keeps rendering, then both maps sleep; the slots stay assigned
+  const fade: number[][] = [];
+  for (let i = 0; i < 12; i++) fade.push(step([me(false), mate(false)]));
+  assert.deepEqual(fade[0], [1, 1], 'first dark frame: still fading');
+  assert.deepEqual(fade[fade.length - 1], [0, 0], `dark: no shadow render at all (${JSON.stringify(fade)})`);
+  assert.equal(pool.slots[0].id, 'me');
+  assert.equal(pool.slots[1].id, 'p2');
+  assert.equal(pool.usedShadowed(), 2);
+  for (const s of pool.slots) assert.equal(s.light.intensity, 0, `slot ${s.index} lights nothing (the fade ends exactly dark)`);
+  // a warm-up frame (armDark) renders the dark slots; the next normal frame sleeps again
+  assert.deepEqual(step([me(false), mate(false)], { armDark: true }), [1, 1]);
+  assert.deepEqual(step([me(false), mate(false)]), [0, 0]);
+  // the teammate lights up: its map renders in that same frame, yours keeps sleeping
+  assert.deepEqual(step([me(false), mate(true)]), [0, 1]);
+  assert.deepEqual(step([me(true), mate(true)]), [1, 1]);
+  // ?rdebug=shadowall (parkShadows false) keeps the old behaviour: every assigned map every frame
+  for (let i = 0; i < 12; i++) step([me(false), mate(false)]);
+  assert.deepEqual(step([me(false), mate(false)], { parkShadows: false }), [1, 1]);
+  assert.ok(pool.slots.every((s) => s.light.castShadow === s.shadowed), 'castShadow never toggles');
 });
 
 test('a centred remote beam outranks an off-axis one at the same distance', () => {

@@ -111,7 +111,7 @@ test('clutter DECAL_CELLS match the built decal atlas index (names, kinds, surfa
   }
 });
 
-test('every newly staged KTX2 (textures, decal atlas, prop GLB images) transcodes on the CPU', { skip: (!haveLive || !existsSync(join(STAGE, 'manifest.json'))) && 'no shared stage' }, async () => {
+test('every newly staged KTX2 (textures, decal atlas, prop GLB images) transcodes on the CPU', { skip: (!haveLive || !existsSync(join(STAGE, 'manifest.json'))) ? 'no shared stage' : (() => { try { const live = manifest(LIVE).files; return Object.keys(manifest(STAGE).files).every((k) => live[k]) && 'the stage adds no new keys (fully promoted into .assets/dist): nothing new to transcode'; } catch { return false; } })() }, async () => {
   const { decodeKtx2 } = await import('./ktx2-decode.ts');
   const live = manifest(LIVE), staged = manifest(STAGE);
   const fresh = Object.entries(staged.files).filter(([k]) => !live.files[k]);

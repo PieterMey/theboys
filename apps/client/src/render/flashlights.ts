@@ -5,6 +5,8 @@
 // before the pipeline renders) sets needsUpdate = true once per frame on assigned slots, so N cameras in one frame
 // (main + live mirror + warm reflector) give ONE shadow render per slot (three r186 ShadowNode only dedupes per
 // (camera, frame) under autoUpdate). Parked slots get one last render of their empty frustum, then sleep.
+// v1.3: an assigned slot whose beam is dark (switched off, fade finished) sleeps too, until the beam lights again
+// (warm-ups pass armDark so the slot's shadow programs still compile).
 // Shadow camera layer masks are set ONCE, when the slots are created, and never change: the first shadowed slot is
 // YOUR beam's for the page lifetime (teammates' beams never take it) and its shadow camera alone sees layer 0 + phantom
 // (the paranormal presence figure: one shadow draw while it runs, not one per shadowed beam) + detail (small props /
@@ -165,6 +167,13 @@ export interface FlashUpdateOpts {
   frame?: number;
   /** performance.now() for beam interference (default: performance.now()) */
   now?: number;
+  /** v1.3: also arm assigned shadowed slots whose beam is dark (warm-up frames, the mirror warm's dark fill beams: the
+   *  slot's shadow-pass programs compile). Default false: a dark beam's map sleeps (it lights nothing). */
+  armDark?: boolean;
+  /** v1.3 (4b): unshadowed (batched) slots at intensity 0 (parked or dark) get visible=false: they leave the per-pixel
+   *  batched light loop (no recompile: the SpotLight type stays in DynamicLighting's set through the fixture pool's
+   *  sentinel). Shadowed slots never hide (each is its own light node: hiding one would recompile every material). */
+  hideIdle?: boolean;
 }
 
 export interface FlashlightPool {
@@ -369,6 +378,8 @@ export function createFlashlightPool(scene: THREE.Scene, cfg: FlashCfg, shadowed
       if (interferences.length) interferences = interferences.filter((it) => now - it.t0 < it.ms);
       const frame = opts.frame ?? 0;
       const halfFar = cfg.halfRateFar ?? 0;
+      const armDark = opts.armDark === true;
+      const hideIdle = opts.hideIdle === true;
       used = 0;
       for (const s of slots) {
         const f = s.next >= 0 ? list[s.next] : undefined;
@@ -388,6 +399,7 @@ export function createFlashlightPool(scene: THREE.Scene, cfg: FlashCfg, shadowed
           // one last render of the parked, empty frustum (or every frame with parkShadows:false)
           if (s.shadowed && (was || !parkAll)) arm.add(s);
           s.wasAssigned = false;
+          if (!s.shadowed) s.light.visible = !hideIdle;
           continue;
         }
         if (s.id !== f.id) s.cur = f.on ? 1 : 0;
@@ -418,11 +430,14 @@ export function createFlashlightPool(scene: THREE.Scene, cfg: FlashCfg, shadowed
         }
         const target = f.on ? 1 : 0;
         s.cur += (target - s.cur) * Math.min(1, dt * 30);
+        // the fade-out ends exactly dark (its map stops rendering then, so no faint residual light may remain)
+        if (!f.on && s.cur <= 0.01) s.cur = 0;
         const k = s.cur * flick;
         // shadowed: the interference rides the cookie uniform (light + its shaft dim together); plain: intensity
         s.flick.value = s.shadowed ? 1 - dim : 1;
         s.light.intensity = base * (s.shadowed ? 1 : 0.9) * k * (s.shadowed ? 1 : 1 - dim);
         s.intensity = s.light.intensity * (s.shadowed ? 1 - dim : 1);
+        if (!s.shadowed) s.light.visible = !hideIdle || s.light.intensity > 0;
         // your own beam: a subtle haze (you look down its axis); teammates' beams: readable shafts across the dark
         s.volW.value = f.local ? (cfg.volLocal ?? 0.6) : (cfg.volRemote ?? 1.8);
         // half-rate shadows for far remote beams: skip every other frame, freezing position + target with the map
@@ -434,7 +449,10 @@ export function createFlashlightPool(scene: THREE.Scene, cfg: FlashCfg, shadowed
           s.light.position.set(f.pos[0], f.pos[1], f.pos[2]);
           s.light.target.position.set(f.pos[0] + f.dir[0] * 10, f.pos[1] + f.dir[1] * 10, f.pos[2] + f.dir[2] * 10);
           s.light.target.updateMatrixWorld();
-          if (s.shadowed) arm.add(s);
+          // v1.3 (4a): only a lit or fading beam re-renders its map. A dark beam lights nothing (intensity 0), so its
+          // map sleeps (gate P lane: 76 shadow draws per frame with every beam off); switched on, the map renders in
+          // that same frame. Warm-ups (armDark) and ?rdebug=shadowall keep rendering it.
+          if (s.shadowed && (f.on || s.cur > 0 || armDark || !parkAll)) arm.add(s);
         }
         const wantCone = !s.shadowed || !opts.volumetric;
         s.cone.visible = wantCone && k > 0.01;

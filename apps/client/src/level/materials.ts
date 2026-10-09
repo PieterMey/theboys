@@ -1,5 +1,9 @@
 // Owner: track ② Level. Level surface materials: flat PBR immediately (built with ③'s makeSurfaceMaterial), upgraded
 // in place to KTX2 textures from /assets/manifest.json (albedo + normal + packed ORM = 3 textures max) when present.
+// v1.3 (3b): a material with a texture set is built ONCE with its final (textured) node graph over render's 1x1
+// placeholder textures, showing the flat look; the upgrade only swaps the textures + live params in (setTextures /
+// setSurface), so it compiles once (v1.2 swapped node graphs + needsUpdate: every textured level material compiled
+// twice, flat then textured, in the main and the shadow pass).
 import * as THREE from 'three/webgpu';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { assetUrl, basisPath, getAssetManifest, hasAsset, loadAssetManifest } from '@dead-air/shared/assets.ts';
@@ -127,7 +131,8 @@ export class LevelMaterials {
     let m = this.mats.get(id);
     if (m) return m;
     const s = SPECS[id];
-    m = makeSurfaceMaterial({ color: s.color, roughness: s.rough, metalness: s.metal, grime: s.grime ?? 0.5, uvMode: 'uv', side: s.side, wet: s.wet, minRough: s.minRough, ...(s.pattern ? { pattern: s.pattern } : {}) });
+    // v1.3 (3b): materials with a texture set start in their textured form (placeholders = the flat look)
+    m = makeSurfaceMaterial({ color: s.color, roughness: s.rough, metalness: s.metal, grime: s.grime ?? 0.5, uvMode: 'uv', side: s.side, wet: s.wet, minRough: s.minRough, ...(s.pattern ? { pattern: s.pattern } : {}), liveTextures: !!s.tex });
     m.name = `level.${id}`;
     this.mats.set(id, m);
     if (this.renderer) void this.upgradeOne(id);
@@ -197,8 +202,14 @@ export class LevelMaterials {
     if (!albedo) return;
     const aniso = Math.min(s.aniso ?? 4, r.getMaxAnisotropy?.() ?? 4);
     for (const t of [albedo, normal, orm]) if (t) t.anisotropy = aniso;
-    const m = this.mats.get(id) as (THREE.MeshStandardNodeMaterial & Partial<Pick<SurfaceMaterial, 'tintUniform' | 'baseUniform'>>) | undefined;
+    const m = this.mats.get(id) as (THREE.MeshStandardNodeMaterial & Partial<Pick<SurfaceMaterial, 'tintUniform' | 'baseUniform' | 'setTextures' | 'setSurface'>>) | undefined;
     if (!m) return;
+    // v1.3 (3b): built textured over placeholders: swap the textures + the textured params in, nothing recompiles
+    if (m.setTextures && m.setSurface) {
+      m.setTextures({ albedo, normal, orm });
+      m.setSurface({ color: s.tint ?? 0xffffff, roughness: Math.min(1, s.rough + 0.05), grime: (s.grime ?? 0.5) * 0.7 });
+      return;
+    }
     // render's live tint uniform carries over (theme variants share one program; a later setSurfaceTint still works)
     const tm = makeSurfaceMaterial({
       albedo, normal: normal ?? undefined, orm: orm ?? undefined, color: s.tint ?? 0xffffff, roughness: Math.min(1, s.rough + 0.05),

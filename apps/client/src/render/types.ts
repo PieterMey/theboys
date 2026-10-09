@@ -85,11 +85,19 @@ export interface SiteWarmResult {
 
 export interface RenderService {
   backend: 'webgpu' | 'webgl2';
-  /** active preset name ('low' | 'medium' | 'high' | 'ultra') */
+  /** active preset name ('low' | 'medium' | 'high' | 'ultra'; v1.3 also 'lite', opt-in) */
   readonly preset: string;
   presets: readonly string[];
-  /** live: resolution, AO, volumetrics, fixture count, active shadow slots. Pool size / shadow map size: next load. */
+  /** live: resolution, AO, volumetrics, fixture count, active shadow slots. Pool size / shadow map size: next load.
+   *  The same choice again does nothing (v1.3). v1.3 (P6): 'auto' clears the stored choice: the detected preset
+   *  applies and auto quality may climb back up to it (the settings' "AUTO (detected: X)" entry) */
   setPreset(name: string): void;
+  /** v1.3 (P6): the preset GPU detection picks on this machine (what AUTO means here) */
+  readonly detectedPreset?: string;
+  /** v1.3 (P6): where the active choice comes from: ?preset= / a stored settings choice / AUTO (nothing stored) */
+  readonly presetSource?: 'url' | 'stored' | 'auto';
+  /** v1.3 (P6): = setPreset('auto') */
+  clearPreset?(): void;
   /** tone-mapping exposure (default from render.json) */
   setExposure(v: number): void;
   exposure(): number;
@@ -128,6 +136,21 @@ export interface RenderService {
   maxFps(): number;
   /** layer used by the volumetric pass (lights that should make beams enable it) */
   volumeLayer: number;
+  /** v1.3 SIGNAL look: the API for the settings' SIGNAL checkbox (meta SettingsTab, menu LocalSettings), all three
+   *  optional (`r.setSignalLook?.(on)`; no render service = no checkbox):
+   *    checked  = signalLook()           the toggle as this page has it
+   *    onChange = setSignalLook(checked) applies live (no reload) and persists ('deadair.render.signal')
+   *    hint     = signalActive()         false while the preset is not Lite / Low: show "Lite and Low only"
+   *  The look applies on Lite and Low only: whole-number pixel scale with crisp pixels, Bayer posterize instead of
+   *  bloom / CA / grain, and the bodycam OSD in the top-left corner during a contract (never in the van, whose CREW
+   *  panel sits there, nor over a menu or the drive). Re-read signalActive() after a setPreset(). ?signal=1 / ?signal=0
+   *  override the stored toggle for one page load. */
+  setSignalLook?(on: boolean): void;
+  /** the SIGNAL toggle as this page has it: the stored choice, or this page's ?signal=1 / ?signal=0 override (true =
+   *  the checkbox is checked, whatever the preset) */
+  signalLook?(): boolean;
+  /** SIGNAL is on AND the preset is Lite / Low (what the screen shows now) */
+  signalActive?(): boolean;
   /** test/scene override for flashlights when no players service exists */
   setFlashlightSource(fn: (() => FlashlightInfo[]) | null): void;
   /** test/scene override for fixtures when no level service exists */

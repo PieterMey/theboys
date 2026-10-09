@@ -13,7 +13,7 @@ import * as THREE from 'three/webgpu';
 import { color, exp, exponentialHeightFogFactor, fog, Fn, length, uniform, vec3 } from 'three/tsl';
 import { DynamicLighting } from 'three/addons/lighting/DynamicLighting.js';
 import { SiteBatch } from '../../apps/client/src/level/sitebatch.ts';
-import { createSiteWarm } from '../../apps/client/src/render/sitewarm.ts';
+import { WARM_LIMITS, createSiteWarm } from '../../apps/client/src/render/sitewarm.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -24,7 +24,9 @@ g.cancelAnimationFrame ??= () => {};
 g.ImageBitmap ??= class ImageBitmap {};
 
 const C: Record<string, number> = {};
-const zero = () => { for (const k of ['nb', 'prog', 'pipe', 'ro', 'draw']) C[k] = 0; };
+/** objects drawn since the last zero() (any pass) */
+const drawn = new Set<THREE.Object3D>();
+const zero = () => { for (const k of ['nb', 'prog', 'pipe', 'ro', 'draw']) C[k] = 0; drawn.clear(); };
 zero();
 
 const T = THREE as Any;
@@ -49,7 +51,7 @@ class CountingBackend extends T.Backend {
   createAttribute() {}
   createIndexAttribute() {}
   createTexture() {}
-  draw() { C.draw++; }
+  draw(ro: Any) { C.draw++; drawn.add(ro.object); }
   hasFeature() { return false; }
 }
 
@@ -220,4 +222,107 @@ test('warmSite: a run that hits its time limit pauses (done:false), the next run
   const n = await warmFrames(S, w, p2);
   const r2 = await p2;
   assert.ok(r2.done && r2.meshes === r2.total, `resumed and done in ${n} frames`);
+});
+
+test('v1.3 (2c): a warm frame draws ONLY its batch (the view around the camera stays out until its own turn)', async () => {
+  const S = await site();
+  S.show([0, 1]);
+  let now = 0;
+  const w = createSiteWarm({ root: () => S.root, version: () => 1, skip: () => false, now: () => now });
+  const p = w.run(1e9);
+  const under = (o: THREE.Object3D) => { for (let q: THREE.Object3D | null = o; q; q = q.parent) if (q === S.root) return true; return false; };
+  const before = flags(S.root);
+  let frames = 0;
+  let maxLevel = 0;
+  let firstBatch = true;
+  let calib = 0;
+  let settled = false;
+  void p.then(() => { settled = true; });
+  for (; frames < 400 && !settled; frames++) {
+    now += 16;
+    if (!w.begin()) { await new Promise((r) => setTimeout(r, 0)); continue; }
+    // only meshes under the root with a non-zero mask may draw: the batch
+    const live = new Set<THREE.Object3D>();
+    S.root.traverse((o) => { if ((o as THREE.Mesh).isMesh && o.layers.mask !== 0) live.add(o); });
+    S.frame();
+    const lvl = [...drawn].filter(under);
+    for (const o of lvl) assert.ok(live.has(o), `${o.name || o.type} drew outside the batch`);
+    maxLevel = Math.max(maxLevel, new Set(lvl).size);
+    // v1.3 (3c) calibration frames force nothing: no level object draws at all
+    if (!lvl.length) calib++;
+    else if (firstBatch) {
+      firstBatch = false;
+      // the first batch takes one signature group (budget 1): an instanced batch, never the rooms in view
+      assert.equal(new Set(lvl).size, 1, `first warm batch: one level object (${lvl.map((o) => o.name).join(', ')})`);
+      assert.ok((lvl[0] as THREE.InstancedMesh).isInstancedMesh, 'instanced batches first');
+    }
+    now += 4;
+    w.end(4);
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  assert.ok((await p).done);
+  assert.equal(flags(S.root), before, 'every mask restored');
+  assert.equal(calib, 2, 'one calibration frame at the start + one where the queue moves to the plain meshes');
+  assert.equal(w.info().calibrations, 2);
+  // a normal frame afterwards draws the view again (rooms 0 + 1)
+  S.frame();
+  assert.ok(S.groups[0].children.some((o) => drawn.has(o)) && S.groups[1].children.some((o) => drawn.has(o)), 'the view draws again');
+  assert.ok(maxLevel >= 1);
+});
+
+/** v1.3 (3c) pacing on a synthetic site: n plain meshes, one new material each (1 cost unit per group, no shadow).
+ *  A warm frame's wall time = baseMs + costMs per unit, all of it AFTER the render (the GPU process / driver), the
+ *  JS render itself ~1 ms: the WebGPU case v1.2 booked as idle time. */
+function pace(limits: Any, baseMs: number, costMs: number, n = 120) {
+  const root = new THREE.Group();
+  root.name = 'level';
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  for (let i = 0; i < n; i++) root.add(new THREE.Mesh(geo, new THREE.MeshBasicNodeMaterial()));
+  let now = 1000;
+  const w = createSiteWarm({ root: () => root, version: () => 1, skip: () => false, now: () => now, limits: limits ? () => limits : undefined });
+  void w.run(1e12);
+  const units: number[] = [], groups: number[] = [], walls: number[] = [];
+  let u0 = 0, g0 = 0;
+  for (let f = 0; f < 2000 && w.active(); f++) {
+    if (!w.begin()) { now += 16; continue; }
+    w.end(1);
+    const inf = w.info();
+    const du = inf.units - u0, dg = inf.signatures - g0;
+    u0 = inf.units; g0 = inf.signatures;
+    const wall = baseMs + costMs * du;
+    now += wall;
+    if (!dg) continue; // a calibration frame (forces nothing)
+    units.push(du); groups.push(dg);
+    walls.push(wall);
+  }
+  return { units, groups, walls, info: w.info() };
+}
+
+test('v1.3 (3c): compile stalls AFTER the render are charged to the warm frame: the batch shrinks to 1 group', () => {
+  // a slow driver: 400 ms per new material, all of it in the GPU process (the JS render takes 1 ms)
+  const r = pace(null, 20, 400);
+  assert.ok(r.info.done, JSON.stringify(r.info));
+  assert.equal(r.info.signatures, 120);
+  const late = r.units.slice(10);
+  assert.ok(Math.max(...late) <= 1.01, `steady batch: 1 group per frame (units ${JSON.stringify(late.slice(0, 12))})`);
+  // never the v1.2 runaway (budget 40 units = a 16 s frame here)
+  assert.ok(Math.max(...r.units) <= 6, `max ${Math.max(...r.units)} units in one frame`);
+  assert.ok(Math.max(...r.walls) <= 20 + 400 * 6, `longest warm frame ${Math.max(...r.walls)} ms`);
+});
+
+test('v1.3 (3c): a fast machine packs more per frame, up to the WebGL2 cap of 6 units', () => {
+  const r = pace(WARM_LIMITS.webgl2, 8, 3);
+  assert.ok(r.info.done);
+  assert.equal(Math.max(...r.units), 6, `reaches the cap (${JSON.stringify(r.units.slice(0, 12))})`);
+  assert.ok(r.units.every((u) => u <= 6));
+  assert.ok(r.units.length <= 40, `${r.units.length} frames for 120 materials`);
+  assert.equal(r.info.maxUnits, 6);
+});
+
+test('v1.3 (3c): WebGPU limits: at most 4 signature groups per frame', () => {
+  const r = pace(WARM_LIMITS.webgpu, 8, 3);
+  assert.ok(r.info.done);
+  assert.equal(Math.max(...r.groups), 4, `${JSON.stringify(r.groups.slice(0, 12))}`);
+  assert.equal(r.info.maxGroups, 4);
+  assert.equal(r.info.signatures, 120);
 });

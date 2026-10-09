@@ -12,6 +12,12 @@ import * as THREE from 'three/webgpu';
 
 /** extra bounds (m) around the packed instances: drawer travel, hinged doors, small shoves */
 const MARGIN = 0.75;
+/** v1.3 (3a): the smallest instance buffer three r186 feeds as an instanced vertex ATTRIBUTE (1025 mat4 = 65.6 KB, over
+ *  the 64 KB uniform-buffer limit). Smaller buffers become a uniform array named after its node id with the count
+ *  baked in (`buffer<id>[count]`, three Instance.js:41-66), so every batch compiled its own vertex AND fragment
+ *  program (57 instanced pipelines per Low site); with the attribute path batches of one material + vertex layout share
+ *  their programs and pipelines. Cost: <= 64 KB of matrices per batch (the drawn range uploads only). */
+export const ATTRIBUTE_PATH_INSTANCES = 1025;
 const ZERO16 = new Float32Array(16);
 const _sph = new THREE.Sphere();
 const _mat = new THREE.Matrix4();
@@ -40,7 +46,8 @@ export class SiteBatch {
 
   constructor(geometry: THREE.BufferGeometry, material: THREE.Material, capacity: number, name: string) {
     const cap = Math.max(1, Math.floor(capacity));
-    this.im = new THREE.InstancedMesh(geometry, material, cap);
+    // logical capacity = cap (add() refuses beyond it); the GPU buffer is at least ATTRIBUTE_PATH_INSTANCES (3a)
+    this.im = new THREE.InstancedMesh(geometry, material, Math.max(cap, ATTRIBUTE_PATH_INSTANCES));
     this.im.name = name;
     this.im.count = 0;
     this.im.visible = false;
@@ -73,6 +80,7 @@ export class SiteBatch {
     const k = this.slotOf[id];
     if (k < 0) return;
     this.im.setMatrixAt(k, m);
+    this.im.instanceMatrix.addUpdateRange(k * 16, 16);
     this.im.instanceMatrix.needsUpdate = true;
     // a moved instance (a shoved prop) keeps inside the bounds; a zero-scale (hidden) one never grows them
     const bs = this.im.boundingSphere;
@@ -142,7 +150,13 @@ export class SiteBatch {
     this.im.count = count;
     this.im.visible = count > 0;
     if (!changed) return;
-    this.im.instanceMatrix.needsUpdate = true;
+    // only the drawn range uploads (v1.3: the buffer holds >= 1025 matrices; slots past count are never drawn)
+    const attr = this.im.instanceMatrix;
+    attr.clearUpdateRanges();
+    if (count > 0) {
+      attr.addUpdateRange(0, count * 16);
+      attr.needsUpdate = true;
+    }
     this.refreshBounds();
   }
 

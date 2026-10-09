@@ -1,5 +1,5 @@
 {
- "_doc": "Track 3 Render defaults (PLAN 4.9), look pass tuned from tests/render/polish.e2e.ts contact sheets (tests/artifacts/polish/*). Units: light intensities in candela (physical); the flashlight cookie is normalised (hot core = 1) and stops brightening closer than flashlight.nearClamp m (no blown-out hot spot up close); decay 1.6 for game-readable throw; distance = your own beam's range, remoteDistance = teammates' beams (a shadowed beam's shadow far plane = its range, so distant casters drop out of its pass; gate P), shadowHold = metres of score bonus that keep a remote beam in its shadowed slot (no flip-flop). High / Ultra shadow 4 beams (yours + the 3 nearest / most centred teammates) and give the other 2 unshadowed batched slots (gate P draw budget). fog: exponential height fog indoors, blended to outdoorDensity/outdoorColor while the camera stands in an open space (lot); moon = extra cold hemisphere sky light (colour + intensity) blended in while the camera stands outdoors (no DirectionalLight: its DynamicLighting arrays overflow the 12 fragment uniform buffers on Medium/Low). adapt = faint cold dark-adaptation fill light riding above the camera (visual only); core = cyan point light following the Core canister. flashlight.volLocal/volRemote weight the scattering of your own beam (subtle haze down its axis) vs teammates' beams (readable shafts). volume.density is the scattering scale of the depth-clamped ray march (maxDist m); bloom.threshold is luminance (HDR, pre-tonemap); fx.ca is ChromaticAberrationNode strength; grade.contrast is a toe-preserving power curve (never clips darks). fixture.kinds: per-kind colour / intensity multiplier / range (tube = cold green-white fluorescent, lamp = sodium lot lamp, wall = entrance wall pack, van = cargo light). Pool sizes (shadowed/unshadowed/fixtures) and shadowMap apply at page load; everything else switches live via services.render.setPreset.",
+ "_doc": "Track 3 Render defaults (PLAN 4.9), look pass tuned from tests/render/polish.e2e.ts contact sheets (tests/artifacts/polish/*). Units: light intensities in candela (physical); the flashlight cookie is normalised (hot core = 1) and stops brightening closer than flashlight.nearClamp m (no blown-out hot spot up close); decay 1.6 for game-readable throw; distance = your own beam's range, remoteDistance = teammates' beams (a shadowed beam's shadow far plane = its range, so distant casters drop out of its pass; gate P), shadowHold = metres of score bonus that keep a remote beam in its shadowed slot (no flip-flop). High / Ultra shadow 4 beams (yours + the 3 nearest / most centred teammates) and give the other 2 unshadowed batched slots (gate P draw budget). fog: exponential height fog indoors, blended to outdoorDensity/outdoorColor while the camera stands in an open space (lot); moon = extra cold hemisphere sky light (colour + intensity) blended in while the camera stands outdoors (no DirectionalLight: its DynamicLighting arrays overflow the 12 fragment uniform buffers on Medium/Low). adapt = faint cold dark-adaptation fill light riding above the camera (visual only); core = cyan point light following the Core canister. flashlight.volLocal/volRemote weight the scattering of your own beam (subtle haze down its axis) vs teammates' beams (readable shafts). volume.density is the scattering scale of the depth-clamped ray march (maxDist m); bloom.threshold is luminance (HDR, pre-tonemap); fx.ca is ChromaticAberrationNode strength; grade.contrast is a toe-preserving power curve (never clips darks). fixture.kinds: per-kind colour / intensity multiplier / range (tube = cold green-white fluorescent, lamp = sodium lot lamp, wall = entrance wall pack, van = cargo light). Pool sizes (shadowed/unshadowed/fixtures) and shadowMap apply at page load; everything else switches live via services.render.setPreset. v1.3 presets.lite (opt-in: ?preset=lite or the settings; never detected, never an auto-quality step): own beam shadowed only, one output pass (tone map + grade + vignette, no bloom/CA/TRAA/velocity/grain/march), no GI (v1.1 ambient), v1.1 exponential fog, 4 fixture spots, <= 1280x720 with a 0.5 rung; a page LOADED on Lite also gets noise-volume surfaces and low-poly halos.",
  "exposure": 1,
  "ambient": {
   "sky": "#6f819c",
@@ -120,6 +120,20 @@
   ]
  },
  "presets": {
+  "lite": {
+   "shadowed": 1,
+   "unshadowed": 5,
+   "shadowMap": 512,
+   "volumetric": false,
+   "volScale": 0.25,
+   "volSteps": 8,
+   "gtao": false,
+   "aoScale": 0.5,
+   "res": 0.75,
+   "fixtures": 4,
+   "traa": false,
+   "lite": true
+  },
   "low": {
    "shadowed": 2,
    "unshadowed": 4,
@@ -174,9 +188,13 @@
   }
  },
  "perf": {
-  "_doc": "v1.1 host performance (apps/client/src/render/perf.ts): DPR clamped to 1 when the canvas is >= dprClampWidth CSS px wide; resCap = per-preset internal resolution cap in physical render pixels (the browser upscales); AUTO QUALITY measures windowMs windows after warmupMs of steady in-game frames: median frame > slowP50Ms or long frames (>100 ms) >= longFrames in two windows in a row -> next rung (resolution scales first, then the preset; never pool sizes / castShadow / lights); Ultra only while the typical frame sustains ultraMinFps (or the display caps lower with GPU headroom); one rung up after two windows with p95 < fastP95Ms. telemetrySec = client report period (server logs one line per player per 30 s). Covered views (2026-10-07 host crashes): menuFps = max draws/s of the idle 3D backdrop while the title menu / a pre-join screen covers it (menuBlurFps while the window has no focus), drawn at most menuResCap physical px; coverFps = max draws/s while the opaque loading screen covers the game and is not holding (it holds at 1 draw/s while downloading; warm-up frames always draw at full rate + resolution); maxFps = optional in-game cap (0 = uncapped; ?maxfps= / services.render.setMaxFps). ?menufps= ?menublurfps= ?coverfps= ?menures=0 override for measurements.",
+  "_doc": "v1.1 host performance (apps/client/src/render/perf.ts): DPR clamped to 1 when the canvas is >= dprClampWidth CSS px wide; resCap = per-preset internal resolution cap in physical render pixels (the browser upscales); AUTO QUALITY measures windowMs windows after warmupMs of steady in-game frames: median frame > slowP50Ms or long frames (>100 ms) >= longFrames in two windows in a row -> next rung (resolution scales first, then the preset; never pool sizes / castShadow / lights); Ultra only while the typical frame sustains ultraMinFps (or the display caps lower with GPU headroom); one rung up after two windows with p95 < fastP95Ms. telemetrySec = client report period (server logs one line per player per 30 s). Covered views (2026-10-07 host crashes): menuFps = max draws/s of the idle 3D backdrop while the title menu / a pre-join screen covers it (menuBlurFps while the window has no focus), drawn at most menuResCap physical px; coverFps = max draws/s while the opaque loading screen covers the game and is not holding (it holds at 1 draw/s while downloading; warm-up frames always draw at full rate + resolution); maxFps = optional in-game cap (0 = uncapped; ?maxfps= / services.render.setMaxFps). ?menufps= ?menublurfps= ?coverfps= ?menures=0 override for measurements. v1.3: liteScales = Lite's resolution rungs (a 0.5 rung more); SIGNAL look (opt-in, Lite + Low): the canvas renders at physical / k with k a whole number chosen for ~signalTargetW px wide (signalMinK..signalMaxK; auto quality raises k instead of a fractional rescale) and is upscaled with image-rendering: pixelated.",
   "dprClampWidth": 2560,
   "resCap": {
+   "lite": [
+    1280,
+    720
+   ],
    "low": [
     1600,
     900
@@ -215,7 +233,17 @@
    1080
   ],
   "coverFps": 60,
-  "maxFps": 0
+  "maxFps": 0,
+  "liteScales": [
+   1,
+   0.85,
+   0.72,
+   0.6,
+   0.5
+  ],
+  "signalTargetW": 900,
+  "signalMinK": 2,
+  "signalMaxK": 8
  },
  "v12": {
   "_doc": "v1.2 env-render switches (?r12=fog:0,mist:0,gi:0 or ?r12=0 overrides per page). fog = fog.ts as scene.fogNode on every preset (the ONE density: closed-form haze + ground mist + local volumes, grid-coloured in-scatter); mist = mist.ts beam march through the same density (Medium+, shadowed beams only); gi = light-grid GI through the scene-pass context (AO multiplies it) + the hemisphere drops to hemi (neutral); hideParked = parked batched fixture lights visible=false (one sentinel per type); giK = grid irradiance -> GI irradiance; lumClamp = HDR luminance clamp before bloom; ambientK = grid -> render.ambientAt scale.",
@@ -294,6 +322,21 @@
    "scale": 0.5,
    "maxDist": 8,
    "halfRateStill": false
+  }
+ },
+ "warm": {
+  "_doc": "v1.3 (3c) render.warmSite pacing (sitewarm.ts): a warm frame is charged its whole interval (begin to the next frame, so GPU-process / driver compile stalls count) and aims at base + clamp(2 x base, minMs, maxMs) ms (base = the cheapest warm frame); per-frame caps per backend: units = cost units (1 per material not warmed yet, +1 per InstancedMesh, x1.5 when it casts shadows), groups = signature groups (WebGPU: a pipeline costs ~0 JS, the GPU process pays). Omitted keys keep the sitewarm.ts defaults.",
+  "webgl2": {
+   "units": 6,
+   "groups": 40,
+   "minMs": 50,
+   "maxMs": 250
+  },
+  "webgpu": {
+   "units": 40,
+   "groups": 4,
+   "minMs": 50,
+   "maxMs": 250
   }
  }
 }

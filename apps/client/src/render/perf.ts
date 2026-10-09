@@ -72,11 +72,17 @@ export interface PerfCfg {
   coverFps: number;
   /** in-game frame cap (0 = uncapped, the default; ?maxfps= / localStorage deadair.render.maxFps override) */
   maxFps: number;
+  /** v1.3 (4e): Lite's resolution rungs (one more: 0.5) */
+  liteScales: number[];
+  /** v1.3 SIGNAL look: target internal width (px) of the whole-number pixel scale k, and k's range */
+  signalTargetW: number;
+  signalMinK: number;
+  signalMaxK: number;
 }
 
 export const PERF_DEFAULTS: PerfCfg = {
   dprClampWidth: 2560,
-  resCap: { low: [1600, 900], medium: [1920, 1080], high: [2560, 1440], ultra: [2560, 1440] },
+  resCap: { lite: [1280, 720], low: [1600, 900], medium: [1920, 1080], high: [2560, 1440], ultra: [2560, 1440] },
   scales: [1, 0.85, 0.72, 0.6],
   minScale: 0.5,
   windowMs: 5000,
@@ -91,6 +97,10 @@ export const PERF_DEFAULTS: PerfCfg = {
   menuResCap: [1920, 1080],
   coverFps: 60,
   maxFps: 0,
+  liteScales: [1, 0.85, 0.72, 0.6, 0.5],
+  signalTargetW: 900,
+  signalMinK: 2,
+  signalMaxK: 8,
 };
 
 export function readPerfCfg(raw: unknown): PerfCfg {
@@ -119,6 +129,18 @@ export function pixelRatioFor(cssW: number, cssH: number, devDpr: number, p: Pre
   // never below ~640 px wide (unreadable)
   pr = Math.max(pr, Math.min(dpr, 640 / Math.max(1, cssW)));
   return { pr, w: Math.round(cssW * pr), h: Math.round(cssH * pr), dpr };
+}
+
+/** v1.3 SIGNAL look: a whole-number pixel scale. Every render pixel covers k x k PHYSICAL pixels (CSS
+ *  image-rendering: pixelated upscales it without blur), k chosen for ~signalTargetW px wide; the auto-quality scale
+ *  steps k up (scale 0.5 = twice the pixel size) instead of a fractional, blurry rescale. */
+export function signalPixelRatio(cssW: number, cssH: number, devDpr: number, cfg: Pick<PerfCfg, 'signalTargetW' | 'signalMinK' | 'signalMaxK'>, autoScale = 1): { pr: number; w: number; h: number; dpr: number; k: number } {
+  const dpr = Math.max(0.25, devDpr || 1);
+  const phys = cssW * dpr;
+  const k0 = Math.min(cfg.signalMaxK, Math.max(cfg.signalMinK, Math.round(phys / Math.max(160, cfg.signalTargetW))));
+  const k = Math.min(cfg.signalMaxK, Math.max(k0, Math.ceil(k0 / Math.max(0.25, Math.min(1, autoScale)) - 1e-6)));
+  const pr = dpr / k;
+  return { pr, w: Math.round(cssW * pr), h: Math.round(cssH * pr), dpr, k };
 }
 
 // ---------------------------------------------------------------- draw gate (frame cap)
@@ -159,25 +181,30 @@ export interface CoverInputs {
   backdrop: boolean;
   /** ctx.ui.screen name ('join' = the title menu / bare join panel, also after leaving a crew) */
   screen: string;
+  /** v1.3 (2c): the drive phase with meta's opaque drive screen up (the site builds + warms under it) */
+  drive?: boolean;
 }
 
 /** Cover state of the 3D view. The title menu (and every pre-join screen over the backdrop) is 'menu'; the opaque
- *  loading screen is 'cover' (or 'hold' while it asked for a pause); everything else in game is 'game'. */
+ *  loading screen is 'cover' (or 'hold' while it asked for a pause); the drive screen is 'hold' (v1.3); everything
+ *  else in game is 'game'. */
 export function coverMode(s: CoverInputs): CoverMode {
   if (s.hidden) return 'hidden';
-  if (s.hold) return 'hold';
+  if (s.hold || (s.drive && !s.testScene)) return 'hold';
   if (s.testScene) return 'game';
   if (s.loadingCovering) return 'cover';
   if (!s.loadingVisible && (s.backdrop || s.screen === 'join')) return 'menu';
   return 'game';
 }
 
-/** ms between draws for a cover mode (0 = every frame, Infinity = none). Warm-up frames bypass the gate. */
+/** ms between draws for a cover mode (0 = every frame, Infinity = none). Warm-up frames bypass the gate.
+ *  v1.3 (2c): 'hold' draws nothing (it drew once a second: each such draw compiled whatever the unseen view held, in
+ *  one unpaced frame); only warm frames draw under it. */
 export function drawInterval(mode: CoverMode, cfg: Pick<PerfCfg, 'menuFps' | 'menuBlurFps' | 'coverFps' | 'maxFps'>, focused: boolean): number {
   const per = (fps: number) => (fps > 0 ? 1000 / fps : 0);
   switch (mode) {
     case 'hidden': return Infinity;
-    case 'hold': return 1000;
+    case 'hold': return Infinity;
     case 'cover': return per(cfg.coverFps);
     case 'menu': return per(focused || !(cfg.menuBlurFps > 0) ? cfg.menuFps : Math.min(cfg.menuBlurFps, cfg.menuFps > 0 ? cfg.menuFps : Infinity));
     default: return per(cfg.maxFps);
@@ -217,11 +244,21 @@ export interface AutoHooks {
   features?: FeatureHooks;
   /** v1.2: windows of fast frames needed to climb back into Ultra (default 3) */
   ultraUpWindows?: number;
+  /** v1.3 (P6): the highest preset the ladder may climb back to, live: the stored choice, or with AUTO (nothing
+   *  stored) the detected preset. Absent (or not a ladder preset) = the preset at creation (v1.2) */
+  ceiling?(): string;
+  /** v1.3 (4e): the resolution rungs for the active preset (Lite has a 0.5 rung); default cfg.scales */
+  scales?(): readonly number[];
 }
 
 /** Auto quality controller: call tick(now) every frame; measures windowMs windows after warmupMs of steady frames. */
 export function createAutoQuality(cfg: PerfCfg, times: FrameTimes, hooks: AutoHooks, state: AutoState): { tick(now: number): void; busy(now: number): void } {
-  const ceiling = hooks.presets.indexOf(hooks.preset());
+  const ceiling0 = hooks.presets.indexOf(hooks.preset());
+  const ceilingIdx = (): number => {
+    const c = hooks.ceiling?.();
+    const i = c ? hooks.presets.indexOf(c) : -1;
+    return i >= 0 ? i : ceiling0;
+  };
   let steadySince = -1;
   let windowStart = -1;
   let fastWindows = 0;
@@ -229,8 +266,11 @@ export function createAutoQuality(cfg: PerfCfg, times: FrameTimes, hooks: AutoHo
   /** a fresh step-down right after a step-up locks climbing for a while (v1.1: for good; v1.2: 60 s) */
   let upLockUntil = -Infinity;
   let lastUpAt = -Infinity;
-  const rungs = cfg.scales.filter((s) => s >= cfg.minScale);
-  const scaleIdx = () => { let i = rungs.findIndex((s) => Math.abs(s - state.scale) < 0.01); if (i < 0) i = 0; return i; };
+  const rungs0 = cfg.scales.filter((s) => s >= cfg.minScale);
+  /** this preset's rungs (live: a preset switch may change them) */
+  const rungList = (): readonly number[] => { const r = hooks.scales?.(); return r && r.length ? r.filter((s) => s >= cfg.minScale) : rungs0; };
+  let rungs: readonly number[] = rungs0;
+  const scaleIdx = () => { rungs = rungList(); let i = rungs.findIndex((s) => Math.abs(s - state.scale) < 0.01); if (i < 0) i = 0; return i; };
   const F = hooks.features;
   const stepDown = (why: string, now: number) => {
     const i = scaleIdx();
@@ -251,6 +291,7 @@ export function createAutoQuality(cfg: PerfCfg, times: FrameTimes, hooks: AutoHo
       state.scale = rungs[i + 1];
       hooks.setScale(state.scale);
     } else if (state.presetFree && pi > 0) {
+      // (pi < 0: a preset outside the ladder, Lite: only its resolution ever changes)
       hooks.setPreset(hooks.presets[pi - 1]);
     } else { state.last = `${why} (at the lowest rung)`; return; }
     state.steps++;
@@ -260,10 +301,11 @@ export function createAutoQuality(cfg: PerfCfg, times: FrameTimes, hooks: AutoHo
   const stepUp = (why: string, now: number) => {
     const i = scaleIdx();
     const pi = hooks.presets.indexOf(hooks.preset());
+    const ceiling = ceilingIdx();
     // the reverse ladder: resolution, then the preset (into Ultra only with the v1.2 feature ladder and after
     // ultraUpWindows fast windows), then the features dropped first come back last
     if (i > 0) { state.scale = rungs[i - 1]; hooks.setScale(state.scale); }
-    else if (state.presetFree && pi < ceiling && (hooks.presets[pi + 1] !== 'ultra' || (F && fastWindows >= (hooks.ultraUpWindows ?? 3)))) hooks.setPreset(hooks.presets[pi + 1]);
+    else if (state.presetFree && pi >= 0 && pi < ceiling && (hooks.presets[pi + 1] !== 'ultra' || (F && fastWindows >= (hooks.ultraUpWindows ?? 3)))) hooks.setPreset(hooks.presets[pi + 1]);
     else if (F && F.level() > 0 && (!state.presetFree || pi >= ceiling)) F.set(F.level() - 1);
     else return;
     lastUpAt = now;
@@ -303,7 +345,7 @@ export function createAutoQuality(cfg: PerfCfg, times: FrameTimes, hooks: AutoHo
       const fast = s.p95 < cfg.fastP95Ms && s.long === 0 && (gpu === undefined || gpu < cfg.fastP95Ms * 0.6);
       fastWindows = fast ? fastWindows + 1 : 0;
       const pi = hooks.presets.indexOf(hooks.preset());
-      const needUltra = !!F && state.presetFree && scaleIdx() === 0 && hooks.presets[pi + 1] === 'ultra' && pi < ceiling;
+      const needUltra = !!F && state.presetFree && pi >= 0 && scaleIdx() === 0 && hooks.presets[pi + 1] === 'ultra' && pi < ceilingIdx();
       const need = needUltra ? (hooks.ultraUpWindows ?? 3) : 2;
       if (fastWindows >= need && now >= upLockUntil) { stepUp(`p95 ${s.p95.toFixed(1)} ms`, now); fastWindows = 0; return; }
       state.last = `ok: ${s.fps.toFixed(0)} fps p50 ${s.p50.toFixed(1)} p95 ${s.p95.toFixed(1)}${displayCapped ? ' (display-capped)' : ''}`;

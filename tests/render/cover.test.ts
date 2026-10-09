@@ -70,7 +70,9 @@ test('drawInterval per cover mode', () => {
   const cfg = { menuFps: 30, menuBlurFps: 10, coverFps: 60, maxFps: 0 };
   assert.equal(drawInterval('game', cfg, true), 0);
   assert.equal(drawInterval('hidden', cfg, true), Infinity);
-  assert.equal(drawInterval('hold', cfg, true), 1000);
+  // v1.3 (2c): 'hold' draws nothing (warm frames bypass the gate)
+  assert.equal(drawInterval('hold', cfg, true), Infinity);
+  assert.equal(drawInterval('hold', cfg, false), Infinity);
   assert.ok(Math.abs(drawInterval('cover', cfg, true) - 16.67) < 0.01);
   assert.ok(Math.abs(drawInterval('menu', cfg, true) - 33.33) < 0.01);
   assert.equal(drawInterval('menu', cfg, false), 100);
@@ -96,6 +98,16 @@ test('coverMode: the loading screen owns the view while it is up (warm-up needs 
   assert.equal(coverMode({ ...base, backdrop: true, screen: 'join', loadingVisible: true, loadingCovering: true, hold: true }), 'hold');
   // fading out over the game: full rate, never the menu cap
   assert.equal(coverMode({ ...base, screen: 'join', loadingVisible: true, loadingCovering: false }), 'game');
+});
+
+test("v1.3 (2c): meta's drive screen holds the view (only warm frames draw under it)", () => {
+  assert.equal(coverMode({ ...base, drive: true, screen: 'drive' }), 'hold');
+  // the arrival / join loading screen over the drive: still held
+  assert.equal(coverMode({ ...base, drive: true, screen: 'drive', loadingVisible: true, loadingCovering: true }), 'hold');
+  assert.equal(coverMode({ ...base, drive: false, screen: 'none' }), 'game');
+  // look-dev pages and hidden windows keep their own modes
+  assert.equal(coverMode({ ...base, drive: true, testScene: true }), 'game');
+  assert.equal(coverMode({ ...base, drive: true, hidden: true }), 'hidden');
 });
 
 test('coverMode: ?scene=test look-dev is never throttled; hidden beats everything', () => {

@@ -7,12 +7,16 @@
 // the same surface share ONE shader program; vertexMasks reads a 'mask' vec3 attribute (x contact AO, y dirt,
 // z damp) smoothed in the shader; macro = large world-space albedo breakup from the shared noise volume; geometric
 // specular AA; 'corrugated' / 'diamond' metal patterns (rough >= 0.7, metal <= 0.3: never a mirror ceiling).
+// v1.3 (3b): roughness, metalness and grime are per-material uniforms too (m.setSurface: live, no recompile), and
+// liveTextures builds the TEXTURED graph from the start over shared 1x1 placeholder textures (white sRGB albedo, flat
+// normal, ORM 1 = the flat look): m.setTextures swaps the real KTX2 textures in later (TextureNode.value / the
+// normalMap property) and nothing recompiles (the level's KTX2 upgrade compiled every textured material twice).
 // Sampler budget: every shadowed flashlight binds a depth texture + comparison sampler into EVERY lit material
 // (Chrome WebGPU: 16 samplers per stage). Keep materials at <= 3 textures (pack AO/rough/metal into one ORM).
 import * as THREE from 'three/webgpu';
 import {
   float, mix, mx_fractal_noise_float, mx_noise_float, normalWorld, normalView, positionWorld, texture, texture3D, triplanarTexture, uniform,
-  color as tslColor, smoothstep, fract, floor, hash, abs, vec2, vec3, attribute, fwidth, max, sin,
+  color as tslColor, smoothstep, fract, floor, hash, abs, vec2, vec3, attribute, fwidth, max, sin, normalMap,
 } from 'three/tsl';
 import { noiseTexture3D } from './noise3d.ts';
 
@@ -58,10 +62,56 @@ export interface SurfaceOpts {
   macro?: number;
   /** v1.2: geometric specular anti-aliasing (default true) */
   specularAA?: boolean;
+  /** v1.3 (3b): build the textured graph now, over 1x1 placeholders for the textures not given (uvMode 'uv' only);
+   *  m.setTextures / m.setSurface switch to the real textures + params later without a recompile */
+  liveTextures?: boolean;
+  /** v1.3 (4e): 'alu' = MaterialX noise, 'volume' = taps of the shared 64^3 noise volume (no per-pixel noise ALU);
+   *  default: setSurfaceNoise() (render sets 'volume' when the page loads on Lite) */
+  noise?: SurfaceNoise;
 }
 
+/** v1.3 (4e): how surface grime / patterns get their noise */
+export type SurfaceNoise = 'alu' | 'volume';
+let surfaceNoise: SurfaceNoise = 'alu';
+/** v1.3 (4e): the noise of surfaces made from now on (render: 'volume' on a Lite page load, before any level exists) */
+export function setSurfaceNoise(mode: SurfaceNoise): void { surfaceNoise = mode; }
+export function surfaceNoiseMode(): SurfaceNoise { return surfaceNoise; }
+
+/** v1.3: live surface parameters (the same clamps as at creation: corrugated / diamond keep rough >= 0.7, metal <= 0.3) */
+export interface SurfaceParams { color?: THREE.ColorRepresentation; roughness?: number; metalness?: number; grime?: number }
+export interface SurfaceTextures { albedo?: THREE.Texture | null; normal?: THREE.Texture | null; orm?: THREE.Texture | null }
+
 /** what makeSurfaceMaterial returns: the tint uniform is live (set .value to re-tint without a recompile) */
-export type SurfaceMaterial = THREE.MeshStandardNodeMaterial & { tintUniform: { value: THREE.Color }; baseUniform: { value: THREE.Color } };
+export type SurfaceMaterial = THREE.MeshStandardNodeMaterial & {
+  tintUniform: { value: THREE.Color };
+  baseUniform: { value: THREE.Color };
+  /** v1.3: base colour / roughness / metalness / grime, live (no recompile) */
+  setSurface(p: SurfaceParams): void;
+  /** v1.3 (3b), liveTextures only: swap real textures in (absent / null = keep the current one); no recompile */
+  setTextures?(t: SurfaceTextures): void;
+};
+
+type PlaceholderKind = 'albedo' | 'normal' | 'orm';
+const placeholders: Partial<Record<PlaceholderKind, THREE.Texture>> = {};
+/** v1.3 (3b): shared 1x1 stand-ins of the same KIND as the KTX2 textures they wait for (RGBA8 float-filterable, sRGB
+ *  albedo / linear normal + ORM, repeat wrap, linear filters with mips: the sampler + binding layout match, so swapping
+ *  the real texture in needs no new program or pipeline) */
+export function surfacePlaceholder(kind: PlaceholderKind): THREE.Texture {
+  const hit = placeholders[kind];
+  if (hit) return hit;
+  const px = kind === 'normal' ? [128, 128, 255, 255] : [255, 255, 255, 255];
+  const t = new THREE.DataTexture(new Uint8Array(px), 1, 1, THREE.RGBAFormat, THREE.UnsignedByteType);
+  t.name = `surface-placeholder-${kind}`;
+  t.colorSpace = kind === 'albedo' ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = false;
+  t.needsUpdate = true;
+  placeholders[kind] = t;
+  return t;
+}
+export const isSurfacePlaceholder = (t: THREE.Texture | null | undefined): boolean => !!t && Object.values(placeholders).includes(t);
 
 const warned = new Set<string>();
 function warnOnce(key: string, msg: string): void {
@@ -73,22 +123,37 @@ function warnOnce(key: string, msg: string): void {
 /** Standard PBR surface: world-space triplanar maps (or mesh UVs), procedural grime so flat walls read in a flashlight. */
 export function makeSurfaceMaterial(o: SurfaceOpts): SurfaceMaterial {
   const corr = o.pattern === 'corrugated' || o.pattern === 'diamond';
-  const roughness0 = corr ? Math.max(0.7, o.roughness) : o.roughness;
-  const metalness0 = corr ? Math.min(0.3, o.metalness) : o.metalness;
+  const roughOf = (r: number) => (corr ? Math.max(0.7, r) : r);
+  const metalOf = (v: number) => (corr ? Math.min(0.3, v) : v);
+  const roughness0 = roughOf(o.roughness);
+  const metalness0 = metalOf(o.metalness);
   const m = new THREE.MeshStandardNodeMaterial({ color: o.color, roughness: roughness0, metalness: metalness0 }) as SurfaceMaterial;
   if (o.side !== undefined) m.side = o.side;
   const scale = float(1 / (o.scale ?? 2));
   const world = (o.uvMode ?? 'world') === 'world';
-  const tex = [o.albedo, o.normal, o.orm].filter(Boolean).length;
+  // v1.3 (3b): live textures (uv mode): the textured graph from the start, placeholders until the real ones land
+  const live = o.liveTextures === true && !world;
+  const albedoTex = o.albedo ?? (live ? surfacePlaceholder('albedo') : undefined);
+  const normalTex = o.normal ?? (live ? surfacePlaceholder('normal') : undefined);
+  const ormTex = o.orm ?? (live ? surfacePlaceholder('orm') : undefined);
+  const tex = [albedoTex, normalTex, ormTex].filter(Boolean).length;
   if (tex > MAX_MATERIAL_TEXTURES) warnOnce(`surf${tex}`, `makeSurfaceMaterial: ${tex} textures > budget ${MAX_MATERIAL_TEXTURES}`);
 
   const grime = o.grime ?? 0.5;
+  // v1.3: roughness / metalness / grime are uniforms (live; materials differing only in them can share one program)
+  const roughU = uniform(roughness0);
+  const metalU = uniform(metalness0);
+  const grimeU = uniform(grime);
   // two cheap noise octaves in world space: large stains + fine speckle
   const p = positionWorld;
-  const stains: AnyNode = grime > 0 ? mx_fractal_noise_float(p.mul(0.35), 3, 2.0, 0.5, 1.0).mul(0.5).add(0.5).clamp(0, 1) : float(0.5);
-  const speck: AnyNode = grime > 0 ? mx_fractal_noise_float(p.mul(3.1), 2, 2.0, 0.5, 1.0).mul(0.5).add(0.5).clamp(0, 1) : float(0.5);
+  // v1.3 (4e) 'volume': one tap of the shared noise volume per term instead of MaterialX fBm (Lite: ~1,800 ALU ops
+  // per lit pixel less). Frequencies match the fBm's base feature size (the volume's coarsest octave = 4 cells/unit)
+  const vol = (o.noise ?? surfaceNoise) === 'volume';
+  const vn = (q: AnyNode): AnyNode => texture3D(noiseTexture3D(), q).r;
+  const stains: AnyNode = grime > 0 ? (vol ? vn(p.mul(0.086).add(vec3(0.37, 0.11, 0.73))) : mx_fractal_noise_float(p.mul(0.35), 3, 2.0, 0.5, 1.0).mul(0.5).add(0.5).clamp(0, 1)) : float(0.5);
+  const speck: AnyNode = grime > 0 ? (vol ? vn(p.mul(0.78).add(vec3(0.71, 0.29, 0.13))) : mx_fractal_noise_float(p.mul(3.1), 2, 2.0, 0.5, 1.0).mul(0.5).add(0.5).clamp(0, 1)) : float(0.5);
   // darker near the floor (dirt line)
-  const floorDirt: AnyNode = grime > 0 ? float(1).sub(p.y.mul(2.2).clamp(0, 1).oneMinus().mul(0.35 * grime)) : float(1);
+  const floorDirt: AnyNode = grime > 0 ? float(1).sub(p.y.mul(2.2).clamp(0, 1).oneMinus().mul(grimeU.mul(0.35))) : float(1);
 
   // v1.2: base colour + tint are uniforms (the same pattern / texture set compiles once for every colour)
   const base = uniform(new THREE.Color(o.color));
@@ -96,13 +161,16 @@ export function makeSurfaceMaterial(o: SurfaceOpts): SurfaceMaterial {
   if (o.tint !== undefined && o.tintUniform) o.tintUniform.value.set(o.tint);
   const tint0 = uniform(tintU.value);
   let colorNode: AnyNode = (base as AnyNode).mul(tint0);
-  if (o.albedo) {
-    o.albedo.colorSpace = THREE.SRGBColorSpace;
-    o.albedo.wrapS = o.albedo.wrapT = THREE.RepeatWrapping;
-    const a: AnyNode = world ? triplanarTexture(texture(o.albedo), null, null, scale) : texture(o.albedo);
+  /** the texture nodes a live swap retargets (uv mode: used directly, never cloned) */
+  let albedoNode: AnyNode = null;
+  let ormNode: AnyNode = null;
+  if (albedoTex) {
+    albedoTex.colorSpace = THREE.SRGBColorSpace;
+    albedoTex.wrapS = albedoTex.wrapT = THREE.RepeatWrapping;
+    const a: AnyNode = world ? triplanarTexture(texture(albedoTex), null, null, scale) : (albedoNode = texture(albedoTex));
     colorNode = colorNode.mul(a.rgb);
   }
-  const tint = mix(float(1 - 0.28 * grime), float(1 + 0.08 * grime), stains).mul(mix(float(0.92), float(1.04), speck)).mul(floorDirt);
+  const tint = mix(float(1).sub(grimeU.mul(0.28)), float(1).add(grimeU.mul(0.08)), stains).mul(mix(float(0.92), float(1.04), speck)).mul(floorDirt);
   let patRough: AnyNode = float(1);
   const pat = o.pattern;
   if (pat === 'paint') {
@@ -112,7 +180,7 @@ export function makeSurfaceMaterial(o: SurfaceOpts): SurfaceMaterial {
     const trim = smoothstep(0.035, 0.0, abs(y.sub(1.05)));
     const f = fract(u.div(1.25));
     const seam = smoothstep(0.0, 0.01, f).mul(smoothstep(1.0, 0.99, f));
-    const streak = mx_noise_float(vec3(u.mul(2.7), y.mul(0.18), 0.5)).mul(0.5).add(0.5);
+    const streak = vol ? vn(vec3(u.mul(0.68), y.mul(0.045), 0.31)) : mx_noise_float(vec3(u.mul(2.7), y.mul(0.18), 0.5)).mul(0.5).add(0.5);
     const stain = smoothstep(0.55, 0.85, streak).mul(smoothstep(2.9, 0.6, y)).mul(0.45);
     const band = mix(vec3(1, 1, 1), vec3(0.5, 0.6, 0.55), lower);
     colorNode = colorNode.mul(band).mul(mix(float(0.55), float(1), seam)).mul(float(1).sub(trim.mul(0.5))).mul(float(1).sub(stain));
@@ -123,11 +191,11 @@ export function makeSurfaceMaterial(o: SurfaceOpts): SurfaceMaterial {
     const f = fract(q);
     const grout = smoothstep(0.0, 0.035, f.x).mul(smoothstep(1.0, 0.965, f.x)).mul(smoothstep(0.0, 0.035, f.y)).mul(smoothstep(1.0, 0.965, f.y));
     const tileTint = hash(cell.x.mul(7.13).add(cell.y.mul(157.7))).mul(0.22).add(0.86);
-    const wet = smoothstep(0.62, 0.8, mx_noise_float(vec3(p.x.mul(0.35), 0.0, p.z.mul(0.35))).mul(0.5).add(0.5));
+    const wet = smoothstep(0.62, 0.8, vol ? vn(vec3(p.x.mul(0.086), 0.47, p.z.mul(0.086))) : mx_noise_float(vec3(p.x.mul(0.35), 0.0, p.z.mul(0.35))).mul(0.5).add(0.5));
     colorNode = colorNode.mul(tileTint).mul(mix(float(0.4), float(1), grout)).mul(float(1).sub(wet.mul(0.25)));
     patRough = mix(float(1.6), float(1), grout).mul(float(1).sub(wet.mul(0.65)));
   } else if (pat === 'concrete') {
-    const blot = mx_fractal_noise_float(p.mul(1.7), 3, 2.0, 0.5, 1.0).mul(0.5).add(0.5);
+    const blot = vol ? vn(p.mul(0.42)) : mx_fractal_noise_float(p.mul(1.7), 3, 2.0, 0.5, 1.0).mul(0.5).add(0.5);
     colorNode = colorNode.mul(mix(float(0.75), float(1.12), blot));
     patRough = mix(float(1.1), float(0.85), blot);
   } else if (pat === 'corrugated') {
@@ -148,7 +216,7 @@ export function makeSurfaceMaterial(o: SurfaceOpts): SurfaceMaterial {
   let puddle: AnyNode = null;
   let damp: AnyNode = null;
   if (o.wet && o.wet > 0) {
-    const w = mx_fractal_noise_float(vec3(p.x.mul(0.21), p.y.mul(0.0), p.z.mul(0.21)), 3, 2.0, 0.5, 1.0).mul(0.5).add(0.5);
+    const w = vol ? vn(vec3(p.x.mul(0.052), 0.71, p.z.mul(0.052))) : mx_fractal_noise_float(vec3(p.x.mul(0.21), p.y.mul(0.0), p.z.mul(0.21)), 3, 2.0, 0.5, 1.0).mul(0.5).add(0.5);
     puddle = smoothstep(0.6, 0.68, w).mul(o.wet);
     damp = smoothstep(0.5, 0.62, w).mul(o.wet);
     colorNode = colorNode.mul(float(1).sub(damp.mul(0.22)).sub(puddle.mul(0.18)));
@@ -172,16 +240,16 @@ export function makeSurfaceMaterial(o: SurfaceOpts): SurfaceMaterial {
   }
   m.colorNode = colorNode.mul(tint);
 
-  let rough: AnyNode = float(roughness0);
-  let metal: AnyNode = float(metalness0);
-  if (o.orm) {
-    o.orm.wrapS = o.orm.wrapT = THREE.RepeatWrapping;
-    const orm: AnyNode = world ? triplanarTexture(texture(o.orm), null, null, scale) : texture(o.orm);
+  let rough: AnyNode = roughU;
+  let metal: AnyNode = metalU;
+  if (ormTex) {
+    ormTex.wrapS = ormTex.wrapT = THREE.RepeatWrapping;
+    const orm: AnyNode = world ? triplanarTexture(texture(ormTex), null, null, scale) : (ormNode = texture(ormTex));
     rough = rough.mul(orm.g);
     metal = metal.mul(orm.b);
     m.aoNode = maskAO ? orm.r.mul(float(1).sub(maskAO.mul(0.6))) : orm.r;
   } else if (maskAO) m.aoNode = float(1).sub(maskAO.mul(0.6));
-  if (grime > 0) rough = rough.mul(mix(float(1 - 0.35 * grime), float(1 + 0.1 * grime), stains));
+  if (grime > 0) rough = rough.mul(mix(float(1).sub(grimeU.mul(0.35)), float(1).add(grimeU.mul(0.1)), stains));
   rough = rough.mul(patRough).clamp(o.minRough ?? (corr ? 0.62 : 0.04), 1);
   if (maskDirt) rough = rough.add(maskDirt.mul(0.15)).clamp(0.04, 1);
   if (maskDamp) rough = rough.mul(float(1).sub(maskDamp.mul(0.55))).clamp(0.04, 1);
@@ -191,10 +259,16 @@ export function makeSurfaceMaterial(o: SurfaceOpts): SurfaceMaterial {
   m.roughnessNode = rough;
   m.metalnessNode = corr ? metal.min(0.3) : metal;
 
-  if (o.normal) {
+  let normalNode: AnyNode = null;
+  if (normalTex) {
     if (world) warnOnce('trinormal', 'makeSurfaceMaterial: normal map ignored with uvMode world (use uvMode: "uv")');
-    else {
-      m.normalMap = o.normal;
+    else if (live) {
+      // v1.3 (3b): a texture NODE, not the normalMap material property (a material texture property is part of the
+      // material cache key with its sampler state on WebGPU): swapped through .value like the albedo / ORM
+      normalNode = texture(normalTex);
+      m.normalNode = normalMap(normalNode);
+    } else {
+      m.normalMap = normalTex;
     }
   }
   if (o.emissive !== undefined) {
@@ -204,6 +278,29 @@ export function makeSurfaceMaterial(o: SurfaceOpts): SurfaceMaterial {
   void normalWorld; void tslColor;
   m.tintUniform = tintU;
   m.baseUniform = base as unknown as { value: THREE.Color };
+  m.setSurface = (sp) => {
+    if (sp.color !== undefined) (base as unknown as { value: THREE.Color }).value.set(sp.color);
+    if (sp.roughness !== undefined) { roughU.value = roughOf(sp.roughness); m.roughness = roughU.value; }
+    if (sp.metalness !== undefined) { metalU.value = metalOf(sp.metalness); m.metalness = metalU.value; }
+    if (sp.grime !== undefined) grimeU.value = Math.max(0, sp.grime);
+  };
+  if (live) {
+    m.setTextures = (t) => {
+      if (t.albedo && albedoNode) {
+        t.albedo.colorSpace = THREE.SRGBColorSpace;
+        t.albedo.wrapS = t.albedo.wrapT = THREE.RepeatWrapping;
+        albedoNode.value = t.albedo;
+      }
+      if (t.orm && ormNode) {
+        t.orm.wrapS = t.orm.wrapT = THREE.RepeatWrapping;
+        ormNode.value = t.orm;
+      }
+      if (t.normal && normalNode) {
+        t.normal.wrapS = t.normal.wrapT = THREE.RepeatWrapping;
+        normalNode.value = t.normal;
+      }
+    };
+  }
   return m;
 }
 

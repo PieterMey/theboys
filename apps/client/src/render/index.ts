@@ -7,6 +7,7 @@ import * as THREE from 'three/webgpu';
 import { Fn, exponentialHeightFogFactor, fog, normalWorld, positionWorld, renderGroup, smoothstep, uniform, float } from 'three/tsl';
 import { DynamicLighting } from 'three/addons/lighting/DynamicLighting.js';
 import { h } from 'preact';
+import { signal } from '@preact/signals';
 import type { ClientContext } from '../core/context.ts';
 import { SYS } from '../core/loop.ts';
 import { createFlashlightPool } from './flashlights.ts';
@@ -15,10 +16,15 @@ import { createFixturePool } from './fixtures.ts';
 import type { FixtureCfg, FixtureCurveName, FixtureUpdateOpts } from './fixtures.ts';
 import { createPipeline } from './pipeline.ts';
 import type { PipeCfg } from './pipeline.ts';
-import { PRESET_NAMES, gpuName, presetForGpu, presetTable } from './presets.ts';
-import { auditSceneMaterials, makeEmissive, makeSurfaceMaterial } from './materials.ts';
+import { AUTO_PRESET, LITE_PRESET, MENU_PRESETS, PRESET_NAMES, gpuName, presetChoice, presetForGpu, presetTable } from './presets.ts';
+import type { Preset } from './presets.ts';
+import { auditSceneMaterials, makeEmissive, makeSurfaceMaterial, setSurfaceNoise } from './materials.ts';
 import { buildTestScene, loadFixtureLayout } from './testscene.ts';
-import { FrameTimes, coverMode, createAutoQuality, createPerfPanel, drawInterval, gateDraw, pixelRatioFor, readPerfCfg } from './perf.ts';
+import { createMenuStill } from './still.ts';
+import type { MenuStill } from './still.ts';
+import { FrameTimes, coverMode, createAutoQuality, createPerfPanel, drawInterval, gateDraw, pixelRatioFor, readPerfCfg, signalPixelRatio } from './perf.ts';
+import { createOsd, osdVisible } from './osd.ts';
+import type { Osd } from './osd.ts';
 import type { AutoState, CoverInputs, CoverMode, DrawGate } from './perf.ts';
 import type { TestScene, TestView } from './testscene.ts';
 import { useLoose } from './types.ts';
@@ -35,7 +41,8 @@ import type { MistCfg } from './mist.ts';
 import { MIRROR_BUDGETS, createMirrorSystem } from './mirrors.ts';
 import type { MirrorBudget } from './mirrors.ts';
 import { createPuffs } from './motes.ts';
-import { createSiteWarm } from './sitewarm.ts';
+import { WARM_LIMITS, createSiteWarm } from './sitewarm.ts';
+import type { WarmLimits } from './sitewarm.ts';
 import type { PuffKind } from './motes.ts';
 import { moodFor, roomParams } from './moods.ts';
 import type { LevelLayout } from '@dead-air/shared/layout.ts';
@@ -110,6 +117,8 @@ type Cfg = {
   mist12: MistCfg;
   grid: LightGridCfg;
   mirrors: Record<string, Partial<MirrorBudget>>;
+  /** v1.3 (3c): render.warmSite per-frame caps per backend */
+  warm: { webgl2?: Partial<WarmLimits>; webgpu?: Partial<WarmLimits> };
 } & PipeCfg;
 
 const DEFAULTS: Cfg = {
@@ -130,6 +139,7 @@ const DEFAULTS: Cfg = {
   mist12: MIST_DEFAULTS,
   grid: GRID_DEFAULTS,
   mirrors: {},
+  warm: {},
 };
 
 function readCfg(ctx: ClientContext): Cfg {
@@ -148,6 +158,9 @@ function lsGet(k: string): string | null {
 }
 function lsSet(k: string, v: string): void {
   try { localStorage.setItem(k, v); } catch { /* ignore */ }
+}
+function lsDel(k: string): void {
+  try { localStorage.removeItem(k); } catch { /* ignore */ }
 }
 
 /** ?r12=fog:0,mist:1,gi:0 overrides the render.json v12 switches (look-dev / A-B) */
@@ -184,7 +197,16 @@ export async function install(ctx: ClientContext): Promise<void> {
   const stored = lsGet('deadair.render.preset');
   const auto = presetForGpu(gpu, backend);
   let presetName = urlPreset && table[urlPreset] ? urlPreset : stored && table[stored] ? stored : auto;
+  /** v1.3 (P6): where the preset came from: ?preset= / a stored settings choice / GPU detection (AUTO) */
+  let presetSource: 'url' | 'stored' | 'auto' = urlPreset && table[urlPreset] ? 'url' : stored && table[stored] ? 'stored' : 'auto';
   let preset = table[presetName];
+  /** the active preset for the HUD's RENDER chip: a signal applyPreset() updates, so a live switch (settings, auto
+   *  quality) redraws the chip (it read the plain presetName and kept the old preset until something else redrew it) */
+  const presetShown = signal(presetName);
+  // v1.3 (4e): a page loaded on Lite also gets Lite's load-time parts: noise-volume surfaces (every surface material
+  // made from now on) and low-poly fixture halos (a later switch to / from Lite keeps them until the next load)
+  const liteLoad = preset.lite === true;
+  if (liteLoad) setSurfaceNoise('volume');
   // pool sizes are fixed for the page's lifetime (changing them recompiles every lit material)
   const poolShadowed = preset.shadowed;
   const poolUnshadowed = Math.max(0, MAX_FLASHLIGHTS - poolShadowed);
@@ -234,10 +256,26 @@ export async function install(ctx: ClientContext): Promise<void> {
     steps: 0,
   };
   let internal = { pr: 1, w: 0, h: 0, dpr: 1 };
+  // v1.3 SIGNAL look (opt-in; applies on Lite and Low only): whole-number pixel scale + image-rendering: pixelated,
+  // Bayer posterize instead of bloom / CA / grain, the full-resolution bodycam OSD. ?signal=1 / ?signal=0 override the
+  // stored toggle (deadair.render.signal) for this page
+  const signalParam = ctx.params.get('signal');
+  let signalOn = signalParam === '1' ? true : signalParam === '0' ? false : lsGet('deadair.render.signal') === '1';
+  const signalActive = () => signalOn && (presetName === LITE_PRESET || presetName === 'low');
+  let signalK = 0;
   const applySize = () => {
-    internal = pixelRatioFor(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1, preset, perfCfg, autoQ.scale, { ...resOpts, extraCap: menuRes ? perfCfg.menuResCap : null });
+    const sig = signalActive() && !menuRes;
+    if (sig) {
+      const r = signalPixelRatio(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1, perfCfg, autoQ.scale);
+      internal = { pr: r.pr, w: r.w, h: r.h, dpr: r.dpr };
+      signalK = r.k;
+    } else {
+      internal = pixelRatioFor(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1, preset, perfCfg, autoQ.scale, { ...resOpts, extraCap: menuRes ? perfCfg.menuResCap : null });
+      signalK = 0;
+    }
     renderer.setPixelRatio(internal.pr);
     renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.domElement.style.imageRendering = sig ? 'pixelated' : '';
     ctx.diag.renderRes = `${renderer.domElement.width}x${renderer.domElement.height}`;
   };
   applySize();
@@ -268,7 +306,12 @@ export async function install(ctx: ClientContext): Promise<void> {
   const fogDensity = uniform(cfg.fog.density);
   const fogHeight = uniform(cfg.fog.height);
   const fogColorU = uniform(fogCol);
-  scene.fogNode = v12.fog ? buildFogNode(F) : fog(fogColorU, exponentialHeightFogFactor(fogDensity, fogHeight));
+  // v1.3 (4e): both media are built once; Lite (and ?r12=fog:0) uses the v1.1 closed-form exponential fog (no noise
+  // taps, no grid loads, no volume loop); a preset switch between them recompiles (like any preset switch)
+  const fog11 = fog(fogColorU, exponentialHeightFogFactor(fogDensity, fogHeight));
+  const fog12n = v12.fog ? buildFogNode(F) : null;
+  const fogFor = (p: Preset) => (p.lite || !fog12n ? fog11 : fog12n);
+  scene.fogNode = fogFor(preset);
   const fogBase = new THREE.Color(cfg.fog12.color);
   const fogBaseOut = new THREE.Color(cfg.fog12.outdoorColor);
   const moonFog = new THREE.Color(cfg.fog12.moon);
@@ -289,18 +332,30 @@ export async function install(ctx: ClientContext): Promise<void> {
 
   // minimum ambient floor: never pure black on uncalibrated monitors (v1.2 with GI: a dimmer neutral floor, the grid
   // brings the room colour)
-  const hemi = v12.gi
+  // (v1.3 Lite has no GI: the v1.1 ambient floor)
+  const giFor = (p: Preset) => v12.gi && !p.lite;
+  const hemi = giFor(preset)
     ? new THREE.HemisphereLight(cfg.v12.hemiSky, cfg.v12.hemiGround, cfg.v12.hemi)
     : new THREE.HemisphereLight(cfg.ambient.sky, cfg.ambient.ground, cfg.ambient.intensity);
   scene.add(hemi);
-  const hemiBase = hemi.intensity;
+  let hemiBase = hemi.intensity;
   const moonCfg = cfg.moon ?? DEFAULTS.moon!;
   const skyIn = hemi.color.clone();
+  let ambientGi = giFor(preset);
+  const applyAmbient = (p: Preset) => {
+    const gi = giFor(p);
+    ambientGi = gi;
+    hemi.color.set(gi ? cfg.v12.hemiSky : cfg.ambient.sky);
+    hemi.groundColor.set(gi ? cfg.v12.hemiGround : cfg.ambient.ground);
+    hemiBase = gi ? cfg.v12.hemi : cfg.ambient.intensity;
+    hemi.intensity = hemiBase;
+    skyIn.copy(hemi.color);
+  };
   const skyMoon = new THREE.Color(moonCfg.color);
   let outdoorK = 0;
 
   const flash = createFlashlightPool(scene, cfg.flashlight, poolShadowed, poolUnshadowed, preset.shadowMap, VOL_LAYER);
-  const fixtures = createFixturePool(scene, { ...cfg.fixture, hideParked: v12.hideParked }, poolFixtures, poolOmni);
+  const fixtures = createFixturePool(scene, { ...cfg.fixture, hideParked: v12.hideParked, ...(liteLoad ? { haloSegments: [10, 6] as [number, number] } : {}) }, poolFixtures, poolOmni);
   // the Core lights its surroundings: one fixed unshadowed point light following the objectives track's 'canister'
   const coreLight = new THREE.PointLight(0x46ecff, 0, cfg.core?.distance ?? 7, 2);
   coreLight.castShadow = false;
@@ -319,7 +374,9 @@ export async function install(ctx: ClientContext): Promise<void> {
   scene.add(adapt);
   const pipe = createPipeline(renderer, scene, camera, cfg, VOL_LAYER, { fogNodes: v12.mist ? F : null, mist: cfg.mist12, giNode, lumClamp: cfg.v12.lumClamp });
   const dbg = new Set((ctx.params.get('rdebug') ?? '').split(',').filter(Boolean));
-  pipe.build(preset, dbg);
+  pipe.build(preset, dbg, { signal: signalActive() });
+  /** full post-pipeline builds (the first + every preset switch): each one rebuilds every render object's nodes */
+  let pipeBuilds = 1;
   if (dbg.has('nofog')) { scene.fogNode = null; fogU.k.value = 0; }
 
   // keepNames proof (DynamicLighting batches by class name): must survive the production build
@@ -327,6 +384,8 @@ export async function install(ctx: ClientContext): Promise<void> {
   if (!ctx.diag.keepNames) ctx.reportError(`keepNames missing: SpotLight minified to '${fixtures.spots[0]?.constructor.name}'`);
   ctx.diag.backend = backend;
   ctx.diag.renderPreset = presetName;
+  ctx.diag.renderPresetSource = presetSource;
+  ctx.diag.renderPresetDetected = auto;
   ctx.diag.gpu = gpu;
   ctx.diag.renderV12 = { fog: v12.fog, mist: v12.mist, gi: v12.gi, hideParked: v12.hideParked, capSpots, capPoints };
 
@@ -341,6 +400,11 @@ export async function install(ctx: ClientContext): Promise<void> {
   let test: TestScene | null = null;
   let testView: TestView | null = null;
   let backdropActive = false;
+  /** v1.3 (3e): the static title-menu still (Low / Lite / WebGL2), until a level exists */
+  let still: MenuStill | null = null;
+  /** v1.3 SIGNAL: the bodycam OSD layer (created on first use) + its per-frame data (no per-frame objects) */
+  let osd: Osd | null = null;
+  const osdData = { batt: null as number | null, rtt: null as number | null, loc: null as string | null, k: 0 };
   let t = 0;
   let mode: CoverMode = 'game';
   const gate: DrawGate = { last: 0 };
@@ -386,9 +450,14 @@ export async function install(ctx: ClientContext): Promise<void> {
     if (!p) return;
     presetName = name;
     preset = p;
+    presetShown.value = name;
     ctx.diag.renderPreset = name;
     applySize();
-    pipe.build(p, dbg);
+    // v1.3 (4e): Lite's medium + ambient (scene-level: every lit material recompiles with the preset anyway)
+    if (!dbg.has('nofog') && scene.fogNode !== fogFor(p)) scene.fogNode = fogFor(p);
+    if (giFor(p) !== ambientGi) applyAmbient(p);
+    pipe.build(p, dbg, { signal: signalActive() });
+    pipeBuilds++;
     pipe.setMistSteps(featureLevel >= 2 ? Math.max(4, Math.ceil(p.volSteps / 2)) : null);
     warmFrames = Math.max(warmFrames, 2);
   };
@@ -410,6 +479,10 @@ export async function install(ctx: ClientContext): Promise<void> {
     gpuMs: () => gpuMs,
     steady,
     features: { level: () => featureLevel, max: () => FEATURE_NAMES.length - 1, set: (n) => { setFeatureLevel(n); autoCtl.busy(performance.now()); }, name: (n) => FEATURE_NAMES[n] ?? '' },
+    // v1.3 (P6): the ladder climbs back up to the stored choice; with AUTO (nothing stored) to the detected preset
+    ceiling: () => (presetSource === 'auto' ? auto : lsGet('deadair.render.preset') ?? presetName),
+    // v1.3 (4e): Lite has one more resolution rung (0.5); it never changes preset by itself
+    scales: () => (preset.lite ? perfCfg.liteScales : perfCfg.scales),
   }, autoQ);
 
   // ---- mirrors (flag 'mirrors': off = fallback glass only)
@@ -432,6 +505,7 @@ export async function install(ctx: ClientContext): Promise<void> {
     reflectionContext: () => pipe.reflectionContext(),
     reflecting: (on) => pipe.reflecting(on),
     nested: dbg0.has('mirrornested'),
+    hideIdle: () => v12.hideParked,
   });
   const puffs = createPuffs(scene);
 
@@ -446,7 +520,7 @@ export async function install(ctx: ClientContext): Promise<void> {
       `fps ${s.fps.toFixed(0).padStart(4)}   frame p50 ${s.p50.toFixed(1)} p95 ${s.p95.toFixed(1)} max ${s.max.toFixed(0)} ms`,
       `gpu ${gpuMs !== undefined ? `${gpuMs.toFixed(2)} ms` : 'n/a'}   cpu ${ctx.loop.perf.frameMs.toFixed(2)} ms   draws ${lastDraws}`,
       `drawn ${drawFps.toFixed(0)}/s   view ${mode}${menuRes ? ' (menu res)' : ''}${gateCfg.maxFps > 0 ? `   cap ${gateCfg.maxFps} fps` : ''}`,
-      `preset ${presetName}   ${backend}   internal ${renderer.domElement.width}x${renderer.domElement.height}`,
+      `preset ${presetName} (${presetSource}${presetSource === 'auto' ? '' : `, detected ${auto}`})   ${backend}   internal ${renderer.domElement.width}x${renderer.domElement.height}`,
       `css ${window.innerWidth}x${window.innerHeight}  dpr ${(window.devicePixelRatio || 1).toFixed(2)} -> ${internal.pr.toFixed(3)}  scale ${autoQ.scale.toFixed(2)}`,
       `auto ${autoQ.enabled ? (autoQ.presetFree ? 'on' : 'scale only') : 'off'}: ${autoQ.last}`,
       `v12 fog ${v12.fog ? 'on' : 'off'} mist ${pipe.mistActive() ? 'on' : 'off'} gi ${v12.gi ? 'on' : 'off'}  features -${featureLevel}`,
@@ -481,12 +555,15 @@ export async function install(ctx: ClientContext): Promise<void> {
   const warmImSaved: { o: THREE.Object3D; visible: boolean; frustumCulled: boolean }[] = [];
   // ---- v1.2 door-lag fix: render.warmSite() (sitewarm.ts) over the level root
   const warmLayers = (1 << 0) | (1 << RENDER_LAYERS.firstPerson) | (1 << RENDER_LAYERS.detail) | (1 << RENDER_LAYERS.phantom);
+  // v1.3 (3c): per-frame caps (WebGL2 links every program synchronously: ~6 units; WebGPU: ~4 signature groups)
+  const warmLimits: WarmLimits = { ...WARM_LIMITS[backend], ...(cfg.warm?.[backend] ?? {}) };
   const siteWarm = createSiteWarm({
     root: () => (backdropActive ? null : levelSvc()?.root ?? null),
     version: () => levelSvc()?.version,
     skip: (m) => (m as unknown as { isSkinnedMesh?: boolean }).isSkinnedMesh === true || m.name === 'mirror-live' || m.name.startsWith('mirror-warm')
       || (Array.isArray(m.material) ? m.material : [m.material]).some((x) => x?.name === 'mirror-live') || (m.layers.mask & warmLayers) === 0,
     now: () => performance.now(),
+    limits: () => warmLimits,
   });
   const volMeshRef = pipe.volMesh;
   /** v1.2: one tiny proxy per unique (material, vertex layout, shadow flags, layer mask); filter limits the meshes
@@ -682,15 +759,29 @@ export async function install(ctx: ClientContext): Promise<void> {
   const service: RenderService & RenderServiceV12 = {
     backend,
     get preset() { return presetName; },
-    presets: PRESET_NAMES,
+    get detectedPreset() { return auto; },
+    get presetSource() { return presetSource; },
+    // v1.3 (4e): the settings list Lite first (opt-in; the auto-quality ladder stays Low..Ultra)
+    presets: MENU_PRESETS,
     setPreset(name) {
-      if (!table[name]) return;
-      lsSet('deadair.render.preset', name);
-      applyPreset(name);
+      // v1.3 (3d): the same choice again does nothing. The settings re-apply the stored preset ~600 ms after every
+      // welcome (meta applySettings): that rebuilt the whole post pipeline (a new scene-pass context = new node builds
+      // for every render object) and reset the auto-quality scale on every join, and it overrode a ?preset= page
+      const c = presetChoice(name, lsGet('deadair.render.preset'), presetName, Object.keys(table), auto);
+      if (c.store !== null) lsSet('deadair.render.preset', c.store);
+      else lsDel('deadair.render.preset');
+      // v1.3 (P6): 'auto' = nothing stored: the detected preset, and auto quality may climb back up to it (a ?preset=
+      // page keeps its source until a choice really switches the preset)
+      if ((name === AUTO_PRESET || table[name]) && (presetSource !== 'url' || c.apply)) presetSource = name === AUTO_PRESET ? 'auto' : 'stored';
+      ctx.diag.renderPresetSource = presetSource;
+      if (!c.apply) return;
+      applyPreset(c.apply);
       autoQ.scale = 1;
       applySize();
       autoCtl.busy(performance.now());
     },
+    /** v1.3 (P6): = setPreset('auto') */
+    clearPreset() { service.setPreset(AUTO_PRESET); },
     setExposure(v) {
       renderer.toneMappingExposure = Math.max(0.2, Math.min(4, v));
       lsSet('deadair.render.exposure', String(renderer.toneMappingExposure));
@@ -772,6 +863,22 @@ export async function install(ctx: ClientContext): Promise<void> {
       autoCtl.busy(performance.now());
     },
     maxFps: () => gateCfg.maxFps,
+    // v1.3 SIGNAL: the settings checkbox's API (setSignalLook / signalLook / signalActive; usage in types.ts
+    // RenderService). Live, persisted; a rebuild only when what the screen shows changes (SIGNAL off on Medium = none)
+    setSignalLook(on: boolean) {
+      lsSet('deadair.render.signal', on ? '1' : '0');
+      if (on === signalOn) return;
+      const was = signalActive();
+      signalOn = on;
+      if (signalActive() === was) return;
+      applySize();
+      pipe.build(preset, dbg, { signal: signalActive() });
+      pipeBuilds++;
+      warmFrames = Math.max(warmFrames, 2);
+      autoCtl.busy(performance.now());
+    },
+    signalLook: () => signalOn,
+    signalActive: () => signalActive(),
     volumeLayer: VOL_LAYER,
     setFlashlightSource(fn) { flashOverride = fn; },
     setFixtureSource(src) { fixtureOverride = src; },
@@ -780,7 +887,8 @@ export async function install(ctx: ClientContext): Promise<void> {
 
   ctx.services.provide('three', { renderer, scene, camera, backend });
   ctx.services.provide('render', service);
-  ctx.ui.registerHud('bottom-right', () => h('div', { class: 'hud-chip' }, `RENDER ${backend.toUpperCase()} · ${presetName.toUpperCase()}`), { id: 'render-backend', order: 100 });
+  // reads the presetShown signal: the chip redraws on every preset switch (settings or auto quality)
+  ctx.ui.registerHud('bottom-right', () => h('div', { class: 'hud-chip', 'data-testid': 'render-chip' }, `RENDER ${backend.toUpperCase()} · ${presetShown.value.toUpperCase()}`), { id: 'render-backend', order: 100 });
 
   addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -791,8 +899,15 @@ export async function install(ctx: ClientContext): Promise<void> {
 
   // ---- test scene / idle backdrop (replaced as soon as a real level or players exist) ----
   const levelPresent = () => !!ctx.world.layout || !!useLoose<LevelView>(ctx, 'level')?.layout;
+  // v1.3 (3e): no live 3D backdrop on Low / Lite or WebGL2: a static still behind the title menu (the backdrop's
+  // 67-91 programs compiled at boot; seconds of freezes on the friends' WebGL2 machines). ?menu3d=1 forces the live
+  // backdrop, ?menu3d=0 the still on every preset
+  const menu3d = ctx.params.get('menu3d');
+  const staticMenu = sceneMode !== 'test' && menu3d !== '1' && (menu3d === '0' || backend === 'webgl2' || presetName === 'low' || presetName === 'lite');
+  if (staticMenu && !levelPresent()) still = createMenuStill(container);
+  ctx.diag.menuBackdrop = staticMenu ? 'still' : '3d';
   try {
-    const L = await loadFixtureLayout(ctx.params.get('layout') ?? 'facility_s2_p4');
+    const L = staticMenu && sceneMode !== 'test' ? null : await loadFixtureLayout(ctx.params.get('layout') ?? 'facility_s2_p4');
     if (L && (sceneMode === 'test' || !levelPresent())) {
       test = buildTestScene(L, sceneMode === 'test' ? { mirrors: mirrorSys } : undefined);
       scene.add(test.group);
@@ -946,18 +1061,19 @@ export async function install(ctx: ClientContext): Promise<void> {
   };
 
   let auditT = 0;
+  const auditOn = ctx.testMode || ctx.build === 'dev' || ctx.params.get('audit') === '1';
   let volLayout: unknown = null;
   let maxFrameMs = 0;
   let lastNow = 0;
   let lastDrawNow = 0;
   // ---- per-frame scratch: frame() builds no objects, arrays or closures in steady play (gate P)
-  const coverIn: CoverInputs = { testScene: false, hidden: false, hold: false, loadingVisible: false, loadingCovering: false, backdrop: false, screen: 'none' };
+  const coverIn: CoverInputs = { testScene: false, hidden: false, hold: false, loadingVisible: false, loadingCovering: false, backdrop: false, screen: 'none', drive: false };
   const warmDir = new THREE.Vector3();
   const warmBeams: FlashlightInfo[] = Array.from({ length: MAX_FLASHLIGHTS }, (_, i) => ({ id: `warm${i}`, pos: [0, 0, 0] as V3, dir: [0, 0, -1] as V3, on: true, local: i === 0, tier: 1 as const }));
   /** dark fill beams of the automatic mirror warm (off: they never light anything, they only take idle slots) */
   const mirrorWarmBeams: FlashlightInfo[] = Array.from({ length: MAX_FLASHLIGHTS }, (_, i) => ({ id: `mwarm${i}`, pos: [0, 0, 0] as V3, dir: [0, 0, -1] as V3, on: false, local: false, tier: 1 as const }));
   const warmFill: FlashlightInfo[] = [];
-  const flashOpts = { activeShadowed: 0, volumetric: false, reduceFlicker: false, parkShadows: !dbg.has('shadowall'), frame: 0, now: 0 };
+  const flashOpts = { activeShadowed: 0, volumetric: false, reduceFlicker: false, parkShadows: !dbg.has('shadowall'), frame: 0, now: 0, armDark: false, hideIdle: v12.hideParked };
   let fixLayout: LevelLayout | null = null;
   const outdoorSpaceOf = (sp: number) => fixLayout?.spaces[sp]?.open === true;
   const fixOpts: FixtureUpdateOpts = { max: 0, reduceFlicker: false, outdoor: 0, now: 0, outdoorSpace: undefined };
@@ -973,7 +1089,8 @@ export async function install(ctx: ClientContext): Promise<void> {
       times.push(nowMs - lastNow, nowMs);
     }
     lastNow = nowMs;
-    // a real level / players arrived: drop the backdrop (test mode keeps it)
+    // a real level / players arrived: drop the backdrop (test mode keeps it) or the static menu still
+    if (still && levelPresent()) { still.remove(); still = null; }
     if (backdropActive && sceneMode !== 'test' && levelPresent() && test) {
       scene.remove(test.group);
       test.dispose?.();
@@ -988,6 +1105,9 @@ export async function install(ctx: ClientContext): Promise<void> {
     coverIn.loadingCovering = !!ld?.covering;
     coverIn.backdrop = backdropActive;
     coverIn.screen = ctx.ui.screen.value.name;
+    // v1.3 (2c): meta's drive screen is opaque: the facility the preload just built must not draw (and compile) at
+    // full rate under it; only the paced warm frames draw
+    coverIn.drive = ctx.world.phase === 'drive' && coverIn.screen === 'drive';
     mode = coverMode(coverIn);
     if (mode !== 'hidden') {
       const wantMenuRes = mode === 'menu' && menuResOn;
@@ -1074,6 +1194,23 @@ export async function install(ctx: ClientContext): Promise<void> {
     // v1.2 site warm (render.warmSite): this frame's batch of level meshes is drawn once (forced visible, unculled)
     const siteFrame = siteWarm.begin();
     let list = flashlightList();
+    // v1.3 SIGNAL: the bodycam OSD (full resolution, DOM): on the job only (phase 'contract', the game view, no screen
+    // over it). Hidden in the van, where the HUD's CREW panel takes the same top-left corner, the menus and the drive
+    const osdOn = osdVisible(signalActive(), mode, ctx.world.phase, coverIn.screen, backdropActive || still !== null);
+    if (osdOn && !osd) osd = createOsd(container);
+    if (osd) {
+      osd.show(osdOn);
+      if (osdOn) {
+        let batt: number | null = null;
+        for (let i = 0; i < list.length; i++) if (list[i].local) { batt = list[i].battery ?? 1; break; }
+        const Lc = currentLayout();
+        osdData.batt = batt;
+        osdData.rtt = ctx.net.status === 'joined' ? ctx.net.rtt : null;
+        osdData.loc = Lc && camRoom >= 0 ? (Lc.spaces[camRoom] as { callsign?: string } | undefined)?.callsign ?? null : null;
+        osdData.k = signalK;
+        osd.update(osdData, nowMs);
+      }
+    }
     if (warmFrames > 0 || siteFrame) {
       // warm-up: every slot sees real geometry so shadow/volume pipelines get created now, not mid-game
       camera.getWorldDirection(warmDir);
@@ -1104,6 +1241,9 @@ export async function install(ctx: ClientContext): Promise<void> {
     flashOpts.reduceFlicker = reduceFlicker;
     flashOpts.frame = drawnFrames;
     flashOpts.now = nowMs;
+    // v1.3 (4a): a dark beam's shadow map sleeps; warm-up frames still render every assigned slot (the mirror warm's
+    // dark fill beams exist so the proxies' shadow-pass programs compile)
+    flashOpts.armDark = warmFrames > 0 || siteFrame || mirrorWarmFrames > 0;
     flash.update(list, camera, t, dt, flashOpts);
     if (warmFrames > 0 || siteFrame) for (const s of flash.slots) s.light.intensity = Math.max(s.light.intensity * 1e-4, 1e-4);
     const fsrc = fixtureSource();
@@ -1148,7 +1288,8 @@ export async function install(ctx: ClientContext): Promise<void> {
     // one world-matrix update per frame (scene.matrixWorldAutoUpdate is off: every pass used to redo it)
     scene.updateMatrixWorld();
     if (warmFrames > 0 || warmAll > 0 || mirrorWarmFrames > 0 || siteFrame) gate.last = nowMs;
-    else if (!gateDraw(gate, nowMs, drawInterval(mode, gateCfg, mode !== 'menu' || document.hasFocus()))) {
+    // (the static menu still covers an empty scene: nothing to draw until a level exists)
+    else if (!gateDraw(gate, nowMs, still ? Infinity : drawInterval(mode, gateCfg, mode !== 'menu' || document.hasFocus()))) {
       // skipped frame: no GPU work at all (the rAF loop and every other system keep running)
       if (spun) { camera.quaternion.copy(savedQ); camera.updateMatrixWorld(); }
       return;
@@ -1219,10 +1360,14 @@ export async function install(ctx: ClientContext): Promise<void> {
         if (typeof ms === 'number' && ms > 0) gpuMs = gpuMs === undefined ? ms : gpuMs * 0.9 + ms * 0.1;
       }, () => {}).finally(() => { resolving = false; });
     }
-    auditT += dt;
-    if (auditT > 5) {
-      auditT = 0;
-      auditSceneMaterials(scene);
+    // v1.3 (4d): the sampler-budget audit walks the whole scene (~2 ms per call on a laptop): test pages and the
+    // dev server only
+    if (auditOn) {
+      auditT += dt;
+      if (auditT > 5) {
+        auditT = 0;
+        auditSceneMaterials(scene);
+      }
     }
   };
 
@@ -1248,7 +1393,7 @@ export async function install(ctx: ClientContext): Promise<void> {
         return { ok: true, view: v };
       },
       info: () => ({
-        backend, preset: presetName, gpu, poolShadowed, poolUnshadowed, poolFixtures, poolOmni, capSpots, capPoints,
+        backend, preset: presetName, presetSource, detectedPreset: auto, gpu, poolShadowed, poolUnshadowed, poolFixtures, poolOmni, capSpots, capPoints,
         usedShadowed: flash.usedShadowed(), fixturesLit: fixtures.litCount(), exposure: renderer.toneMappingExposure,
         size: [renderer.domElement.width, renderer.domElement.height], backdrop: backdropActive, frames: ctx.loop.perf.frames,
         scale: autoQ.scale, pixelRatio: internal.pr, auto: autoQ.last, autoEnabled: autoQ.enabled, presetFree: autoQ.presetFree,
@@ -1258,6 +1403,7 @@ export async function install(ctx: ClientContext): Promise<void> {
         nv: nvState.k, grid: grid.stats(), compile: ctx.diag.renderCompile ?? null, warmSet: ctx.diag.warmSet ?? null,
         mirrorWarm: { state: mirrorWarm.state, runs: mirrorWarm.runs, frames: mirrorWarmFrames, last: ctx.diag.mirrorWarm ?? null },
         beamRanges: flash.ranges(),
+        pipe: pipe.state(), pipeBuilds, signal: signalActive(), signalK, osd: osd?.shown ?? false,
         pipelines: (() => { const pp = (renderer as unknown as { _pipelines?: { caches?: Map<unknown, unknown> } })._pipelines; return pp?.caches?.size ?? null; })(),
       }),
       hitch() { const m = maxFrameMs; maxFrameMs = 0; return m; },
@@ -1278,7 +1424,8 @@ export async function install(ctx: ClientContext): Promise<void> {
       nightVision: (on) => service.setNightVision(on),
       v12: () => service,
       mirrorDebug: (p) => mirrorSys.debug(p),
-      hideParked: (on) => { fixtures.setHideParked(on); },
+      // v1.3 (4b): one switch for every idle batched light (fixtures, flashlight slots, mirror bounce / rim)
+      hideParked: (on) => { v12.hideParked = on; flashOpts.hideIdle = on; fixtures.setHideParked(on); },
       flashRanges: (local, remote) => { flash.setRanges(local, remote); return flash.ranges(); },
       siteWarm: () => ({ ...siteWarm.info(), last: ctx.diag.siteWarm ?? null }),
       volBounds(min, max) {

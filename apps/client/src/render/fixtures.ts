@@ -36,6 +36,8 @@ export interface FixtureCfg {
   curves?: Partial<Record<FixtureCurveName, number>>;
   /** v1.2: battery fixtures during a blackout */
   battery?: { color?: string; level?: number };
+  /** v1.3 (4e): halo sphere segments [width, height] (default 20 x 12; Lite loads 10 x 6: 83k -> ~21k triangles) */
+  haloSegments?: [number, number];
 }
 
 export interface KindCfg {
@@ -254,7 +256,7 @@ export function createFixturePool(scene: THREE.Scene, cfg: FixtureCfg, spotCount
 
   // instanced emitter + halo shell (per-instance brightness + colour in custom attributes; one draw each)
   const tubeGeo = new THREE.BoxGeometry(1.25, 0.05, 0.14);
-  const haloGeo = new THREE.SphereGeometry(1, 20, 12);
+  const haloGeo = new THREE.SphereGeometry(1, cfg.haloSegments?.[0] ?? 20, cfg.haloSegments?.[1] ?? 12);
   const tubeMat = new THREE.MeshBasicNodeMaterial();
   const lvlT = attribute('fixLevel', 'float');
   const colT = attribute('fixColor', 'vec3');

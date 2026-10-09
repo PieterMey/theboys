@@ -34,6 +34,8 @@ export interface MirrorBudget {
 }
 
 export const MIRROR_BUDGETS: Record<string, MirrorBudget> = {
+  // v1.3 (4e): Lite never renders a reflection (the fallback glass)
+  lite: { live: 0, scale: 0.25, maxDist: 0, halfRateStill: true },
   low: { live: 0, scale: 0.25, maxDist: 0, halfRateStill: true },
   medium: { live: 1, scale: 0.25, maxDist: 5, halfRateStill: true },
   high: { live: 1, scale: 0.3, maxDist: 8, halfRateStill: true },
@@ -204,6 +206,8 @@ export interface MirrorDeps {
   reflecting?(on: boolean): void;
   /** ?rdebug=mirrornested: the stock reflector path (rendered nested inside the first pass that draws the glass) */
   nested?: boolean;
+  /** v1.3 (4b): a dark bounce / rim light gets visible=false (it leaves the batched per-pixel light loop) */
+  hideIdle?(): boolean;
 }
 
 export interface MirrorSystem extends MirrorService {
@@ -551,6 +555,11 @@ export function createMirrorSystem(d: MirrorDeps): MirrorSystem {
       }
       if (bounceLight.intensity === 0) { bounceLight.position.set(0, -450, 0); bounceLight.target.position.set(0, -451, 0); }
       if (rimLight.intensity === 0) rimLight.position.set(0, -455, 0);
+      // v1.3 (4b): dark = out of the batched light loop (no recompile: batched light types never leave DynamicLighting's
+      // set, the fixture pool keeps one sentinel per type)
+      const hide = d.hideIdle?.() === true;
+      bounceLight.visible = !hide || bounceLight.intensity > 0;
+      rimLight.visible = dbg.rim && (!hide || rimLight.intensity > 0);
     },
   };
   void origRes;

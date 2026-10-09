@@ -1,15 +1,19 @@
-// Owner: track ③ Render / env-render (v1.2). RenderPipeline: (pre-pass MRT normal+velocity) -> GTAO -> scene pass
+// Owner: track ③ Render / env-render (v1.2). RenderPipeline: (pre-pass MRT normal (+velocity with TRAA)) -> GTAO -> scene pass
 // (contextNode: AO x GI from the light grid) -> + beam march (mist.ts: MistMaterial on the volume layer, low-res pass,
 // 4-channel depth-aware blur + depth-aware upsample) -> luminance clamp -> bloom -> TRAA -> tone map (AgX) -> horror
 // grade (+ night vision) -> chromatic aberration -> vignette -> film grain.
 // The v1.1 march (ClampedVolumeModel + gaussian blur) stays available behind ?rdebug=legacyvol (and when the v1.2
 // mist is switched off in render.json v12.mist).
+// v1.3 (4e) Lite: the scene pass (no MRT, no AO / GI context) -> ONE output pass (night-vision gain, tone map, grade,
+// vignette): no bloom, CA, TRAA, velocity, grain or march. v1.3 SIGNAL look (opt-in, Lite + Low): no bloom / CA /
+// grain, an ordered 4x4 Bayer posterize at render resolution as the last step (render/index.ts upscales by a whole
+// number with image-rendering: pixelated and draws the bodycam OSD at full resolution).
 import * as THREE from 'three/webgpu';
 import {
   Fn, builtinAOContext, context, float, mix, mrt, normalView, packNormalToRGB, pass, renderOutput, sample, screenCoordinate,
   screenUV, smoothstep, time, uniform, unpackRGBToNormal, vec3, vec4, velocity, mx_fractal_noise_float, luminance,
   output, vec2, rand, fract, uv, cameraPosition, cameraViewMatrix, cameraNear, cameraFar, perspectiveDepthToViewZ, positionWorld,
-  property, Loop, min, max, length, renderGroup,
+  property, Loop, min, max, length, renderGroup, floor, mod, sqrt,
 } from 'three/tsl';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { traa } from 'three/addons/tsl/display/TRAANode.js';
@@ -122,12 +126,18 @@ export interface Pipeline {
   /** true while a reflection renders: the scene-pass context's AO factor is 1 (never the main view's screen-space AO
    *  in a mirror), through a render-group uniform (no new program) */
   reflecting(on: boolean): void;
-  build(p: Preset, debug?: Set<string>): void;
+  /** look.signal: the v1.3 SIGNAL look (render/index.ts passes it only on Lite / Low) */
+  build(p: Preset, debug?: Set<string>, look?: { signal?: boolean }): void;
   setVolumeBounds(box: THREE.Box3): void;
   render(): void;
   /** the v1.2 march is the active volume model */
   mistActive(): boolean;
+  /** v1.3 diagnostics / tests: what the last build() wired, read back from its pass nodes (velocity = a velocity MRT
+   *  target exists in the scene or pre pass) */
+  state(): PipeState;
 }
+
+export interface PipeState { preset: string; ao: boolean; velocity: boolean; traa: boolean; bloom: boolean; volumetric: boolean; fx: boolean; lite: boolean; signal: boolean; gi: boolean }
 
 export function createPipeline(renderer: THREE.WebGPURenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera, cfg: PipeCfg, volLayer: number, opts: PipelineOpts = {}): Pipeline {
   const pipeline = new THREE.RenderPipeline(renderer);
@@ -222,6 +232,18 @@ export function createPipeline(renderer: THREE.WebGPURenderer, scene: THREE.Scen
     return col.add(n.mul(fx.grain.add(nv.k.mul(0.3))).mul(w)).max(0);
   });
 
+  /** v1.3 SIGNAL: ordered 4x4 Bayer posterize at render resolution (more levels in the darks: quantised in sqrt
+   *  space, 20 levels); replaces grain, so a low internal resolution reads as a deliberate camera feed */
+  const signalDither = Fn(([c]: [THREE.Node]) => {
+    const col = (c as unknown as ReturnType<typeof vec4>).rgb.toVar();
+    const sx = floor(screenCoordinate.x), sy = floor(screenCoordinate.y);
+    const m = mod(mod(sx, 2).mul(2).add(mod(sy, 2).mul(3)), 4).mul(4).add(mod(mod(floor(sx.div(2)), 2).mul(2).add(mod(floor(sy.div(2)), 2).mul(3)), 4));
+    const d = m.add(0.5).div(16);
+    const gq = sqrt(col.mul(1.08).clamp(0, 1));
+    const q = floor(gq.mul(19).add(d)).div(19);
+    return q.mul(q);
+  });
+
   /** the scene pass context: AO multiplies the indirect light INCLUDING the grid GI (three's builtinGIContext divides
    *  the GI by the AO, so it would flood under tables); GI-only without AO.
    *  v1.2 gate P: mirror reflections render with this SAME context (identical shader code, so the first live mirror
@@ -248,21 +270,46 @@ export function createPipeline(renderer: THREE.WebGPURenderer, scene: THREE.Scen
   };
 
   let useMist = false;
+  /** the last build's passes + switches (state()) */
+  let built: { preset: string; scene: N; pre: N | null; traa: boolean; bloom: boolean; volumetric: boolean; fx: boolean; lite: boolean; signal: boolean; gi: boolean } | null = null;
+  const hasVelocity = (pn: N | null): boolean => !!pn && (pn.getMRT?.()?.outputNodes?.velocity ?? null) !== null;
 
-  function build(p: Preset, dbg: Set<string> = new Set()): void {
+  /** v1.3 (4e) Lite: scene pass + one output pass */
+  function buildLite(p: Preset, dbg: Set<string>, signal: boolean): void {
+    const scenePass = pass(scene, camera);
+    reflCtx = null;
+    useMist = false;
+    volMesh.visible = false;
+    let color = scenePass.getTextureNode('output') as unknown as N;
+    color = vec4((color as N).rgb.mul(mix(float(1), nv.gain, nv.k)), (color as N).a) as unknown as N;
+    const toned = renderOutput(color);
+    let out = (dbg.has('nograde') ? toned : grade(toned)) as unknown as N;
+    if (!dbg.has('nofx')) out = vignette(out, fx.vignette.add(nv.k.mul(0.4)), float(0.55)) as unknown as N;
+    if (signal) out = signalDither(out) as unknown as N;
+    pipeline.outputNode = vec4((out as unknown as ReturnType<typeof vec4>).rgb, 1);
+    pipeline.needsUpdate = true;
+    built = { preset: p.name, scene: scenePass, pre: null, traa: false, bloom: false, volumetric: false, fx: !dbg.has('nofx'), lite: true, signal, gi: false };
+  }
+
+  function build(p: Preset, dbg: Set<string> = new Set(), look: { signal?: boolean } = {}): void {
+    const signal = look.signal === true;
+    if (p.lite) { buildLite(p, dbg, signal); return; }
     const useAO = p.gtao && !dbg.has('noao');
     const useTRAA = p.traa && !dbg.has('notraa');
     let depthTex: N;
     let velTex: N | null = null;
     const scenePass = pass(scene, camera);
+    let prePass: N | null = null;
     if (useAO) {
       const pre = pass(scene, camera);
+      prePass = pre;
       pre.transparent = false;
-      pre.setMRT(mrt({ output: packNormalToRGB(normalView), velocity }));
+      // v1.3 (4c): the velocity target only when TRAA reads it
+      pre.setMRT(useTRAA ? mrt({ output: packNormalToRGB(normalView), velocity }) : mrt({ output: packNormalToRGB(normalView) }));
       pre.getTexture('output').type = THREE.UnsignedByteType;
       const preDepth = pre.getTextureNode('depth');
       const preNormal = sample((uvn: THREE.Node) => unpackRGBToNormal(pre.getTextureNode().sample(uvn)));
-      velTex = pre.getTextureNode('velocity') as unknown as N;
+      velTex = useTRAA ? pre.getTextureNode('velocity') as unknown as N : null;
       const aoPass = ao(preDepth, preNormal, camera);
       aoPass.resolutionScale = p.aoScale;
       aoPass.distanceExponent.value = 1;
@@ -274,8 +321,12 @@ export function createPipeline(renderer: THREE.WebGPURenderer, scene: THREE.Scen
       reflCtx = reflectionCtxOf(ctx);
       depthTex = preDepth as unknown as N;
     } else {
-      scenePass.setMRT(mrt({ output, velocity }));
-      velTex = scenePass.getTextureNode('velocity') as unknown as N;
+      // v1.3 (4c): no velocity MRT without TRAA (Low): one RGBA16F target write and every object's previous-frame
+      // matrices / skinning less (gate P lane: nothing read it on Low)
+      if (useTRAA) {
+        scenePass.setMRT(mrt({ output, velocity }));
+        velTex = scenePass.getTextureNode('velocity') as unknown as N;
+      }
       depthTex = scenePass.getTextureNode('depth') as unknown as N;
       const ctx = mainContext(null);
       if (ctx) scenePass.contextNode = ctx;
@@ -318,7 +369,8 @@ export function createPipeline(renderer: THREE.WebGPURenderer, scene: THREE.Scen
       const lum = luminance(c0.rgb);
       color = vec4(c0.rgb.mul(min(float(1), float(lc).div(max(lum, 1e-4)))), c0.a) as unknown as N;
     }
-    if (!dbg.has('nobloom')) {
+    // (SIGNAL: no bloom, CA or grain; the dither replaces them)
+    if (!dbg.has('nobloom') && !signal) {
       const bloomPass = bloom(color, cfg.bloom.strength, cfg.bloom.radius, cfg.bloom.threshold);
       color = color.add(bloomPass) as unknown as N;
     }
@@ -326,12 +378,14 @@ export function createPipeline(renderer: THREE.WebGPURenderer, scene: THREE.Scen
     const toned = renderOutput(color);
     let out = (dbg.has('nograde') ? toned : grade(toned)) as unknown as N;
     if (!dbg.has('nofx')) {
-      out = chromaticAberration(vec4(out, 1), fx.ca, vec2(0.5, 0.5), float(1.0)) as unknown as N;
+      if (!signal) out = chromaticAberration(vec4(out, 1), fx.ca, vec2(0.5, 0.5), float(1.0)) as unknown as N;
       out = vignette(out, fx.vignette.add(nv.k.mul(0.4)), float(0.55)) as unknown as N;
-      out = grain(out) as unknown as N;
+      if (!signal) out = grain(out) as unknown as N;
     }
+    if (signal) out = signalDither(out) as unknown as N;
     pipeline.outputNode = vec4((out as unknown as ReturnType<typeof vec4>).rgb, 1);
     pipeline.needsUpdate = true;
+    built = { preset: p.name, scene: scenePass, pre: prePass, traa: !!(useTRAA && velTex), bloom: !dbg.has('nobloom') && !signal, volumetric: volMesh.visible, fx: !dbg.has('nofx'), lite: false, signal, gi: !!opts.giNode };
   }
 
   return {
@@ -360,6 +414,11 @@ export function createPipeline(renderer: THREE.WebGPURenderer, scene: THREE.Scen
     render() {
       pipeline.render();
     },
+    state: () => ({
+      preset: built?.preset ?? '', ao: !!built?.pre, velocity: hasVelocity(built?.scene ?? null) || hasVelocity(built?.pre ?? null),
+      traa: built?.traa ?? false, bloom: built?.bloom ?? false, volumetric: built?.volumetric ?? false, fx: built?.fx ?? false,
+      lite: built?.lite ?? false, signal: built?.signal ?? false, gi: built?.gi ?? false,
+    }),
   };
 }
 void length;

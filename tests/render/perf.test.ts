@@ -2,7 +2,7 @@
 // telemetry sanitising. node --test tests/render/perf.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { FrameTimes, PERF_DEFAULTS, createAutoQuality, pixelRatioFor } from '../../apps/client/src/render/perf.ts';
+import { FrameTimes, PERF_DEFAULTS, createAutoQuality, pixelRatioFor, signalPixelRatio } from '../../apps/client/src/render/perf.ts';
 import type { AutoState } from '../../apps/client/src/render/perf.ts';
 import type { Preset } from '../../apps/client/src/render/presets.ts';
 import { cleanText, formatReport } from '../../apps/server/src/net/telemetry.ts';
@@ -118,7 +118,7 @@ test('telemetry: tokens and admin links are redacted; the log line is compact', 
 
 // ---- v1.2 auto quality feature ladder (env-render): live mirror, then mist steps, before resolution / preset; back
 // into Ultra once frames recover.
-function harness12(preset: string, frameMs: () => number, gpu: () => number) {
+function harness12(preset: string, frameMs: () => number, gpu: () => number, ceiling?: () => string) {
   const ft = new FrameTimes();
   const state: AutoState = { enabled: true, presetFree: true, scale: 1, last: '', steps: 0 };
   const calls: string[] = [];
@@ -129,6 +129,7 @@ function harness12(preset: string, frameMs: () => number, gpu: () => number) {
     setPreset: (n) => { cur = n; calls.push(`preset ${n}`); }, setScale: (s) => calls.push(`scale ${s}`),
     gpuMs: gpu, steady: () => true,
     features: { level: () => level, max: () => 2, set: (n) => { level = n; calls.push(`features ${n}`); } },
+    ...(ceiling ? { ceiling } : {}),
   }, state);
   let t = 0;
   const run = (ms: number) => { const end = t + ms; while (t < end) { const f = frameMs(); t += f; ft.push(f, t); ctl.tick(t); } };
@@ -157,4 +158,61 @@ test('auto quality v1.2: Ultra below 90 fps drops a feature before leaving Ultra
   assert.equal(h.preset(), 'ultra', `${h.calls.join(', ')}`);
   assert.equal(h.level(), 0, 'every feature back');
   assert.equal(h.state.scale, 1);
+});
+
+test('P6: the ladder climbs back up to the LIVE ceiling (a stored choice; with AUTO the detected preset)', () => {
+  // a stored 'medium' (the host's choice): fast frames never climb above it
+  let ceiling = 'medium';
+  const h = harness12('medium', () => 4, () => 1, () => ceiling);
+  h.run(3000 + 5000 * 12);
+  assert.equal(h.preset(), 'medium', `stored choice = ceiling: ${h.calls.join(', ')}`);
+  // the player picks AUTO (detected: ultra): the same ladder may now climb to high, then ultra
+  ceiling = 'ultra';
+  h.run(5000 * 14);
+  assert.equal(h.preset(), 'ultra', `AUTO ceiling = detected: ${h.calls.join(', ')}`);
+  // no ceiling hook / a preset outside the ladder (lite): the v1.2 rule, the preset at creation
+  const lite = harness12('high', () => 4, () => 1, () => 'lite');
+  lite.run(3000 + 5000 * 12);
+  assert.equal(lite.preset(), 'high');
+});
+
+test('SIGNAL: whole-number pixel scale (every render pixel = k x k physical pixels), k steps up with auto quality', () => {
+  const at = (w: number, h: number, dpr: number, scale = 1) => signalPixelRatio(w, h, dpr, PERF_DEFAULTS, scale);
+  const a = at(1920, 1080, 1);
+  assert.deepEqual([a.k, a.w, a.h], [2, 960, 540]);
+  // 4K at 150 % (the host / a friend): 3840 physical px -> k 4 -> 960 wide, each pixel 4x4 physical
+  const b = at(2560, 1440, 1.5);
+  assert.equal(b.k, 4);
+  assert.equal(b.w, 960);
+  assert.ok(Math.abs(b.pr * b.k - 1.5) < 1e-9, 'pr = dpr / k exactly');
+  // the 3440 ultrawide at DPR 1: k 4 -> 860 wide
+  assert.deepEqual([at(3440, 1290, 1).k, at(3440, 1290, 1).w], [4, 860]);
+  // auto quality: scale 0.6 -> k 4 on a 1080p screen (480 wide), never fractional
+  const c = at(1920, 1080, 1, 0.6);
+  assert.equal(c.k, 4);
+  assert.ok(Number.isInteger(c.k));
+  assert.ok(at(1920, 1080, 1, 0.2).k <= PERF_DEFAULTS.signalMaxK);
+  assert.ok(at(800, 600, 1).k >= PERF_DEFAULTS.signalMinK, 'small windows still get crisp 2x pixels');
+});
+
+test('4e: Lite never changes preset by itself; its ladder has the 0.5 rung', () => {
+  const ft = new FrameTimes();
+  const state: AutoState = { enabled: true, presetFree: true, scale: 1, last: '', steps: 0 };
+  const calls: string[] = [];
+  let cur = 'lite';
+  let slow = true;
+  const ctl = createAutoQuality(PERF_DEFAULTS, ft, {
+    preset: () => cur, presets: ['low', 'medium', 'high', 'ultra'],
+    setPreset: (n) => { cur = n; calls.push(`preset ${n}`); }, setScale: (s) => calls.push(`scale ${s}`),
+    gpuMs: () => undefined, steady: () => true, ceiling: () => 'lite', scales: () => PERF_DEFAULTS.liteScales,
+  }, state);
+  let t = 0;
+  const run = (ms: number) => { const end = t + ms; while (t < end) { const f = slow ? 60 : 4; t += f; ft.push(f, t); ctl.tick(t); } };
+  run(3000 + 5000 * 10);
+  assert.equal(cur, 'lite', calls.join(', '));
+  assert.equal(state.scale, 0.5, `down to the 0.5 rung: ${calls.join(', ')}`);
+  slow = false;
+  run(5000 * 20);
+  assert.equal(cur, 'lite', `climbs back the resolution only: ${calls.join(', ')}`);
+  assert.equal(state.scale, 1);
 });
