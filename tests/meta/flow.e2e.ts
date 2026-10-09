@@ -10,7 +10,7 @@ import { Bot } from './bot.ts';
 import type { MetaState } from '../../packages/shared/src/messages/meta.ts';
 import type { FullState } from '../../packages/shared/src/state.ts';
 
-const saves = mkdtempSync(join(tmpdir(), 'deadair-meta-'));
+const saves = mkdtempSync(join(process.env.META_SAVES ?? tmpdir(), 'deadair-meta-'));
 process.env.SAVES_DIR = saves;
 process.env.SESSION_FILE = join(saves, 'session.json'); // never <repo>/saves/session-<port>.json (the live server's folder)
 process.env.NODE_ENV = 'development';
@@ -24,7 +24,7 @@ const tracks = await Promise.all(
   }),
 );
 if (!process.env.VERBOSE) setQuiet(true);
-const srv = await boot({ mode: 'development', port: 0, tracks: tracks as never });
+const srv = await boot({ mode: 'development', port: Number(process.env.PORT ?? 0), tracks: tracks as never });
 const url = `ws://127.0.0.1:${srv.port}/ws`;
 const t0 = performance.now();
 const step = (s: string) => console.log(`[${((performance.now() - t0) / 1000).toFixed(1)}s] ${s}`);

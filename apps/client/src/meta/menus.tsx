@@ -4,7 +4,7 @@ import { useEffect, useState } from 'preact/hooks';
 import type { ComponentType } from 'preact';
 import type { HudProps, ScreenProps } from '../core/ui/api.ts';
 import type { ClientContext } from '../core/context.ts';
-import { applySettings, loose, players, render, saveSettings, settings, sfx, useTicker, useWorldV } from './state.ts';
+import { AUTO_PRESET, applySettings, chooseAutoPreset, loose, players, presetAuto, render, saveSettings, settings, sfx, useTicker, useWorldV } from './state.ts';
 import type { MetaSettings } from './state.ts';
 import { closeScreen, openScreen } from './nav.ts';
 import { RecordTab } from './stats.tsx';
@@ -44,13 +44,84 @@ function Range({ label, min, max, step, value, fmt, onChange }: { label: string;
   );
 }
 
-function Toggle({ label, on, disabled, note, onChange }: { label: string; on: boolean; disabled?: boolean; note?: string; onChange: (v: boolean) => void }) {
+function Toggle({ label, on, disabled, note, testid, onChange }: { label: string; on: boolean; disabled?: boolean; note?: string; testid?: string; onChange: (v: boolean) => void }) {
   return (
-    <label class="m-set">
+    <label class={`m-set${disabled ? ' off' : ''}`}>
       <span>{label}</span>
-      <span><input type="checkbox" class="m-toggle" checked={on} disabled={disabled} onChange={(e) => onChange(e.currentTarget.checked)} />{note && <span class="m-dim m-small" style={{ marginLeft: '10px' }}>{note}</span>}</span>
+      <span><input type="checkbox" class="m-toggle" checked={on} disabled={disabled} data-testid={testid} onChange={(e) => onChange(e.currentTarget.checked)} />{note && <span class="m-dim m-small" style={{ marginLeft: '10px' }}>{note}</span>}</span>
       <span />
     </label>
+  );
+}
+
+/** the render presets the SIGNAL look applies on (render/index.ts signalActive) */
+const SIGNAL_PRESETS: readonly string[] = ['lite', 'low'];
+
+/**
+ * v1.3 SIGNAL look (render, E2): every frame a Company bodycam feed (crisp whole-number pixels, dithering, the OSD).
+ * Render keeps the toggle itself (setSignalLook / signalLook) and applies it on Lite and Low only, so on any other preset
+ * it is greyed out with a note. Shared with the main-menu settings panel; hidden when render has no SIGNAL support.
+ * `preset` = the render preset as the settings panel read it on its own render: @preact/signals gives every component
+ * a shouldComponentUpdate that skips a stateful component whose props did not change, so the preset comes in as a prop
+ * (a pick in the preset list re-renders the panel, and this row with it).
+ */
+export function SignalToggle({ ctx, preset }: { ctx: ClientContext; preset: string }) {
+  const [, setV] = useState(0);
+  const r = render(ctx);
+  if (typeof r?.setSignalLook !== 'function') return null;
+  let on = false;
+  try { on = r.signalLook?.() === true; } catch { on = false; }
+  const fits = SIGNAL_PRESETS.includes(preset);
+  const pick = (x: boolean) => {
+    try { r?.setSignalLook?.(x); } catch { /* render mid-init */ }
+    setV((n) => n + 1);
+  };
+  return (
+    <Toggle label="SIGNAL look" on={on} disabled={!fits} testid="signal-toggle" onChange={pick}
+      note={fits ? 'bodycam feed: crisp pixels, dither, OSD' : `LITE and LOW presets only${preset ? ` (now ${preset.toUpperCase()})` : ''}`} />
+  );
+}
+
+/** Lite was picked on this page (its simpler surfaces and halos only build on the next page load) */
+let litePicked = false;
+
+/**
+ * v1.3 P6: graphics preset with AUTO (detected: X) first. AUTO forgets the stored preset (meta's and render's), so GPU
+ * detection picks again; the note shows the preset running right now. Shared with the main-menu settings panel.
+ */
+export function PresetSelect({ ctx, presets, onPick, onAuto }: { ctx: ClientContext; presets: readonly string[]; onPick: (p: string) => void; onAuto?: () => void }) {
+  const [, setV] = useState(0);
+  const r = render(ctx);
+  const auto = presetAuto(ctx);
+  const s = settings();
+  const value = auto.active ? 'auto' : (s.preset ?? r?.preset ?? 'high');
+  const autoLabel = auto.detected ? `AUTO (detected: ${auto.detected.toUpperCase()})` : 'AUTO (detected)';
+  const pick = (v: string) => {
+    if (v === 'lite' && r?.preset !== 'lite') litePicked = true;
+    if (v === 'auto') {
+      chooseAutoPreset(ctx);
+      onAuto?.();
+    } else onPick(v);
+    setV((x) => x + 1);
+  };
+  return (
+    <>
+      <label class="m-set">
+        <span>Graphics preset</span>
+        <select value={value} data-testid="preset-select" onChange={(e) => pick(e.currentTarget.value)}>
+          <option value="auto">{autoLabel}</option>
+          {presets.filter((p) => p !== AUTO_PRESET).map((p) => <option key={p} value={p}>{p.toUpperCase()}</option>)}
+        </select>
+        <span class="m-dim m-small">{!r ? 'n/a' : value === 'auto' && r.preset ? `now ${r.preset.toUpperCase()}` : ''}</span>
+      </label>
+      {presets.includes('lite') && (
+        <div class="m-set m-set-note" data-testid="lite-note">
+          <span />
+          <span class={`m-small ${litePicked && value === 'lite' ? 'm-amber' : 'm-dim'}`}>LITE applies fully after a page reload.</span>
+          <span />
+        </div>
+      )}
+    </>
   );
 }
 
@@ -80,13 +151,8 @@ export function SettingsTab({ ctx }: { ctx: ClientContext }) {
   return (
     <div>
       <h3 class="m-h3">Video</h3>
-      <label class="m-set">
-        <span>Graphics preset</span>
-        <select value={s.preset ?? r?.preset ?? 'high'} onChange={(e) => set({ preset: e.currentTarget.value }, ['preset'])}>
-          {presets.map((p) => <option key={p} value={p}>{p.toUpperCase()}</option>)}
-        </select>
-        <span class="m-dim m-small">{r ? '' : 'n/a'}</span>
-      </label>
+      <PresetSelect ctx={ctx} presets={presets} onPick={(p) => set({ preset: p }, ['preset'])} onAuto={() => setS(settings())} />
+      <SignalToggle ctx={ctx} preset={r?.preset ?? ''} />
       <Range label="Exposure (brightness)" min={0.4} max={2.6} step={0.02} value={exposure} onChange={(x) => set({ exposure: x }, ['exposure'])} />
       <Toggle label="Reduce flicker / chromatic aberration" on={s.reduceFlicker} onChange={(x) => set({ reduceFlicker: x }, ['reduceFlicker'])} />
       <div class="m-set"><span /><button class="m-btn small" onClick={() => openScreen(ctx, 'brightness')}>RUN BRIGHTNESS CHECK</button><span /></div>
@@ -152,6 +218,11 @@ export function HowToTab({ ctx }: { ctx?: ClientContext } = {}) {
   const snatcher = ctx?.flags.snatcher !== false;
   // v1.2 grab copy follows the balance (the field guide's numbers): it holds on for grabSec after a first knockdown
   const grabSec = Number((ctx?.balance.monsters as { listener?: { grabSec?: unknown } } | undefined)?.listener?.grabSec) || 5;
+  // v1.3: so does the Snatcher's spawn rule (monsters.snatcher minRisk / minContractIndex, defaults 2 / 2)
+  const sn = (ctx?.balance.monsters as { snatcher?: { minRisk?: unknown; minContractIndex?: unknown } } | undefined)?.snatcher;
+  const balNum = (v: unknown, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+  const snFrom = Math.max(0, Math.round(balNum(sn?.minContractIndex, 2)));
+  const snWhen = snFrom === 0 ? 'Every contract' : `Risk ${balNum(sn?.minRisk, 2)}, and from the ${['first', 'second', 'third', 'fourth', 'fifth'][snFrom] ?? `${snFrom + 1}th`} contract of a shift`;
   return (
     <div>
       <h3 class="m-h3">The job</h3>
@@ -162,7 +233,7 @@ export function HowToTab({ ctx }: { ctx?: ClientContext } = {}) {
           ? <Law who="LISTENER" title="It understands" body="It acts on room names, player names, numbers and plans. It SEES you at 6 m when you are lit, your own flashlight included (3 m in the dark, less if you crouch). When it notices you its head snaps: sprint, break line of sight, then creep (C). A flare holds it off if you carry one. Crouch behind anything waist-high or taller and it cannot see you." />
           : <Law who="LISTENER" title="It understands" body="It hears what a teammate standing where it stands would hear, and acts on room names, player names, numbers and plans. It only grabs someone alone." />}
         <Law who="MANNEQUIN" title="Keep it lit" body="Frozen while someone watches it and it is lit. Your visor blinks; two watchers are safe. Risk 2 and every third contract." />
-        {snatcher && <Law who="SNATCHER" title="Mind the vents" body="A rattling grate or falling dust means it is right above you. It drops on someone alone and drags them into the ducts: mash E to slow it, and a teammate holds E at the grate to pull them back. Risk 2 and later contracts of a shift." />}
+        {snatcher && <Law who="SNATCHER" title="Mind the vents" body={`A rattling grate or falling dust means it is right above you. It drops on someone alone and drags them into the ducts: mash E to slow it, and a teammate holds E at the grate to pull them back. ${snWhen}.`} />}
       </div>
       <div class="m-row" style={{ alignItems: 'stretch', gap: '14px', marginBottom: '16px' }}>
         <div class="m-sheet accent m-grow"><div class="m-h3">It hunts information, not noise</div><div class="m-small" style={{ lineHeight: 1.6 }}>Laughing and small talk are just loudness. Callsigns ("BOILER"), names, digits and plans ("meet", "wait", "code") give it a target. Use code words. Lie to it. The van cab is sealed: talk freely in there.</div></div>
@@ -172,7 +243,7 @@ export function HowToTab({ ctx }: { ctx?: ClientContext } = {}) {
           : 'The console has the map and the codes, the field has the hands. A grabbed teammate has 3 seconds: hit it with a crowbar or shove it. If a friend can hear you, so can it.'}</div></div>
       </div>
       <h3 class="m-h3">Controls</h3>
-      <table class="m-table"><tbody>{CONTROLS.map(([k, d]) => <tr key={k}><td><span class="m-keys">{k}</span></td><td>{d}</td></tr>)}</tbody></table>
+      <table class="m-table"><tbody>{(ctx?.flags.companyLine === true ? [...CONTROLS, ['P', 'Van phone: answer the Company Line (in the van)'] as [string, string]] : CONTROLS).map(([k, d]) => <tr key={k}><td><span class="m-keys">{k}</span></td><td>{d}</td></tr>)}</tbody></table>
       <p class="m-small m-dim" style={{ marginTop: '10px' }}>Browser: never Ctrl (Ctrl+W closes the tab). Desktop app: Left Ctrl crouches. A wired headset beats speakers (speakers force push-to-talk).</p>
     </div>
   );
@@ -200,7 +271,7 @@ export function CreditsTab() {
         <p key={s.id} class="m-credit"><b>{s.title}</b> · {s.author} · <span class="m-dim">{s.license}</span>{s.url ? <span class="m-dim"> · {s.url}</span> : null}</p>
       ))}
       <h3 class="m-h3" style={{ marginTop: '18px' }}>Made tonight</h3>
-      <p class="m-credit">DEAD AIR was designed and built in one evening by a crew of Claude Code agents for a group of friends. Some text in this game (work orders, HR memos) is written by AI; speech is transcribed on the host PC and only text reaches the AI.</p>
+      <p class="m-credit">DEAD AIR was designed and built in one evening by a crew of Claude Code agents for a group of friends. Some text in this game (work orders, HR memos) is written by AI, and some voices are AI-generated; speech is transcribed on the host PC and only text reaches the AI.</p>
     </div>
   );
 }
@@ -362,7 +433,7 @@ export function JoinExtras({ ctx }: HudProps) {
         <div class="line"><button type="button" class="m-btn small primary" onClick={askMic}>ALLOW MICROPHONE</button><span>Chrome will ask for permission. Without a mic you can still listen and type.</span></div>
       )}
       <div class="line off"><input type="checkbox" class="m-toggle" disabled /><span>Voice mimicry · <b>coming soon</b> (always off tonight)</span></div>
-      <div class="ai">Some content is AI-generated (work orders, HR memos, the Listener's choices). Speech is transcribed on the host PC; only text goes to Claude/JEV, never audio.</div>
+      <div class="ai">Some content is AI-generated (work orders, HR memos, the Listener's choices), and some voices are AI-generated. Speech is transcribed on the host PC; only text goes to Claude/JEV, never audio.</div>
       <details>
         <summary>Returning contractor? Reclaim your badge</summary>
         <div class="claim-row">

@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { Bot } from './bot.ts';
 import type { FullState } from '../../packages/shared/src/state.ts';
 
-process.env.SAVES_DIR = mkdtempSync(join(tmpdir(), 'deadair-meta-ix-'));
+process.env.SAVES_DIR = mkdtempSync(join(process.env.META_SAVES ?? tmpdir(), 'deadair-meta-ix-'));
 process.env.SESSION_FILE = join(process.env.SAVES_DIR, 'session.json'); // never <repo>/saves/session-<port>.json (the live server's folder)
 process.env.NODE_ENV = 'development';
 const { boot } = await import('../../apps/server/src/core/boot.ts');
@@ -21,7 +21,7 @@ const tracks = await Promise.all(
   }),
 );
 if (!process.env.VERBOSE) setQuiet(true);
-const srv = await boot({ mode: 'development', port: 0, tracks: tracks as never });
+const srv = await boot({ mode: 'development', port: Number(process.env.PORT ?? 0), tracks: tracks as never });
 const url = `ws://127.0.0.1:${srv.port}/ws`;
 let code = 0;
 const bots: Bot[] = [];

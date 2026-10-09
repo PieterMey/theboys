@@ -70,7 +70,7 @@ const slotsUsed = (st: IxState, pid: string) => (st.inventories[pid] ?? []).filt
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 test('hand-out, held-back units, locker cap, hub-pickup dupe, claimed badge', async () => {
-  const saves = mkdtempSync(join(tmpdir(), 'deadair-meta-pool-'));
+  const saves = mkdtempSync(join(process.env.META_SAVES ?? tmpdir(), 'deadair-meta-pool-'));
   process.env.SAVES_DIR = saves;
   process.env.SESSION_FILE = join(saves, 'session.json');
   process.env.NODE_ENV = 'development';
@@ -84,7 +84,7 @@ test('hand-out, held-back units, locker cap, hub-pickup dupe, claimed badge', as
     }),
   );
   if (!process.env.VERBOSE) setQuiet(true);
-  const srv = await boot({ mode: 'development', port: 0, tracks: tracks as never });
+  const srv = await boot({ mode: 'development', port: Number(process.env.PORT ?? 0), tracks: tracks as never });
   const url = `ws://127.0.0.1:${srv.port}/ws`;
   const bots: Bot[] = [];
   try {

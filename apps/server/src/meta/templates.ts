@@ -7,7 +7,7 @@
 //   {{ROOM_1}} vault room callsign · {{ROOM_2}} breaker lever A room · {{ROOM_3}} breaker lever B room
 // (same set as BRIEF_PLACEHOLDERS in packages/shared/src/messages/ai.ts)
 import type { CompanyRequestKind } from '@dead-air/shared/workorder.ts';
-import type { MetaRuleCard } from '@dead-air/shared/messages/meta.ts';
+import type { MetaRuleCard, MetaSiteRule } from '@dead-air/shared/messages/meta.ts';
 
 export interface SiteTemplate {
   name: string;
@@ -248,7 +248,8 @@ export const DRIVE_CHATTER: readonly string[] = [
 
 /**
  * Drive-screen rule cards. v1.2: `fair` = flags.listenerFairV12 (a rollback shows the v1.1 Listener rules, plan check
- * #24n); `snatcher` = it can appear on this contract (flags.snatcher and Risk 2 or a later contract of the shift).
+ * #24n); `mannequin` / `snatcher` = it can appear on this contract (flow.ts driveMonsters: the flag, and the monsters'
+ * own spawn rule from balance.monsters: Risk 2 or the 3rd contract of a shift; a Snatcher also needs vents).
  */
 export function ruleCards(risk: number, mannequin: boolean, opts: { fair?: boolean; snatcher?: boolean } = {}): MetaRuleCard[] {
   const fair = opts.fair !== false;
@@ -290,6 +291,35 @@ export function ruleCards(risk: number, mannequin: boolean, opts: { fair?: boole
     });
   }
   return cards;
+}
+
+// ---------------- v1.3 F7: Site Rules v0 (flag siteRules) ----------------
+
+/** a house rule a site memo promises, made real on the server by env-paranormal (apps/server/src/paranormal/**) */
+export type SiteRuleId = MetaSiteRule;
+
+/** keyed by the TEMPLATE site name: an AI brief may rename siteName, so meta keeps each order's template name
+ *  (flow.ts templateSiteOf) and reports the rule through meta/api.ts siteRule(crew) */
+export const SITE_RULES: Readonly<Record<string, SiteRuleId>> = {
+  'Varga Brothers Foundry': 'bell_digits',
+  'Old Quarry Road Telephone Exchange': 'phone_callsign',
+};
+
+/** the drive-screen card of a site rule (shown after the monster cards while the flag is on) */
+export function siteRuleCard(rule: SiteRuleId): MetaRuleCard {
+  return rule === 'bell_digits'
+    ? {
+        monster: 'site',
+        title: 'HOUSE RULE: THE BELL COUNTS',
+        rule: 'Say a number out loud and the old bell in the furnace hall strikes that many times. Everything that hunts by sound goes to the bell. Whispers do not count.',
+        hint: 'Read the vault code once, quietly. Or count on purpose: the Hound goes to the bell.',
+      }
+    : {
+        monster: 'site',
+        title: 'HOUSE RULE: THE PHONES ANSWER',
+        rule: 'Say a room callsign out loud and the dead phone in that room starts ringing. Whatever is listening goes to see who picked up. Whispers do not count.',
+        hint: 'Name an empty room to send it away. Never name the room you are standing in.',
+      };
 }
 
 // ---------------- HR: Company Performance Review (per shift) ----------------

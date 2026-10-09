@@ -4,8 +4,8 @@
 import type { Crew } from '../core/types.ts';
 import type { CrewSave, PlayerSave } from '@dead-air/shared/saves.ts';
 import type { WorkOrder } from '@dead-air/shared/workorder.ts';
-import type { MetaShiftReview, MetaState, MetaXpLine } from '@dead-air/shared/messages/meta.ts';
-import { S, awardXp as award, poolAddUnits, poolViewOf, runtime, saveCrew, saveOf, view } from './flow.ts';
+import type { MetaShiftReview, MetaSiteRule, MetaState, MetaXpLine } from '@dead-air/shared/messages/meta.ts';
+import { S, awardXp as award, poolAddUnits, poolViewOf, runtime, saveCrew, saveOf, siteRuleOf, view } from './flow.ts';
 import { craftView } from './crafting.ts';
 
 export { fillPlaceholders } from './orders.ts';
@@ -32,6 +32,16 @@ export function onShiftEnd(fn: (crew: Crew, review: MetaShiftReview) => void): v
 /** the work order being driven to / played (null in the hub) */
 export function currentOrder(crew: Crew): WorkOrder | null {
   return crew.slices.meta ? S(crew).active : null;
+}
+
+/**
+ * v1.3 F7 (Site Rules v0): the house rule of the site being driven to / played, null in the hub or for a site without
+ * one. Data only: the caller (env-paranormal) gates the behaviour on flags.siteRules. Robust to AI site renames (meta
+ * keeps each order's template site name). 'bell_digits' = Varga Brothers Foundry, 'phone_callsign' = Old Quarry Road
+ * Telephone Exchange (MetaSiteRule in messages/meta.ts).
+ */
+export function siteRule(crew: Crew): MetaSiteRule | null {
+  return crew.slices.meta ? siteRuleOf(crew, S(crew).active) : null;
 }
 
 /** read-only meta view (same as FullState.meta) */

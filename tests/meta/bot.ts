@@ -21,6 +21,8 @@ export class Bot {
   private waiters: { pred: (e: Ev) => boolean; res: (e: Ev) => void }[] = [];
 
   profile: ReturnType<typeof randomProfile> | null = null;
+  /** hello.build: 'bot' (default) marks a test bot (ServerPlayer.bot); anything else plays a human client */
+  build = 'bot';
 
   constructor(name: string, key = randomBytes(16).toString('hex'), profile: ReturnType<typeof randomProfile> | null = null) {
     this.name = name;
@@ -38,7 +40,7 @@ export class Bot {
       this.ws = ws;
       ws.binaryType = 'nodebuffer';
       const t = setTimeout(() => reject(new Error(`${this.name}: no welcome`)), 8000);
-      ws.on('open', () => this.send({ op: 'hello', v: PROTOCOL_VERSION, build: 'bot', crew, playerKey: this.key, name: this.name, profile: this.profile ?? randomProfile(this.name) }));
+      ws.on('open', () => this.send({ op: 'hello', v: PROTOCOL_VERSION, build: this.build, crew, playerKey: this.key, name: this.name, profile: this.profile ?? randomProfile(this.name) }));
       ws.on('message', (data: Buffer) => {
         const m = decodeMsg<ServerMsg>(data);
         if (m.op === 'welcome') {

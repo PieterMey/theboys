@@ -10,6 +10,7 @@ import type { CollectionEntry, StatsHeadline, StatsReply } from '@dead-air/share
 import { collectionCatalog } from '@dead-air/shared/messages/meta.ts';
 import type { SaveStore } from './saves.ts';
 import { collectionCount } from './stats.ts';
+import { safeName } from './safety.ts';
 
 export const STATS_KEY_HEADER = 'x-deadair-key';
 const MAX_CREWS = 8;
@@ -17,7 +18,7 @@ const MAX_CREWS = 8;
 function headline(sv: PlayerSave): StatsHeadline {
   const st = sv.stats;
   return {
-    saveId: sv.id, name: sv.name, badge: sv.profile?.badge ?? 0, level: sv.level, contracts: st?.contracts ?? 0,
+    saveId: sv.id, name: safeName(sv.name, sv.id).name, badge: sv.profile?.badge ?? 0, level: sv.level, contracts: st?.contracts ?? 0,
     lootValue: st?.lootValue ?? 0, deaths: st?.deaths ?? 0, revivesGiven: st?.revivesGiven ?? 0, collection: collectionCount(sv),
   };
 }
@@ -46,7 +47,7 @@ export function statsReply(store: SaveStore, subject: PlayerSave | null, viewer:
     }));
   return {
     you: {
-      saveId: subject.id, name: subject.name, badge: subject.profile?.badge ?? 0, level: subject.level, xp: subject.xp,
+      saveId: subject.id, name: safeName(subject.name, subject.id).name, badge: subject.profile?.badge ?? 0, level: subject.level, xp: subject.xp,
       achievements: [...(subject.achievements ?? [])], stats: subject.stats ?? emptyStats(subject.createdAt ?? new Date().toISOString()), collection,
     },
     crews,

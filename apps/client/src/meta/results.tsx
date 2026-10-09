@@ -114,6 +114,7 @@ export function ResultsScreen({ ctx }: ScreenProps) {
                 <tr><td>Balance before</td><td>{r.balanceBefore}</td></tr>
                 <tr><td>Salvage hauled{r.coreExtracted ? ' (incl. the Core)' : ''}</td><td class="m-green">+{r.hauled}</td></tr>
                 {r.requests.map((q) => <tr key={q.kind}><td>{q.done ? '✓' : '✗'} {q.text}</td><td class={q.done ? 'm-green' : 'm-dim'}>{q.done ? `+${q.reward}` : '0'}</td></tr>)}
+                {r.company && r.company.pay !== 0 && <tr data-testid="results-company-pay"><td>Company Line deal: payout {r.company.payoutPct > 0 ? '+' : ''}{r.company.payoutPct}% on the haul</td><td class={r.company.pay > 0 ? 'm-green' : 'm-red'}>{r.company.pay > 0 ? `+${r.company.pay}` : `−${-r.company.pay}`}</td></tr>}
                 {r.fines.map((f) => <tr key={f.player}><td class="m-red">Badge not recovered: {f.name} (10% fine)</td><td class="m-red">−{f.amount}</td></tr>)}
                 <tr class="total"><td>Spendable scrip</td><td class="m-amber">{r.balanceAfter}</td></tr>
               </tbody></table>

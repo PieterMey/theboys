@@ -98,9 +98,15 @@ export interface MetaShopItem {
   qty?: number;
 }
 
-/** one rule card shown on the drive (loading) screen, one per monster */
+/** v1.3 F7 (Site Rules v0, flag siteRules): a site's house rule. bell_digits = Varga Brothers Foundry (a spoken digit
+ *  strikes the bell that many times); phone_callsign = Old Quarry Road Telephone Exchange (a spoken callsign rings that
+ *  room's phone). Server side: meta/api.ts siteRule(crew) for the order being played */
+export type MetaSiteRule = 'bell_digits' | 'phone_callsign';
+
+/** one rule card shown on the drive (loading) screen, one per monster. v1.3: 'site' = the site's house rule (Site Rules
+ *  v0, flag siteRules), shown as a strip under the monster cards */
 export interface MetaRuleCard {
-  monster: 'hound' | 'listener' | 'mannequin' | 'snatcher';
+  monster: 'hound' | 'listener' | 'mannequin' | 'snatcher' | 'site';
   title: string;
   rule: string;
   hint: string;
@@ -188,6 +194,8 @@ export interface MetaContractResults {
   players?: MetaPlayerLine[];
   /** v1.2 (meta): at most 3 */
   superlatives?: { title: string; player: string; name: string; why: string }[];
+  /** v1.3 F5 Company Line: the deal's payout on this contract's haul (spendable scrip, already in balanceAfter) */
+  company?: { payoutPct: number; pay: number };
 }
 
 /** end-of-shift Company Performance Review (template first, AI swaps in) */
@@ -233,8 +241,9 @@ export interface MetaState {
   picked?: string | null;
   /** owner player id ('crew' = company gear) -> item type -> count; handed out at contract start */
   gear?: Record<string, Record<string, number>>;
-  /** drive (loading) phase info */
-  drive?: { orderId: string; siteName: string; endsAt: number; rules: MetaRuleCard[]; chatter: string[] } | null;
+  /** drive (loading) phase info. v1.3: `waiting` = names the van holds for (every connected human still building the
+   *  site, asked or not; bots never), at most driveLoadWaitSec past endsAt */
+  drive?: { orderId: string; siteName: string; endsAt: number; rules: MetaRuleCard[]; chatter: string[]; waiting?: string[] } | null;
   results?: MetaContractResults | null;
   review?: MetaShiftReview | null;
   /** results phase auto-continues at this server time (ms) */
@@ -258,6 +267,62 @@ export interface MetaState {
   stash?: Record<string, number>;
   /** v1.2 (meta-records): this shift so far, one line per save that worked it (personnel file 'This shift' table) */
   shiftLines?: MetaShiftLine[];
+  /** v1.3 F7: work order id -> its site's house rule (board chip); only while flags.siteRules is on */
+  siteRules?: Record<string, MetaSiteRule>;
+  /** v1.3 F5 Company Line (flag companyLine): the van phone call ringing / in progress / just ended (null = none) */
+  call?: MetaCall | null;
+  /** v1.3 F5: this shift's term sheet once the call is over (null = no call this shift, or the flag is off) */
+  terms?: MetaShiftTerms | null;
+}
+
+/** v1.3 F5 Company Line: a term sheet. Every number is computed by the host (meta/deals.ts), never by a model */
+export interface MetaTerms {
+  /** quota change in % (config bounds, default -10..+15) */
+  quotaPct: number;
+  /** extra (or docked) spendable scrip on each contract's haul, in % */
+  payoutPct: number;
+  /** hazard pay per contract: added to the order's EXTRACT_ABOVE Company Request */
+  bonus: number;
+  /** harder-site modifier chips added to the shift's work orders (DARK, MAZE, ...) */
+  conditions: string[];
+}
+
+export interface MetaCallLine {
+  /** dale = the Company (code-written line), crew = typed by a player, system = call status */
+  who: 'dale' | 'crew' | 'system';
+  name?: string;
+  text: string;
+  /** server ms */
+  at: number;
+}
+
+export interface MetaCall {
+  id: number;
+  state: 'ringing' | 'active' | 'ended';
+  /** server ms: ringing -> unanswered = missed; active -> the Company hangs up; ended -> the HUD lets it go */
+  until: number;
+  /** live id of the player who picked up */
+  holder: string | null;
+  holderName: string | null;
+  /** the call so far (memory only on the host, never saved), last 14 */
+  lines: MetaCallLine[];
+  /** the offer on the table right now */
+  offer: MetaTerms;
+  /** shift quota before / with the offer */
+  baseQuota: number;
+  quota: number;
+  turnsLeft: number;
+  /** ended: how */
+  outcome?: 'deal' | 'missed' | 'hung_up';
+  /** live player id -> server ms before they can speak again */
+  cooldown?: Record<string, number>;
+}
+
+/** v1.3 F5: the shift's signed (or defaulted) term sheet */
+export interface MetaShiftTerms extends MetaTerms {
+  outcome: 'deal' | 'missed' | 'hung_up';
+  baseQuota: number;
+  quota: number;
 }
 
 /** v1.2: CrewSave.shiftStats line with a name (MetaState.shiftLines) */
@@ -306,4 +371,7 @@ export interface MetaReqs {
   'meta.loadout': { args: { order: string[] }; result: { ok: boolean; reason?: string; loadout: string[] } };
   /** v1.2 (meta): personnel file (own, or a crewmate's in a shared crew) */
   'meta.stats': { args: { saveId?: string } | undefined; result: StatsReply };
+  /** v1.3 F5 Company Line (flag companyLine, hub only): answer the ringing van phone, say a typed line (anyone in the
+   *  van, one line per player per turnCooldownSec), sign the offer on the table, or hang up (the offer stands) */
+  'meta.phone': { args: { op: 'answer' | 'say' | 'accept' | 'hangup'; text?: string }; result: { ok: boolean; reason?: string } };
 }

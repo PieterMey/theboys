@@ -1,0 +1,65 @@
+/* Owner: track (d) Meta. v1.3 F5 Company Line: the van phone HUD banner and the call screen. Prefix: cl- */
+
+/* ---------- HUD banner (top slot, under the voice banner) ---------- */
+.cl-hud {
+  pointer-events: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 10px; max-width: 560px; box-sizing: border-box;
+  background: rgba(28, 22, 8, 0.9); border: 1px solid var(--m-amber-d); border-left: 4px solid var(--m-amber);
+  padding: 10px 16px; font: 700 12px var(--font-mono, monospace); letter-spacing: 0.1em; color: var(--m-text); text-transform: uppercase;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+.cl-hud b { font: 800 19px/1 var(--m-stencil); letter-spacing: 0.12em; color: var(--m-amber); white-space: nowrap; }
+.cl-hud .m-keys { margin: 0 4px; }
+.cl-hud.ringing { animation: cl-ring 1.1s ease-in-out infinite; }
+.cl-hud.ringing .cl-bell { animation: cl-shake 0.22s linear infinite; }
+.cl-hud.done { border-left-color: var(--m-green); border-color: #3b6a31; background: rgba(10, 30, 12, 0.9); }
+.cl-hud.done b { color: var(--m-green); }
+.cl-hud.missed { border-left-color: var(--m-red); border-color: #7a2a22; background: rgba(34, 10, 8, 0.9); }
+.cl-hud.missed b { color: #ff9b90; }
+.cl-bell { font-size: 22px; line-height: 1; color: var(--m-amber); display: inline-block; }
+@keyframes cl-ring { 50% { box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 0 26px rgba(240, 180, 60, 0.35); } }
+@keyframes cl-shake { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-14deg); } 75% { transform: rotate(14deg); } }
+
+/* ---------- the call screen ---------- */
+.cl-screen { background: radial-gradient(ellipse at 50% 30%, rgba(18, 21, 23, 0.82) 0%, rgba(3, 4, 5, 0.95) 72%); }
+.cl-wrap { max-width: 1100px; }
+.cl-h1 { font-size: 54px; }
+.cl-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: 18px; align-items: start; }
+.cl-call { display: flex; flex-direction: column; gap: 12px; min-height: 440px; }
+.cl-log {
+  flex: 1; min-height: 300px; max-height: 52vh; overflow-y: auto; padding: 12px 14px; background: rgba(0, 8, 0, 0.5); border: 1px solid #23401f;
+  font-family: var(--m-type); font-size: 14.5px; line-height: 1.6; user-select: text;
+}
+.cl-line { margin: 0 0 9px; }
+.cl-line .who { display: inline-block; min-width: 64px; margin-right: 10px; font: 700 10px var(--font-mono, monospace); letter-spacing: 0.22em; vertical-align: 2px; }
+.cl-line.dale { color: #f3d79a; text-shadow: 0 0 6px rgba(240, 180, 60, 0.25); }
+.cl-line.dale .who { color: var(--m-amber); }
+.cl-line.crew { color: #a9d8a0; }
+.cl-line.crew .who { color: var(--m-green); }
+.cl-line.system { color: var(--m-dim); font-family: var(--font-mono, monospace); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; }
+.cl-ringing { color: var(--m-amber) !important; animation: cl-blink 0.9s steps(2) infinite; }
+@keyframes cl-blink { 50% { opacity: 0.35; } }
+.cl-answer { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.cl-answer .m-btn { padding: 14px 22px; font-size: 13px; }
+.cl-say { display: flex; gap: 8px; }
+.cl-say .m-input { flex: 1; font-size: 14px; letter-spacing: 0.04em; }
+.cl-quick { display: flex; flex-wrap: wrap; gap: 0; }
+.cl-quick .m-chip { cursor: pointer; text-transform: none; letter-spacing: 0.06em; font-size: 11px; color: #c9c5ba; }
+.cl-quick .m-chip:hover:not(:disabled) { border-color: var(--m-amber); color: var(--m-amber); }
+.cl-quick .m-chip:disabled { opacity: 0.4; cursor: default; }
+.cl-note { color: var(--m-amber); }
+.cl-terms { display: flex; flex-direction: column; gap: 12px; }
+.cl-quota { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0 12px; border-bottom: 1px dashed var(--m-line2); }
+.cl-pct { font: 900 64px/0.9 var(--m-stencil); letter-spacing: 0.02em; color: var(--m-text); }
+.cl-pct.up { color: #ff9b90; }
+.cl-pct.down { color: var(--m-green); }
+.cl-q { display: flex; flex-direction: column; align-items: flex-end; font: 700 10px var(--font-mono, monospace); letter-spacing: 0.22em; color: var(--m-dim); }
+.cl-q b { font: 800 34px/1 var(--m-stencil); color: var(--m-amber); letter-spacing: 0.04em; margin-top: 4px; }
+.cl-q small { margin-top: 4px; letter-spacing: 0.14em; }
+.cl-kv dd .m-chip { margin-bottom: 0; }
+.cl-fine { line-height: 1.6; margin: 0; }
+.cl-actions .m-btn.primary { padding: 13px 16px; }
+@media (max-width: 900px) { .cl-grid { grid-template-columns: 1fr; } }
+
+/* ---------- van shift panel: the signed term sheet ---------- */
+.cl-deal { margin: 6px 0 0 auto; max-width: 230px; font-size: 10px; line-height: 1.45; letter-spacing: 0.12em; color: var(--m-dim); text-transform: uppercase; white-space: normal; }
+.cl-deal b { color: var(--m-amber); font-weight: 700; }

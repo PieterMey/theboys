@@ -40,10 +40,13 @@ export function DriveScreen({ ctx }: ScreenProps) {
   // moving while the main thread is busy building the level
   const [span] = useState(() => (d ? Math.max(1000, d.endsAt - ctx.world.serverNow()) : 6000));
   const per = meta?.shift.contractsPerShift ?? 3;
+  const monsterRules = (d?.rules ?? []).filter((r) => r.monster !== 'site');
+  const houseRules = (d?.rules ?? []).filter((r) => r.monster === 'site');
   // v1.1: the site is built and warmed behind this screen (apps/client/src/loading); the van waits for slow loaders
   const dl = ctx.services.use('loading')?.drive.value ?? null;
   const myName = ctx.world.crew?.players.find((p) => p.id === ctx.world.me)?.name;
-  const others = dl ? dl.waiting.filter((n) => n !== myName) : [];
+  // v1.3: the host also holds for crewmates that never asked for the site (frozen before their preload request)
+  const others = [...new Set([...(dl?.waiting ?? []), ...(d?.waiting ?? [])])].filter((n) => n !== myName);
   const holding = left <= 0 && others.length > 0;
   return (
     <div class="m-screen m-solid">
@@ -52,8 +55,8 @@ export function DriveScreen({ ctx }: ScreenProps) {
         <div class="m-kicker">EN ROUTE · VAN 9 · CONTRACT {Math.min((meta?.shift.contract ?? 0) + 1, per)}/{per} · RISK {order?.risk ?? 1}</div>
         <h1 class="m-h1" style={{ fontSize: '78px', marginTop: '10px' }}>{d?.siteName ?? order?.siteName ?? 'Unknown site'}</h1>
         <div class="m-small m-dim" style={{ marginTop: '10px', maxWidth: '760px', lineHeight: 1.6 }}>{order?.memo}</div>
-        <div class={`m-rules ${(d?.rules?.length ?? 0) >= 4 ? 'four' : ''}`}>
-          {(d?.rules ?? []).map((r) => (
+        <div class={`m-rules ${monsterRules.length >= 4 ? 'four' : ''}`}>
+          {monsterRules.map((r) => (
             <div key={r.monster} class={`m-sheet m-rule ${r.title.includes('NOT REPORTED') ? 'off' : 'danger'}`}>
               <div class="who">{r.monster.toUpperCase()}</div>
               <div class="title">{r.title}</div>
@@ -62,6 +65,17 @@ export function DriveScreen({ ctx }: ScreenProps) {
             </div>
           ))}
         </div>
+        {/* v1.3 F7: the site's house rule (Site Rules v0) as a strip under the monster cards */}
+        {houseRules.map((r) => (
+          <div key={r.title} class="m-sheet accent m-house" data-testid="drive-house-rule">
+            <div class="who">THIS SITE</div>
+            <div class="body">
+              <div class="title">{r.title}</div>
+              <div class="rule">{r.rule}</div>
+            </div>
+            <div class="hint">{r.hint}</div>
+          </div>
+        ))}
         <div class="m-radio">
           {visible.map((l, i) => <p key={i} class={i === visible.length - 1 ? 'cur' : ''}>{l}</p>)}
         </div>

@@ -15,7 +15,7 @@ import type { StatsReply } from '../../packages/shared/src/progress.ts';
 import { stationOf } from '../../packages/shared/src/procgen/van.ts';
 import { v12Id } from '../../packages/shared/src/catalog.ts';
 
-const saves = mkdtempSync(join(tmpdir(), 'deadair-meta-stats-'));
+const saves = mkdtempSync(join(process.env.META_SAVES ?? tmpdir(), 'deadair-meta-stats-'));
 process.env.SAVES_DIR = saves;
 process.env.SESSION_FILE = join(saves, 'session.json');
 process.env.NODE_ENV = 'development';
@@ -30,7 +30,7 @@ const tracks = await Promise.all(NAMES.map(async (n) => {
   return [n, m.install] as [string, (ctx: never) => unknown];
 }));
 if (!process.env.VERBOSE) setQuiet(true);
-const start = () => boot({ mode: 'development', port: 0, tracks: tracks as never });
+const start = () => boot({ mode: 'development', port: Number(process.env.PORT ?? 0), tracks: tracks as never });
 
 const t0 = performance.now();
 const step = (s: string) => console.log(`[${((performance.now() - t0) / 1000).toFixed(1)}s] ${s}`);

@@ -157,13 +157,9 @@ function LocalSettings({ ctx }: { ctx: ClientContext }) {
   return (
     <div>
       <h3 class="m-h3">Video</h3>
-      <label class="m-set">
-        <span>Graphics preset</span>
-        <select value={s.preset ?? r?.preset ?? 'high'} onChange={(e) => set({ preset: e.currentTarget.value }, ['preset'])}>
-          {presets.map((p) => <option key={p} value={p}>{p.toUpperCase()}</option>)}
-        </select>
-        <span class="m-dim m-small">{r ? '' : 'n/a'}</span>
-      </label>
+      {/* v1.3 P6: AUTO (detected: X) first (with the Lite reload note), then the SIGNAL look: the pause menu's controls */}
+      <metaMenus.PresetSelect ctx={ctx} presets={presets} onPick={(p) => set({ preset: p }, ['preset'])} onAuto={() => setS(settings())} />
+      <metaMenus.SignalToggle ctx={ctx} preset={r?.preset ?? ''} />
       <Range label="Exposure (brightness)" min={0.4} max={2.6} step={0.02} value={exposure} onChange={(x) => set({ exposure: x }, ['exposure'])} />
       <Toggle label="Reduce flicker / chromatic aberration" on={s.reduceFlicker} onChange={(x) => set({ reduceFlicker: x }, ['reduceFlicker'])} />
       <div class="m-set"><span /><button type="button" class="m-btn small" onClick={() => openScreen(ctx, 'brightness')}>RUN BRIGHTNESS CHECK</button><span /></div>

@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { Bot } from './bot.ts';
 import type { FullState } from '../../packages/shared/src/state.ts';
 
-const saves = mkdtempSync(join(tmpdir(), 'deadair-meta-results-'));
+const saves = mkdtempSync(join(process.env.META_SAVES ?? tmpdir(), 'deadair-meta-results-'));
 process.env.SAVES_DIR = saves;
 process.env.SESSION_FILE = join(saves, 'session.json');
 process.env.NODE_ENV = 'development';
@@ -23,7 +23,7 @@ const tracks = await Promise.all(NAMES.map(async (n) => {
   return [n, m.install] as [string, (ctx: never) => unknown];
 }));
 if (!process.env.VERBOSE) setQuiet(true);
-const srv = await boot({ mode: 'development', port: 0, tracks: tracks as never });
+const srv = await boot({ mode: 'development', port: Number(process.env.PORT ?? 0), tracks: tracks as never });
 const url = `ws://127.0.0.1:${srv.port}/ws`;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

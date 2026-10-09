@@ -3,7 +3,7 @@ import type { ClientContext } from '../core/context.ts';
 
 /** screens this track owns or routes (Esc closes them; phase changes replace them). v1.2: the personnel file ('stats'),
  *  the workshop's 'workbench' and the field guide's 'fieldguide' */
-export const META_SCREENS = new Set(['board', 'shop', 'mirror', 'kennel', 'brightness', 'menu', 'drive', 'console', 'results', 'memo', 'stats', 'workbench', 'fieldguide']);
+export const META_SCREENS = new Set(['board', 'shop', 'mirror', 'kennel', 'brightness', 'menu', 'drive', 'console', 'results', 'memo', 'stats', 'workbench', 'fieldguide', 'phone']);
 /** screens that are part of the phase flow (not closable with Esc) */
 export const FLOW_SCREENS = new Set(['drive', 'results', 'memo']);
 /** hub item kind -> screen */

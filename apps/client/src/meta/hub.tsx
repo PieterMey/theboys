@@ -125,6 +125,12 @@ export function HubShift({ ctx }: HudProps) {
       <div class="big" style={{ marginTop: '6px' }}>{sh.hauled} <span class="m-dim" style={{ fontSize: '16px' }}>/ {sh.quota} QUOTA</span></div>
       <div class="m-quota-bar"><i style={{ width: `${pct}%` }} /></div>
       <div class="m-small"><span class="m-dim">SCRIP</span> <b class="m-amber">{sh.balance}</b> <span class="m-dim">· QUOTAS MET</span> {sh.quotasMet}</div>
+      {meta.terms && (
+        <div class="cl-deal" data-testid="hub-deal">
+          COMPANY LINE · <b>{meta.terms.outcome === 'missed' ? 'MISSED' : 'DEAL'}</b> QUOTA {meta.terms.quotaPct > 0 ? '+' : meta.terms.quotaPct < 0 ? '−' : '±'}{Math.abs(meta.terms.quotaPct)}%
+          {meta.terms.payoutPct ? ` · PAYOUT +${meta.terms.payoutPct}%` : ''}{meta.terms.bonus ? ` · HAZARD +${meta.terms.bonus}` : ''}{meta.terms.conditions.length ? ` · ${meta.terms.conditions.join(' · ')}` : ''}
+        </div>
+      )}
       {stash.length > 0 && (
         <div class="m-stash-chips" data-testid="hub-stash">
           <span class="m-dim">STASH</span>

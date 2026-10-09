@@ -17,6 +17,7 @@ import { FLOW_SCREENS, ITEM_SCREEN, META_SCREENS, closeScreen, metaSlice, openSc
 import type { MetaClientSlice } from './nav.ts';
 import { installWorkshop } from './workshop.ts';
 import { StatsScreen } from './stats.tsx';
+import { PhoneHud, PhoneScreen, installPhoneBell, phoneKey } from './phone.tsx';
 
 /** screens the server may open with 'meta.open' (the workshop and the field guide handle their own) */
 const OPENABLE = new Set(['kennel', 'mirror', 'board', 'shop', 'console', 'stats']);
@@ -56,6 +57,8 @@ export function install(ctx: ClientContext): void {
   ui.registerScreen('results', ResultsScreen);
   ui.registerScreen('memo', MemoScreen);
   ui.registerScreen('stats', StatsScreen);
+  // v1.3 F5 Company Line (flag companyLine): the van phone
+  ui.registerScreen('phone', PhoneScreen);
 
   ui.registerHud('top-left', HubCrew, { order: 20, id: 'meta-crew' });
   ui.registerHud('top-right', HubShift, { order: 20, id: 'meta-shift' });
@@ -63,6 +66,8 @@ export function install(ctx: ClientContext): void {
   ui.registerHud('center', HubPrompt, { order: 20, id: 'meta-prompt' });
   ui.registerHud('bottom', HubHints, { order: 40, id: 'meta-hints' });
   ui.registerHud('join', JoinExtras, { order: 30, id: 'meta-join' });
+  ui.registerHud('top', PhoneHud, { order: 25, id: 'meta-phone' });
+  installPhoneBell(ctx);
 
   // ---- server -> client
   ctx.net.on('meta.update', (d: EventPayload<'meta.update'>) => {
@@ -186,6 +191,11 @@ export function install(ctx: ClientContext): void {
       const me = ctx.world.crew?.players.find((p) => p.id === ctx.world.me);
       void ctx.net.req('meta.ready', { ready: !me?.ready }).catch(() => {});
       return;
+    }
+    // v1.3 F5: P answers the ringing van phone / opens the call (screen 'phone'), P again puts it down
+    if (e.code === 'KeyP' && ctx.world.phase === 'hub') {
+      if (cur === 'none' && phoneKey(ctx)) { e.preventDefault(); return; }
+      if (cur === 'phone') { e.preventDefault(); closeScreen(ctx); return; }
     }
     if ((e.code === 'KeyB' || e.code === 'Tab') && ctx.world.phase === 'hub') {
       if (cur === 'none') {

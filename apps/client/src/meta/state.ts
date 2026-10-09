@@ -98,6 +98,72 @@ interface RenderLike {
   setExposure?(v: number): void;
   exposure?(): number;
   setReduceFlicker?(on: boolean): void;
+  // v1.3 P6 (render, E2): AUTO = no stored preset, the GPU-detected one (and the auto-quality ceiling follows it).
+  // Every member optional: read through presetAuto() below, which also accepts the other spellings E2 may land.
+  /** the preset GPU detection picks for this machine */
+  detectedPreset?: string | (() => string);
+  /** where the active preset came from */
+  presetSource?: string | (() => string);
+  /** forget the stored preset: back to the detected one */
+  clearPreset?(): void;
+  // v1.3 SIGNAL look (render, E2): render stores the toggle itself and applies it on the Lite and Low presets only
+  setSignalLook?(on: boolean): void;
+  /** the stored toggle */
+  signalLook?(): boolean;
+  /** the toggle is on AND the preset is Lite / Low */
+  signalActive?(): boolean;
+}
+
+/** render's AUTO support: detected preset, whether the active preset is the automatic one, and how to go back to it */
+export interface PresetAuto {
+  /** GPU-detected preset name, null when render does not say */
+  detected: string | null;
+  /** true when no preset is stored (render says so, or it cannot tell and meta has none) */
+  active: boolean;
+  /** render can clear its stored preset itself */
+  canClear: boolean;
+}
+
+const RENDER_PRESET_LS = 'deadair.render.preset';
+const val = (v: unknown): string | null => {
+  try {
+    const x = typeof v === 'function' ? (v as () => unknown)() : v;
+    return typeof x === 'string' && x ? x : null;
+  } catch { return null; }
+};
+
+export function presetAuto(ctx: ClientContext): PresetAuto {
+  const r = render(ctx) as (RenderLike & Record<string, unknown>) | undefined;
+  const detected = val(r?.detectedPreset) ?? val(r?.autoPreset) ?? val(r?.detected) ?? null;
+  const src = val(r?.presetSource);
+  const s = settings();
+  let stored: string | null = null;
+  try { stored = localStorage.getItem(RENDER_PRESET_LS); } catch { stored = null; }
+  // render's own word wins; without it: nothing stored on either side (a ?preset= page is never AUTO)
+  const active = src ? src === 'auto' && !s.preset : !s.preset && !stored && !ctx.params.get('preset');
+  const canClear = typeof r?.clearPreset === 'function' || (src !== null && typeof r?.setPreset === 'function');
+  return { detected, active, canClear };
+}
+
+/** the settings value of the AUTO entry (render v1.3: setPreset('auto') clears the stored choice) */
+export const AUTO_PRESET = 'auto';
+
+/**
+ * The settings menus' AUTO entry: forget meta's stored preset (applySettings re-applies it on every welcome) and render's,
+ * through the render service: render v1.3 (E2, P6) takes setPreset('auto') (it reports presetSource); an older render
+ * without it gets the fallback: its stored key is dropped and the detected preset (when known) applied, so the page uses
+ * GPU detection again on its next load.
+ */
+export function chooseAutoPreset(ctx: ClientContext): void {
+  saveSettings({ preset: null });
+  const r = render(ctx) as (RenderLike & Record<string, unknown>) | undefined;
+  try {
+    if (typeof r?.clearPreset === 'function') { r.clearPreset(); return; }
+    if (val(r?.presetSource) !== null && r?.setPreset) { r.setPreset(AUTO_PRESET); return; }
+    const det = presetAuto(ctx).detected;
+    if (det && r?.setPreset && r.presets?.includes(det)) r.setPreset(det);
+  } catch { /* render mid-init */ }
+  try { localStorage.removeItem(RENDER_PRESET_LS); } catch { /* private mode */ }
 }
 interface PlayersLike {
   settings?(): { sensitivity: number; crouchToggle?: boolean; invertY?: boolean };

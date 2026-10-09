@@ -21,8 +21,15 @@ function Risk({ n }: { n: number }) {
   );
 }
 
-function OrderCard({ o, picked, onPick, canPick, onDenied, themes = true }: { o: WorkOrder; picked: boolean; onPick: () => void; canPick: boolean; onDenied?: () => void; themes?: boolean }) {
+/** v1.3 F7: the chip of a site's house rule (Site Rules v0) */
+const HOUSE_RULE_CHIP: Record<string, [string, string]> = {
+  bell_digits: ['HOUSE RULE · NUMBERS RING', 'Say a number out loud and the furnace-hall bell strikes that many times.'],
+  phone_callsign: ['HOUSE RULE · ROOMS RING', 'Say a room callsign out loud and that room’s phone rings.'],
+};
+
+function OrderCard({ o, picked, onPick, canPick, onDenied, themes = true, rule }: { o: WorkOrder; picked: boolean; onPick: () => void; canPick: boolean; onDenied?: () => void; themes?: boolean; rule?: string }) {
   const req = o.requirements;
+  const house = rule ? HOUSE_RULE_CHIP[rule] : undefined;
   return (
     <div class={`m-sheet m-order ${picked ? 'picked' : ''} ${o.available ? '' : 'locked'} ${o.risk >= 2 ? 'danger' : 'accent'}`} onClick={() => { if (o.available && canPick) onPick(); else if (o.available) onDenied?.(); }}>
       {picked && <div class="m-stamp">PICKED</div>}
@@ -34,7 +41,10 @@ function OrderCard({ o, picked, onPick, canPick, onDenied, themes = true }: { o:
         </span>
       </div>
       <div class="site">{o.siteName}</div>
-      <div>{o.modifiers.map((m) => <span key={m} class={`m-chip ${/MANNEQUIN|LISTENER|HOUND|DARK/.test(m) ? 'red' : ''}`}>{m}</span>)}</div>
+      <div>
+        {o.modifiers.map((m) => <span key={m} class={`m-chip ${/MANNEQUIN|LISTENER|HOUND|DARK/.test(m) ? 'red' : ''}`}>{m}</span>)}
+        {house && <span class="m-chip house" title={house[1]} data-testid="order-house-rule">{house[0]}</span>}
+      </div>
       <div class="hist">{o.history}</div>
       <div class="memo">{o.memo}</div>
       <div>
@@ -137,7 +147,7 @@ export function BoardScreen({ ctx }: ScreenProps) {
           </dl>
         </div>
         <div class="m-orders">
-          {orders.map((o) => <OrderCard key={o.id} o={o} picked={meta?.picked === o.id} canPick={leader} onPick={() => pick(o)} onDenied={denied} themes={ctx.flags.siteThemes !== false} />)}
+          {orders.map((o) => <OrderCard key={o.id} o={o} picked={meta?.picked === o.id} canPick={leader} onPick={() => pick(o)} onDenied={denied} themes={ctx.flags.siteThemes !== false} rule={meta?.siteRules?.[o.id]} />)}
         </div>
         <div class="m-board-foot">
           <div class="m-small" style={{ lineHeight: 1.7 }}>

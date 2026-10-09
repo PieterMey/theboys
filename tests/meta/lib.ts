@@ -14,7 +14,7 @@ export interface DevServer { base: string; proc: ChildProcess; log(): string; st
 
 /** dev server on `port` with a temp SAVES_DIR + SESSION_FILE (AI mock); `saves` reuses a folder (restart tests) */
 export async function startServer(port: number, opts: { saves?: string; env?: Record<string, string> } = {}): Promise<DevServer & { saves: string }> {
-  const saves = opts.saves ?? mkdtempSync(join(tmpdir(), 'deadair-meta-ui-'));
+  const saves = opts.saves ?? mkdtempSync(join(process.env.META_SAVES ?? tmpdir(), 'deadair-meta-ui-'));
   const proc = spawn(process.execPath, ['apps/server/src/index.ts', '--dev'], {
     cwd: REPO,
     env: { ...process.env, PORT: String(port), SAVES_DIR: saves, SESSION_FILE: join(saves, 'session.json'), NODE_ENV: 'development', AI_MODE: 'mock', ...(opts.env ?? {}) },

@@ -347,6 +347,9 @@
 .m-set > span:first-child { color: var(--m-dim); letter-spacing: 0.16em; text-transform: uppercase; font-size: 10.5px; }
 .m-set input[type='range'] { width: 100%; accent-color: var(--m-amber); }
 .m-set select { background: #000; color: var(--m-text); border: 1px solid var(--m-line2); padding: 7px; font: 600 12px var(--font-mono, monospace); }
+/* a setting that does not apply right now (greyed out), and a one-line note under the setting above it */
+.m-set.off > span:first-child { opacity: 0.55; }
+.m-set.m-set-note { margin-top: -8px; }
 .m-toggle { appearance: none; width: 42px; height: 22px; background: #1a1d1f; border: 1px solid var(--m-line2); position: relative; cursor: pointer; vertical-align: middle; }
 .m-toggle::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: #555; transition: left 0.12s, background 0.12s; }
 .m-toggle:checked { border-color: var(--m-amber); }
@@ -435,3 +438,10 @@
 .m-rules.four .m-rule .title { font-size: 25px; }
 .m-rules.four .m-rule .rule { font-size: 12.5px; }
 .m-rule:nth-child(4) { animation-delay: 1.05s; }
+/* v1.3 F7: the site's house rule strip on the drive screen (Site Rules v0) */
+.m-house { display: grid; grid-template-columns: 120px minmax(0, 1fr) 280px; gap: 18px; align-items: center; margin: -8px 0 22px; padding: 14px 18px; opacity: 0; animation: m-in 0.5s ease-out 1.2s forwards; }
+.m-house .who { font: 900 13px/1.1 var(--m-stencil); letter-spacing: 0.3em; color: var(--m-amber); }
+.m-house .title { font: 900 26px/0.95 var(--m-stencil); letter-spacing: 0.03em; text-transform: uppercase; }
+.m-house .rule { font-size: 13px; line-height: 1.55; color: #c9c5ba; margin-top: 6px; }
+.m-house .hint { font-size: 11px; letter-spacing: 0.12em; color: var(--m-amber); text-transform: uppercase; border-left: 1px dashed var(--m-line2); padding-left: 14px; line-height: 1.5; }
+.m-chip.house { color: #ffd38a; border-color: var(--m-amber-d); background: rgba(240, 180, 60, 0.08); }

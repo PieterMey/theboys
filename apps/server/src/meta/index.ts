@@ -24,6 +24,7 @@ import {
   statPhenomenon, statRevive, statUtterance,
 } from './stats.ts';
 import { canRead, statsReply, statsRoute } from './records.ts';
+import { dbgRing, dbgState, phoneReq } from './company.ts';
 
 /** hub interactable kind -> client screen ('workbench' and 'stash' belong to the workshop: never add them here) */
 const SCREEN_FOR: Record<string, string> = { board: 'board', shop: 'shop', mirror: 'mirror', kennel: 'kennel', console: 'console', records: 'stats' };
@@ -198,6 +199,8 @@ export async function install(ctx: ServerContext): Promise<void> {
     return { ok: true };
   });
   req('meta.state', (crew, player) => ({ meta: view(crew, player), workOrders: S(crew).orders, activeOrder: S(crew).active }));
+  // v1.3 F5 Company Line (flag companyLine): answer / say / accept / hang up the van phone
+  req('meta.phone', (crew, player, args) => phoneReq(crew, player, args));
   req('claim', (crew, player, args) => {
     const r = claim(crew, player, String(args?.name ?? ''), String(args?.pin ?? ''));
     if (!r.ok) throw new Error(r.reason ?? 'claim failed');
@@ -314,6 +317,9 @@ export async function install(ctx: ServerContext): Promise<void> {
     if (e.kind === 'consume') poolConsumed(crew, e.pid, e.type, Number(e.count ?? 1));
     return { ok: true, before, collection: Object.keys((target && saveOf(target)?.collection) ?? {}).length };
   });
+  // v1.3 F5 test controls: ring the van phone now ({ force } clears this shift's terms first), dump the call + file
+  ctx.registerDbg('meta.phoneRing', (crew, _p, args) => dbgRing(crew, (args as { force?: unknown } | null)?.force === true));
+  ctx.registerDbg('meta.phoneState', (crew) => dbgState(crew));
   ctx.registerDbg('meta.collectionReset', (crew, player, args) => {
     const a = (args ?? {}) as { id?: string };
     const target = a.id ? crew.players.get(a.id) : player;

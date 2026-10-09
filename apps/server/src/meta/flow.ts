@@ -5,7 +5,7 @@ import type { Crew, ServerContext, ServerPlayer } from '../core/types.ts';
 import { isObserver, playerIdFromKey } from '../core/crews.ts';
 import type { LevelLayout } from '@dead-air/shared/layout.ts';
 import type { WorkOrder } from '@dead-air/shared/workorder.ts';
-import type { ContractResult, CrewSave, PlayerSave } from '@dead-air/shared/saves.ts';
+import type { CompanyFileV1, ContractResult, CrewSave, PlayerSave } from '@dead-air/shared/saves.ts';
 import type { CrewRecords, ShiftStatLine } from '@dead-air/shared/progress.ts';
 import type { Profile } from '@dead-air/shared/profile.ts';
 import { HELMET_UNLOCK_LEVEL, PROFILE_LIMITS, VISOR_COLORS } from '@dead-air/shared/profile.ts';
@@ -21,10 +21,16 @@ import {
 } from './economy.ts';
 import type { Economy } from './economy.ts';
 import { makeBoard, refreshAvailability } from './orders.ts';
-import { DRIVE_CHATTER, ruleCards } from './templates.ts';
+import { DRIVE_CHATTER, SITE_RULES, ruleCards, siteRuleCard } from './templates.ts';
+import type { SiteRuleId } from './templates.ts';
 import { mergeAiReview, templateReview } from './review.ts';
 import type { ReviewInput } from './review.ts';
 import { SaveStore, hashPin, newPin } from './saves.ts';
+import { cleanText, glyphsBlocked, safeName, textBlocked } from './safety.ts';
+import {
+  applyTermsToOrders, companyBaseQuota, companyBeforeDrive, companyPay, companyQuota, companyShiftEnd, companyTick, companyView,
+  normalizeCompanyFile,
+} from './company.ts';
 import * as A from './adapters.ts';
 import {
   addUnits, allot, handoutOrder, isCarryType, isPoolType, migrateOwners, normalizeUnits, poolSlots, realType, stackOf, stacks,
@@ -77,6 +83,12 @@ export interface MetaCrew {
   hubStarted: boolean;
   /** our own setPhase is running (phase hook ignores it) */
   transition: boolean;
+  /** v1.3: names the van holds for at the last tick ('\n'-joined; a change re-sends the drive view) */
+  loadWaitKey: string;
+  /** v1.3 F7: order id -> its TEMPLATE site name, kept from board time (an AI brief may rename siteName later) */
+  templateSites: Record<string, string>;
+  /** v1.3 F5 Company Line: CrewSave.companyFile (null = the Company never called this crew); kept whatever the flag */
+  company: CompanyFileV1 | null;
 }
 
 export interface MetaPlayer {
@@ -140,11 +152,31 @@ export function maxPoolSlots(): number {
 export function loadoutMax(): number {
   return Math.max(1, Math.round(num(mb().loadoutMax, 12)));
 }
+/** v1.3 (P2b): the van waits at most this long past the drive timer for players still building the site */
+export function driveLoadWaitSec(): number {
+  return Math.max(0, Math.min(120, num(mb().driveLoadWaitSec, 30)));
+}
 
 export function visorUnlockLevel(i: number): number {
   const t = mb().visorUnlockLevel;
   const arr = Array.isArray(t) ? (t as number[]) : [1, 1, 1, 2, 3, 4];
   return num(arr[i], 1);
+}
+
+/**
+ * v1.3: which optional monsters the drive screen announces. The spawn rules of apps/server/src/monsters/runtime.ts,
+ * read the way the field guide reads them (fieldguide/logic.ts presentMonsters): risk >= balance.monsters.<kind>.minRisk
+ * or contract index >= minContractIndex (defaults = runtime's: 2 and 2, so Risk 2 or the 3rd contract of a shift), the
+ * flag on, and a Snatcher only on a site with vents (hasVents: pass true while the layout is unknown).
+ */
+export function driveMonsters(o: { risk: number; contractIndex: number; hasVents: boolean; flags: Record<string, unknown>; balance: Record<string, unknown> }): { mannequin: boolean; snatcher: boolean } {
+  const monsters = o.balance.monsters && typeof o.balance.monsters === 'object' ? (o.balance.monsters as Record<string, unknown>) : {};
+  const comes = (kind: 'mannequin' | 'snatcher'): boolean => {
+    const raw = monsters[kind];
+    const b = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+    return o.flags[kind] !== false && (o.risk >= num(b.minRisk, 2) || o.contractIndex >= num(b.minContractIndex, 2));
+  };
+  return { mannequin: comes('mannequin'), snatcher: comes('snatcher') && o.hasVents };
 }
 
 // ---------------------------------------------------------------- slices
@@ -186,6 +218,9 @@ export function S(crew: Crew): MetaCrew {
     dirty: true,
     hubStarted: false,
     transition: false,
+    loadWaitKey: '',
+    templateSites: {},
+    company: normalizeCompanyFile(saved?.companyFile),
   };
   // gear persisted as CrewSave.shift.gear: 'owner|type' -> units. v1.1 owners were live ids: re-keyed to save ids
   // (playerIdFromKey of each save key), shop packs to real units
@@ -229,6 +264,11 @@ export function P(player: ServerPlayer): MetaPlayer {
 
 const connected = (crew: Crew): ServerPlayer[] => [...crew.players.values()].filter((p) => p.connected);
 
+/** a toast for one player only (v1.3: name-filter notices are never shown to the crew) */
+export function privateNotice(crew: Crew, player: ServerPlayer, text: string, kind: 'info' | 'warn' = 'warn'): void {
+  try { ctxOf().emit(crew, 'notice', { text, kind }, { to: [player.id] }); } catch { /* not installed (unit tests) */ }
+}
+
 export function saveOf(player: ServerPlayer): PlayerSave | null {
   return RT?.store.playerById(P(player).saveId) ?? null;
 }
@@ -263,6 +303,13 @@ export function view(crew: Crew, player: ServerPlayer | null): MetaState {
     if (g) gear[p.id] = g;
   }
   const flags = ctxOf().flags;
+  // the drive cards follow the monsters' spawn rules (balance.monsters), never a number of meta's own
+  const optional = crew.phase === 'drive' && s.active
+    ? driveMonsters({
+        risk: s.active.risk, contractIndex: s.shift.contract, flags, balance: ctxOf().balance,
+        hasVents: !s.pendingLayout || s.pendingLayout.items.some((i) => i.kind === 'vent'),
+      })
+    : { mannequin: false, snatcher: false };
   const st: MetaState = {
     shift: {
       index: s.shift.index, contract: s.shift.contract, quota: s.shift.quota, hauled: s.shift.hauled,
@@ -275,15 +322,17 @@ export function view(crew: Crew, player: ServerPlayer | null): MetaState {
     drive: crew.phase === 'drive' && s.active
       ? {
           orderId: s.active.id, siteName: s.active.siteName, endsAt: s.driveEndsAt,
-          rules: ruleCards(s.active.risk, s.active.risk >= 2 || s.shift.contract >= 2, {
-            fair: flags.listenerFairV12 !== false,
-            snatcher: flags.snatcher !== false && (s.active.risk >= 2 || s.shift.contract >= 1),
-          }),
+          rules: [
+            ...ruleCards(s.active.risk, optional.mannequin, { fair: flags.listenerFairV12 !== false, snatcher: optional.snatcher }),
+            // v1.3 F7: the site's house rule (Site Rules v0), only while the flag is on
+            ...siteCards(crew, s.active),
+          ],
           chatter: DRIVE_CHATTER.map((l) => l
             .replace('{{SITE}}', s.active!.siteName.toUpperCase())
             .replace('{{QUOTA}}', String(s.shift.quota))
             .replace('{{HAULED}}', String(s.shift.hauled))
             .replace('{{CONTRACT}}', `${s.shift.contract + 1}/${e.contractsPerShift}`)),
+          waiting: loadWaiting(crew, s),
         }
       : null,
     results: crew.phase === 'results' ? s.results : null,
@@ -303,13 +352,23 @@ export function view(crew: Crew, player: ServerPlayer | null): MetaState {
     st.stash = { ...cv.stash };
     st.unlocks = [...cv.unlocks];
   }
+  // v1.3 F5: the van phone (Company Line) and this shift's term sheet, only while the flag is on
+  const co = companyView(crew);
+  if (co.call) st.call = co.call;
+  if (co.terms) st.terms = co.terms;
+  // v1.3 F7: house-rule chips on the board (Site Rules v0)
+  if (flags.siteRules === true) {
+    const rules: Record<string, SiteRuleId> = {};
+    for (const o of s.orders) { const r = siteRuleOf(crew, o); if (r) rules[o.id] = r; }
+    if (Object.keys(rules).length) st.siteRules = rules;
+  }
   // v1.2 personnel file: this shift so far (counters only)
   const lines = Object.entries(s.shiftStats);
   if (lines.length) {
     const live = new Map<string, ServerPlayer>();
     for (const p of crew.players.values()) live.set(P(p).saveId, p);
     st.shiftLines = lines.map(([sid, l]) => ({
-      saveId: sid, player: live.get(sid)?.id ?? null, name: live.get(sid)?.name ?? RT?.store.playerById(sid)?.name ?? 'Contractor', ...l,
+      saveId: sid, player: live.get(sid)?.id ?? null, name: live.get(sid)?.name ?? safeName(RT?.store.playerById(sid)?.name ?? 'Contractor', sid).name, ...l,
     }));
   }
   if (player) {
@@ -369,6 +428,8 @@ export function saveCrew(crew: Crew): void {
     shiftStats: s.shiftStats,
   };
   if (s.records) rebuilt.records = s.records;
+  // v1.3 F5: the Company's file (counts and numbers only); flags gate behaviour, never persistence
+  if (s.company) rebuilt.companyFile = s.company;
   let craft: CraftSave | null = null;
   try { craft = craftSave(crew); } catch (err) { RT.ctx.log('meta').warn('craftSave threw:', err instanceof Error ? err.message : err); }
   if (craft) {
@@ -378,20 +439,41 @@ export function saveCrew(crew: Crew): void {
   RT.store.putCrew({ ...(prev ?? {}), ...rebuilt });
 }
 
-function sanitizeProfile(p: Profile, level: number, prev: Profile): Profile {
+/** what sanitizeProfile refused (v1.3 P1c): the caller tells the player privately */
+export interface ProfileRefusal { name?: boolean; glyphs?: boolean; /** the name is one of the game's own voices (names.ts reserved) */ reserved?: boolean }
+
+/**
+ * Validated profile. v1.3 P1c: the name and the visor glyphs go through names.ts (safety.ts safeName / glyphsBlocked).
+ * A blocked name keeps `prev.name` (a mirror rename is refused, the old name stays), or becomes the filter's
+ * replacement (Contractor-NNNN) when prev is blocked as well; blocked glyphs fall back to prev's glyphs, else none.
+ */
+export function sanitizeProfile(p: Profile, level: number, prev: Profile, seed = '', refused?: ProfileRefusal): Profile {
   const hex = (v: unknown, d: string) => (typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v) ? v.toLowerCase() : d);
-  const name = String(p?.name ?? prev.name).replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, PROFILE_LIMITS.nameMax) || prev.name;
+  let name = cleanText(p?.name ?? prev.name, PROFILE_LIMITS.nameMax) || prev.name;
+  const sn = safeName(name, seed);
+  if (sn.blocked) {
+    if (refused) { refused.name = true; refused.reserved = sn.reason === 'reserved'; }
+    const back = safeName(prev.name, seed);
+    name = back.blocked ? sn.name : back.name;
+  } else name = sn.name;
   let helmet = p?.helmet === 'box' || p?.helmet === 'diver' || p?.helmet === 'dome' ? p.helmet : prev.helmet;
   if ((HELMET_UNLOCK_LEVEL[helmet] ?? 1) > level) helmet = 'dome';
   let visorColor = hex(p?.visor?.color, prev.visor.color);
   const vi = (VISOR_COLORS as readonly string[]).indexOf(visorColor);
   if (vi >= 0 && visorUnlockLevel(vi) > level) visorColor = VISOR_COLORS[0];
+  const clip = (g: unknown) => String(g ?? '').replace(/[\u0000-\u001f<>]/g, '').slice(0, PROFILE_LIMITS.glyphsMax);
+  let glyphs = clip(p?.visor?.glyphs ?? prev.visor.glyphs);
+  if (glyphsBlocked(glyphs)) {
+    if (refused) refused.glyphs = true;
+    const back = clip(prev.visor.glyphs);
+    glyphs = glyphsBlocked(back) ? '' : back;
+  }
   return {
     name,
     body: p?.body === 'f' ? 'f' : p?.body === 'm' ? 'm' : prev.body,
     suit: [hex(p?.suit?.[0], prev.suit[0]), hex(p?.suit?.[1], prev.suit[1])],
     helmet,
-    visor: { glyphs: String(p?.visor?.glyphs ?? prev.visor.glyphs).replace(/[\u0000-\u001f<>]/g, '').slice(0, PROFILE_LIMITS.glyphsMax), color: visorColor },
+    visor: { glyphs, color: visorColor },
     // the badge is canonical on the host (claim codes); clients cannot change it
     badge: prev.badge,
   };
@@ -420,7 +502,17 @@ export function attachPlayer(crew: Crew, player: ServerPlayer): void {
   }
   p.saveId = sv.id;
   if (!sv.keys.includes(player.key)) store.bindKey(player.key, sv);
-  const prof = sanitizeProfile({ ...player.profile, badge: sv.profile.badge }, sv.level, { ...sv.profile, name: player.name });
+  // v1.3 P1c: core filters the join name (P1a); this catches a core without it (and old saves via the claim path)
+  const joinName = safeName(player.name, player.id);
+  if (joinName.blocked) {
+    player.name = joinName.name;
+    privateNotice(crew, player, joinName.reason === 'reserved'
+      ? `That callsign is reserved for the game. You are ${joinName.name} for now: change it at the locker mirror.`
+      : `That callsign is not allowed here. You are ${joinName.name} for now: change it at the locker mirror.`);
+  }
+  const refused: ProfileRefusal = {};
+  const prof = sanitizeProfile({ ...player.profile, badge: sv.profile.badge }, sv.level, { ...sv.profile, name: player.name }, player.id, refused);
+  if (refused.glyphs) privateNotice(crew, player, 'Those visor glyphs are not allowed: the Company issued you plain ones.');
   // distinct visor colours on join: if a crewmate already wears this one, take the first free colour this level allows
   const taken = new Set([...crew.players.values()].filter((o) => o.id !== player.id).map((o) => o.profile?.visor?.color));
   if (taken.has(prof.visor.color)) {
@@ -440,9 +532,13 @@ export function setProfile(crew: Crew, player: ServerPlayer, profile: Profile): 
   const sv = saveOf(player);
   const level = sv?.level ?? player.level ?? 1;
   const want = profile as Partial<Profile>;
-  const next = sanitizeProfile(profile, level, player.profile);
+  const refused: ProfileRefusal = {};
+  const next = sanitizeProfile(profile, level, player.profile, player.id, refused);
   let reason: string | undefined;
   if (want.helmet && want.helmet !== next.helmet) reason = `${String(want.helmet).toUpperCase()} helmet unlocks at level ${HELMET_UNLOCK_LEVEL[want.helmet as Profile['helmet']] ?? '?'}`;
+  // v1.3 P1c: a blocked callsign or glyphs are refused (the old ones stay); the reason is private to this player
+  if (refused.name) reason = refused.reserved ? 'That callsign is reserved for the game: you keep your old one.' : 'That callsign is not allowed: you keep your old one.';
+  else if (refused.glyphs) reason = 'Those visor glyphs are not allowed.';
   player.profile = next;
   player.name = next.name;
   if (sv) {
@@ -484,13 +580,15 @@ export function claim(crew: Crew, player: ServerPlayer, who: string, pin0: strin
   p.saveId = hit.id;
   p.pin = pin;
   player.level = hit.level;
-  player.name = hit.name;
-  player.profile = { ...hit.profile, name: hit.name };
+  // v1.3 P1c: a save from before the name filter may hold a blocked name
+  const name = safeName(hit.name, hit.id).name;
+  player.name = name;
+  player.profile = { ...hit.profile, name };
   ctxOf().crews.broadcastRoster(crew);
-  ctxOf().notice(crew, `${hit.name} reclaimed their badge (#${hit.profile.badge}, level ${hit.level})`);
+  ctxOf().notice(crew, `${name} reclaimed their badge (#${hit.profile.badge}, level ${hit.level})`);
   refreshBoard(crew);
   markDirty(crew);
-  return { ok: true, level: hit.level, name: hit.name };
+  return { ok: true, level: hit.level, name };
 }
 
 export function regenPin(player: ServerPlayer): string {
@@ -547,7 +645,7 @@ function boardFor(crew: Crew, at?: BoardAt): WorkOrder[] {
   const core = ctx.balance.core as Record<string, unknown>;
   const n = Math.max(1, connected(crew).length);
   const pos = at ?? { shiftIndex: s.shift.index, contract: s.shift.contract, boardSeq: s.boardSeq };
-  return makeBoard({
+  const orders = makeBoard({
     crewCode: crew.code, shiftIndex: pos.shiftIndex, contract: pos.contract, boardSeq: pos.boardSeq, players: n,
     avgLevel: avgLevel(crew), achievements: crewAchievements(crew),
     payoutMult: (mb().payoutMult as Record<string, number>) ?? { 1: 1, 2: 1.4, 3: 1.9 },
@@ -556,6 +654,11 @@ function boardFor(crew: Crew, at?: BoardAt): WorkOrder[] {
     risk2MinAvgLevel: num(mb().risk2MinAvgLevel, 2), risk2Achievement: String(mb().risk2Achievement ?? 'Core Business'),
     recentSites: s.recentSites,
   });
+  // v1.3 F5: this shift's Company Line conditions + hazard pay (ids and seeds are untouched: the brief cache still hits)
+  if (pos.shiftIndex === s.shift.index) {
+    try { applyTermsToOrders(crew, orders); } catch (err) { ctx.log('meta').warn('company terms threw:', err instanceof Error ? err.message : err); }
+  }
+  return orders;
 }
 
 export function newBoard(crew: Crew): void {
@@ -563,15 +666,38 @@ export function newBoard(crew: Crew): void {
   s.boardSeq++;
   s.orders = boardFor(crew);
   s.picked = null;
+  // v1.3 F7: template names before requestBriefs can rename a site (the active order keeps its entry)
+  const keep = s.active ? { [s.active.id]: s.templateSites[s.active.id] ?? s.active.siteName } : {};
+  s.templateSites = { ...keep, ...Object.fromEntries(s.orders.map((o) => [o.id, o.siteName])) };
   markDirty(crew);
   requestBriefs(crew);
+}
+
+/** v1.3 F7: the template site name of an order (an AI brief may have renamed siteName); null without an order */
+export function templateSiteOf(crew: Crew, order: WorkOrder | null | undefined): string | null {
+  if (!order) return null;
+  return S(crew).templateSites[order.id] ?? order.siteName;
+}
+
+/** v1.3 F7: the house rule of an order's site (Site Rules v0), whatever the flag says (callers gate on flags.siteRules) */
+export function siteRuleOf(crew: Crew, order: WorkOrder | null | undefined): SiteRuleId | null {
+  const name = templateSiteOf(crew, order);
+  return name ? (SITE_RULES[name] ?? null) : null;
+}
+
+/** v1.3 F7: the drive screen's house-rule card for this order, [] when the flag is off or the site has none */
+function siteCards(crew: Crew, order: WorkOrder | null): ReturnType<typeof siteRuleCard>[] {
+  if (ctxOf().flags.siteRules !== true) return [];
+  const r = siteRuleOf(crew, order);
+  return r ? [siteRuleCard(r)] : [];
 }
 
 /** availability + provisional quota follow crew size / levels while in the hub */
 export function refreshBoard(crew: Crew): void {
   const s = S(crew);
   refreshAvailability(s.orders, avgLevel(crew), crewAchievements(crew), num(mb().risk2MinAvgLevel, 2), String(mb().risk2Achievement ?? 'Core Business'));
-  if (!s.shift.quotaLocked && s.shift.index === 0) s.shift.quota = firstQuota(econ(), Math.max(1, connected(crew).length));
+  // v1.3 F5: a Company Line deal applies its % to the crew-size quota until the first drive locks it
+  if (!s.shift.quotaLocked && s.shift.index === 0) s.shift.quota = companyQuota(crew, firstQuota(econ(), Math.max(1, connected(crew).length)));
   if (s.picked && !s.orders.find((o) => o.id === s.picked)?.available) s.picked = null;
   markDirty(crew);
 }
@@ -720,8 +846,11 @@ export function startDrive(crew: Crew, order: WorkOrder): void {
   const ctx = ctxOf();
   const e = econ();
   if (crew.phase !== 'hub') return;
+  // v1.3 F5: the van leaves: a ringing Company Line counts as missed, a call in progress ends on the offer on the
+  // table; the shift's terms are in place before the quota locks
+  try { companyBeforeDrive(crew); } catch (err) { ctx.log('meta').warn('company line threw:', err instanceof Error ? err.message : err); }
   if (!s.shift.quotaLocked) {
-    if (s.shift.index === 0) s.shift.quota = firstQuota(e, Math.max(1, connected(crew).length));
+    if (s.shift.index === 0) s.shift.quota = companyQuota(crew, firstQuota(e, Math.max(1, connected(crew).length)));
     s.shift.quotaLocked = true;
   }
   s.active = order;
@@ -997,7 +1126,8 @@ function heardDid(crew: Crew): MetaHeardDid[] {
     }
     if (heard && did) out.push({ heard: heard.slice(0, 140), did: `${did.slice(0, 100)}${who ? ` (heard from ${who})` : ''}`, at: str(o.at) ?? undefined });
   }
-  return out.slice(-6);
+  // v1.3 P1c: what the Listener overheard is player speech: a line the name filter blocks is never printed
+  return out.filter((h) => !textBlocked(h.heard)).slice(-6);
 }
 
 export interface RawResult {
@@ -1100,6 +1230,10 @@ export function finishContract(crew: Crew, raw: RawResult, outcome0?: string): b
   const balanceBefore = s.shift.balance;
   s.shift.hauled += hauled;
   s.shift.balance += hauled + requestScrip;
+  // v1.3 F5: the Company Line deal's payout % on this haul (spendable scrip only, never the quota)
+  let company: { payoutPct: number; pay: number } | null = null;
+  try { company = companyPay(crew, hauled); } catch (err) { ctx.log('meta').warn('company pay threw:', err instanceof Error ? err.message : err); }
+  if (company) s.shift.balance = Math.max(0, s.shift.balance + company.pay);
   const unrec = deaths.filter((d) => !d.badgeRecovered);
   const fineAmts = badgeFines(e, s.shift.balance, unrec.length);
   const fines = unrec.map((d, i) => ({ player: d.player, name: d.name, amount: fineAmts[i] ?? 0 })).filter((f) => f.amount > 0);
@@ -1167,6 +1301,7 @@ export function finishContract(crew: Crew, raw: RawResult, outcome0?: string): b
     xp: xpLines, heardDid: heardDid(crew), shiftEnd,
   };
   if (salvage) s.results.salvage = salvage;
+  if (company) s.results.company = company;
   if (commit.players.length) s.results.players = commit.players;
   if (commit.superlatives.length) s.results.superlatives = commit.superlatives;
   if (shiftEnd) buildShiftReview(crew);
@@ -1219,7 +1354,8 @@ function buildShiftReview(crew: Crew): void {
   const xpCfg = (mb().xp ?? {}) as Record<string, number>;
   const met = quotaMet(s.shift.hauled, s.shift.quota);
   const ot = overtime(e, s.shift.hauled, s.shift.quota);
-  const nextQ = met ? nextQuota(e, s.shift.quota, s.shift.index + 1, crew.code) : null;
+  // v1.3 F5: the next quota grows from this shift's quota BEFORE any Company Line deal (deals never compound)
+  const nextQ = met ? nextQuota(e, companyBaseQuota(crew) ?? s.shift.quota, s.shift.index + 1, crew.code) : null;
   if (met) s.shift.balance += ot;
   // every save that worked this shift (CrewSave.shiftStats survives a restart), present or not
   const live = new Map<string, ServerPlayer>();
@@ -1228,7 +1364,7 @@ function buildShiftReview(crew: Crew): void {
     const p = live.get(sid);
     const sv = RT?.store.playerById(sid) ?? null;
     return {
-      id: p?.id ?? sid, saveId: sid, name: p?.name ?? sv?.name ?? 'Contractor', level: sv?.level ?? p?.level ?? 1,
+      id: p?.id ?? sid, saveId: sid, name: p?.name ?? safeName(sv?.name ?? 'Contractor', sid).name, level: sv?.level ?? p?.level ?? 1,
       deaths: st.deaths, survived: st.survived, contracts: st.contracts, hauled: st.hauled, quotes: (p ? s.quotes[p.id] : null) ?? [],
     };
   });
@@ -1302,6 +1438,8 @@ export function continueFromResults(crew: Crew): void {
   const e = econ();
   if (crew.phase !== 'results') return;
   if (s.review) {
+    // v1.3 F5: the Company files this shift's terms away and remembers what was delivered against a promise
+    try { companyShiftEnd(crew, s.shift.hauled); } catch (err) { ctxOf().log('meta').warn('company shift end threw:', err instanceof Error ? err.message : err); }
     const free = num(mb().freeWalkiesPerShift, 2);
     if (s.review.verdict === 'promoted') {
       s.shift = {
@@ -1360,22 +1498,48 @@ export function allReady(crew: Crew): boolean {
   return ps.length > 0 && ps.every((p) => p.ready);
 }
 
-/** v1.1 drive -> contract: true when no connected player is still building the pending facility. Clients ask for it
- *  with 'net.preload' and report 'net.loaded' (apps/server/src/net/loading.ts writes player.slices.loading); players
- *  that never asked (bots, old clients) are not waited for. */
-function crewLoaded(crew: Crew, s: MetaCrew): boolean {
+/** ServerPlayer.bot (core sets it on every hello: build === 'bot'). true = a bot, false = a human, null = never said
+ *  hello in this process (a synthetic or restored player: treated the v1.1 way, see playerLoaded) */
+function botFlag(p: ServerPlayer): boolean | null {
+  return typeof p.bot === 'boolean' ? p.bot : null;
+}
+
+/** has this player built the facility `hash`? Clients ask for it with 'net.preload' and report 'net.loaded'
+ *  (apps/server/src/net/loading.ts writes player.slices.loading). v1.3 (P2b): every connected human that is not an
+ *  observer is waited for whether or not it asked yet (a client that freezes before its 'net.preload' leaves no
+ *  trace: the van used to drive off without it); bots and observers never are. A core without the bot flag keeps the
+ *  v1.1 rule: only players that asked are waited for. */
+export function playerLoaded(p: ServerPlayer, hash: string): boolean {
+  if (!p.connected || isObserver(p)) return true;
+  const bot = botFlag(p);
+  if (bot === true) return true;
+  const l = p.slices.loading as { want?: string | null; loaded?: string | null } | undefined;
+  if (bot === null) return !l || l.want !== hash || l.loaded === hash;
+  return l?.loaded === hash;
+}
+
+/** drive -> contract: true when nobody the van waits for is still building the pending facility (the caller caps the
+ *  wait at driveLoadWaitSec past the drive timer) */
+export function crewLoaded(crew: Crew, s: Pick<MetaCrew, 'pendingLayout'>): boolean {
   const hash = s.pendingLayout?.hash;
   if (!hash) return true;
-  return connected(crew).every((p) => {
-    const l = p.slices.loading as { want?: string | null; loaded?: string | null } | undefined;
-    return !l || l.want !== hash || l.loaded === hash;
-  });
+  for (const p of crew.players.values()) if (!playerLoaded(p, hash)) return false;
+  return true;
+}
+
+/** names the van is holding for (drive screen); [] when nothing is pending */
+export function loadWaiting(crew: Crew, s: Pick<MetaCrew, 'pendingLayout'>): string[] {
+  const hash = s.pendingLayout?.hash;
+  if (!hash) return [];
+  return [...crew.players.values()].filter((p) => !playerLoaded(p, hash)).map((p) => p.name);
 }
 
 export function tickCrew(crew: Crew): void {
   const s = S(crew);
   const ctx = ctxOf();
   const now = ctx.now();
+  // v1.3 F5: the van phone (rings at shift start, times out, drops outside the hub); a no-op while the flag is off
+  try { companyTick(crew); } catch (err) { ctx.log('meta').warn('company line tick threw:', err instanceof Error ? err.message : err); }
   switch (crew.phase) {
     case 'hub': {
       if (!crew.layout || crew.layout.kind !== 'hub') {
@@ -1400,12 +1564,16 @@ export function tickCrew(crew: Crew): void {
       }
       break;
     }
-    case 'drive':
-      if (!s.active) enterHub(crew);
+    case 'drive': {
+      if (!s.active) { enterHub(crew); break; }
       // v1.1: the van arrives once every client that preloads the site during the drive has built it (the contract
-      // clock starts with the contract), at most driveLoadWaitSec past the drive timer
-      else if (now >= s.driveEndsAt && (crewLoaded(crew, s) || now >= s.driveEndsAt + num(mb().driveLoadWaitSec, 30) * 1000)) startContract(crew);
+      // clock starts with the contract), at most driveLoadWaitSec past the drive timer. v1.3: every connected human
+      // counts, asked or not (crewLoaded); the drive screen lists who the van is holding for
+      const waiting = loadWaiting(crew, s).join('\n');
+      if (waiting !== s.loadWaitKey) { s.loadWaitKey = waiting; markDirty(crew); }
+      if (now >= s.driveEndsAt && (crewLoaded(crew, s) || now >= s.driveEndsAt + driveLoadWaitSec() * 1000)) startContract(crew);
       break;
+    }
     case 'contract': {
       if (!s.active) {
         // phase set by someone else (dbg) without an order: adopt the picked/first order

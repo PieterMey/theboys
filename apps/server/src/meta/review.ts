@@ -3,6 +3,7 @@
 import { makeRng } from '@dead-air/shared/rng.ts';
 import type { MetaShiftReview } from '@dead-air/shared/messages/meta.ts';
 import { MEMO_BODIES, NO_QUOTE_LINES, QUOTE_LINES, REVIEW_COMMENTS, REVIEW_RATINGS, TERMINATION_LETTERS } from './templates.ts';
+import { textBlocked } from './safety.ts';
 
 export interface ReviewPlayer {
   id: string;
@@ -28,14 +29,16 @@ export interface ReviewInput {
 
 const fill = (s: string, v: Record<string, string | number>) => s.replace(/\{\{([A-Z_]+)\}\}/g, (m, k: string) => (k in v ? String(v[k]) : m));
 
-/** "dumbest" quote heuristic: prefer lines with plan words / digits / room-ish words, mid length */
-export function pickQuote(quotes: readonly string[]): string | null {
+/** "dumbest" quote heuristic: prefer lines with plan words / digits / room-ish words, mid length. v1.3 P1c: a line the
+ *  name filter blocks (names.ts, through safety.ts) is never printed in a memo; `blocked` is injectable for tests */
+export function pickQuote(quotes: readonly string[], blocked: (text: string) => boolean = textBlocked): string | null {
   const plan = /\b(meet|go|wait|vault|code|left|right|behind|run|come|here|there|help|now|quick|stop|where|who|what)\b/i;
   let best: string | null = null;
   let bestScore = -1;
   for (const q0 of quotes) {
     const q = q0.trim().replace(/\s+/g, ' ');
     if (q.length < 6) continue;
+    if (blocked(q)) continue;
     let s = Math.min(q.length, 70) / 10;
     if (plan.test(q)) s += 3;
     if (/\d/.test(q)) s += 2;
@@ -111,8 +114,11 @@ export function mergeAiReview(base: MetaShiftReview, ai: Record<string, unknown>
   const apply = (target: MetaShiftReview['memos'][number] | undefined, m: Record<string, unknown>) => {
     if (!target) return;
     const lines = Array.isArray(m.lines) ? (m.lines as unknown[]).map((x) => str(x, 300)).filter((x): x is string => !!x) : [];
-    const body = lines.length ? lines.join(' ') : str(m.body, 1600);
-    const quote = str(m.quote, 160);
+    let body = lines.length ? lines.join(' ') : str(m.body, 1600);
+    let quote = str(m.quote, 160);
+    // v1.3 P1c: (e) prints the overheard quote verbatim; a blocked one is dropped (and a body that carries it too)
+    if (quote && textBlocked(quote)) quote = null;
+    if (body && textBlocked(body)) body = null;
     if (body) {
       target.body = quote ? `${body}
 
