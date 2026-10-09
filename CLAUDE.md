@@ -25,7 +25,7 @@ To change saves while the server is down (for example a scrub), stop the old hos
 - v1.2 (8 Oct): stealth and crouch, a fair Listener, gear, searchable containers, crafting, the field guide, records, themed sites, mirrors, mist, paranormal events, audio, the new van.
 - v1.3-night (9 Oct): the name filter (`packages/shared/src/names.ts`; word lists stored ROT13), the drive preload and van wait, fewer shader compiles, cheaper Low frames, the Lite preset and the SIGNAL bodycam look (both opt-in in Settings), an AUTO preset entry, telemetry v2 (`core.diag`), steadier network clock, a Listener wake fix, the Snatcher from the 3rd contract, and flag-gated feature slices.
 
-**Feature flags** live in `config/flags.json`; they gate behaviour, never persistence. Tonight's new features ship OFF: `deadPokes`, `earwigs`, `companyLine`, `siteRules`, `noiseLure`, `fieldReceiver`. To turn one on, set it to true, restart the server, and have players reload the page.
+**Feature flags** live in `config/flags.json`; they gate behaviour, never persistence. Tonight's new features ship OFF: `deadPokes`, `earwigs`, `companyLine`, `siteRules`, `noiseLure`, `fieldReceiver`. The live server reads `config/flags.json` from `theboys-live`, not from this repo. For a quick live test, edit it there, restart the server with the restart shortcut, and have players reload the page; undo it with `git -C ..\theboys-live checkout -- config/flags.json`. To keep a change, commit it on `main` and deploy.
 
 **Host decisions (2026-10-09 night review)**; follow them without asking again:
 1. Blocked display names become `Contractor-NNNN` with a private notice; they are not refused.
