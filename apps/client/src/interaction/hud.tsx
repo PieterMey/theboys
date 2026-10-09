@@ -145,6 +145,11 @@ function Icon({ type, name }: { type: string; name?: string }) {
       return <svg {...s}><rect x="7" y="21" width="16" height="4" rx="1" fill="#4a2e1c" /><path d="M9 21 V12 a6 6 0 0 1 12 0 V21 Z" fill="#dfe9ee" opacity="0.35" stroke="#cfe0e8" stroke-width="0.8" /><circle cx="15" cy="15.5" r="3.2" fill="none" stroke="#c99b45" stroke-width="1.8" style={{ filter: 'drop-shadow(0 0 2px #8a5a10)' }} /><circle cx="15" cy="5.5" r="1.2" fill="#c99b45" /></svg>;
     case 'page':
       return <svg {...s}><path d="M8 3 H20 L24 7 V24 H8 Z" fill="#e8dfc6" /><path d="M20 3 V7 H24" fill="#cfc4a6" /><g stroke="#3b3a52" stroke-width="0.8" opacity="0.7"><path d="M10.5 10h11M10.5 13h11M10.5 16h11M10.5 19h8" /></g></svg>;
+    // ---------------- v1.3 gear
+    case 'lure':
+      return <svg {...s}><rect x="6" y="10" width="16" height="13" rx="2.4" fill="#2b2418" stroke="#f0b43c" stroke-width="1.2" /><path d="M14 10 V5.5 M10.5 5 H17.5" stroke="#d5d9dc" stroke-width="1.6" stroke-linecap="round" /><circle cx="14" cy="16.5" r="2.8" fill="none" stroke="#f0b43c" stroke-width="1.1" /><circle cx="19.2" cy="12.6" r="1" fill="#ff5040" style={{ filter: 'drop-shadow(0 0 2px #ff2010)' }} /><g stroke="#f0b43c" stroke-width="1.1" fill="none" stroke-linecap="round" opacity="0.8"><path d="M24.5 12 q2 4.5 0 9" /><path d="M27 9.5 q3.6 7 0 14" /></g></svg>;
+    case 'receiver':
+      return <svg {...s}><path d="M18 9 L23.5 2" stroke="#d5d9dc" stroke-width="1.2" stroke-linecap="round" /><circle cx="23.5" cy="2" r="1.3" fill="#62e0c4" /><rect x="6" y="9" width="15" height="15" rx="2" fill="#1d2326" stroke="#62e0c4" stroke-width="1.2" /><rect x="8.4" y="11.4" width="10.2" height="5" fill="#0b1513" stroke="#2f6b5c" stroke-width="0.6" /><path d="M9.4 14.4 l1.6 -1.5 1.6 2 1.6 -2.6 1.6 2 1.5 -1" stroke="#62e0c4" stroke-width="0.8" fill="none" /><circle cx="16" cy="20.4" r="2" fill="none" stroke="#7c8286" stroke-width="1" /><path d="M24.5 13 q2 3.5 0 7" stroke="#62e0c4" stroke-width="1" fill="none" opacity="0.7" /></svg>;
     default:
       return <svg {...s}><rect x="5" y="8" width="20" height="14" rx="1" fill={c} /><path d="M5 12h20" stroke="#000" stroke-opacity="0.35" /></svg>;
   }

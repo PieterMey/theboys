@@ -5,9 +5,11 @@
 // with server-private contents, crafting materials in a per-player salvage pouch (deposited into the van stash), new
 // gear (battery, lockpicks, master keycard, overshoes, night vision, flashbulb, curio), the item event bus
 // (onItemEvent) and the van upgrades' server effects.
+// v1.3 (F3, flags noiseLure / fieldReceiver, missing = off): the noise lure (thrown with a fuse, 3 rattles over 8 s that
+// monsters hear 12 m off) and the field receiver (one charge = a 6 s listen; with a closed door: the next room).
 import type { Crew, ServerContext, ServerPlayer } from '../core/types.ts';
 import type { LayoutDoor, LayoutItem, LevelLayout } from '@dead-air/shared/layout.ts';
-import type { InteractableInfo } from '@dead-air/shared/interactables.ts';
+import type { InteractableInfo, ItemDef } from '@dead-air/shared/interactables.ts';
 import { GEAR_PACKS, INTERACT_RADIUS, INV_SLOTS, ITEM_DEFS, LOOT_NAMES, LOOT_TIER_TYPES, itemDef, itemLabel } from '@dead-air/shared/interactables.ts';
 import type {
   BodyState, ContainerState, DeathCause, DoorState, FlashState, InteractionPatch, InteractionState, IxFxKind, IxResult, ItemEvent, ItemState,
@@ -33,7 +35,32 @@ export const TRACK = 'interaction';
 
 export interface DoorGeom { id: number; kind: string; lock: number; a: number; b: number; x0: number; z0: number; x1: number; z1: number; cx: number; cz: number; dir: 'v' | 'h' }
 
-export interface Thrown { id: string; p: Vec3; v: Vec3; t: number; by: string; item: string }
+export interface Thrown {
+  id: string; p: Vec3; v: Vec3; t: number; by: string; item: string;
+  /** v1.3 noise lure: seconds from landing to the first rattle */
+  fuse?: number;
+}
+
+/** v1.3 F3: an armed noise lure lying in the world (keyed by its world item id) */
+export interface LureRun {
+  id: string;
+  /** the thrower */
+  by: string;
+  /** server ms of the next rattle */
+  at: number;
+  /** rattles done */
+  n: number;
+}
+
+/** v1.3 F3: what an 'interaction.act' with the field receiver grants the listener (client: the 6 s listen) */
+export interface ListenGrant {
+  ms: number;
+  /** server ms the listen ends */
+  until: number;
+  /** ear to a closed door: its id and the space behind it */
+  door?: number;
+  space?: number;
+}
 
 export interface DeathRecord { pid: string; name: string; cause: DeathCause; at: number; p: Vec3; revived?: 'medkit' | 'badge' | 'api' }
 
@@ -92,6 +119,11 @@ export interface IxSlice extends InteractionState {
   respawnInfo: Record<string, { hp: number; by: string | null }>;
   /** dev-only test double for containersOf (dbg.interaction.containers) */
   containerOverride: ContainerInfo[] | null;
+  // ---- v1.3 F3 (private)
+  /** armed noise lures in the world: world item id -> its rattle schedule */
+  lures: Map<string, LureRun>;
+  /** pid -> server ms their field-receiver listen ends */
+  listening: Record<string, number>;
 }
 
 /** a server-timed hold-E (v1.2): commits at t0 + ms unless cancelled */
@@ -165,6 +197,29 @@ export function num(key: string, d: number): number {
 export function flag(name: string): boolean {
   return ctx?.flags[name] !== false;
 }
+/** v1.3 feature flag that defaults off (absent = off) */
+export function flagOn(name: string): boolean {
+  return ctx?.flags[name] === true;
+}
+
+/** v1.3 F3 gear -> its flag (missing in config/flags.json = off) */
+export const F3_FLAGS = { lure: 'noiseLure', receiver: 'fieldReceiver' } as const;
+/** the F3 ITEM_DEFS entries as shared/interactables.ts declares them (kept here: the table loses them while a flag is off) */
+const F3_DEFS: Readonly<Record<string, ItemDef>> = Object.fromEntries(Object.keys(F3_FLAGS).filter((t) => !!ITEM_DEFS[t]).map((t) => [t, ITEM_DEFS[t]!]));
+/**
+ * v1.3 F3: an ITEM_DEFS entry means "interaction implements it" (catalog.ts): the workbench offers its recipe, safes,
+ * finds and the collection log list it. So each F3 entry stays in the shared table only while its flag is on; with the
+ * flag off the game is exactly v1.2 (15/17 recipes). Runs at install and on every config reload / dbg.setFlags. Flags
+ * gate behaviour only: pool units, saves and items people already hold are untouched.
+ */
+export function syncFlaggedDefs(): void {
+  for (const [type, f] of Object.entries(F3_FLAGS)) {
+    const def = F3_DEFS[type];
+    if (!def) continue;
+    if (flagOn(f)) ITEM_DEFS[type] = def;
+    else delete ITEM_DEFS[type];
+  }
+}
 /** an object-valued balance key merged over its defaults */
 function objBal<T extends object>(key: string, d: T): T {
   const v = bal()[key];
@@ -197,7 +252,7 @@ export function slice(crew: Crew): IxSlice {
       blackoutPush: null, thrown: [], patch: {}, nextId: 1, deaths: [], lastAct: {}, lastHand: {}, tickN: 0,
       walkiesGiven: false, extrasPending: 0, layoutItems: new Map(), idolNext: {}, idolN: 0, rng: null,
       easing: {}, lastEase: {}, containerInfo: new Map(), contents: new Map(), pendingSpawns: [], vanMats: {}, heldOnce: new Set(),
-      respawnInfo: {}, containerOverride: null,
+      respawnInfo: {}, containerOverride: null, lures: new Map(), listening: {},
     };
     crew.slices[TRACK] = s;
   }
@@ -247,6 +302,8 @@ function markPouch(s: IxSlice, pid: string): void {
 }
 function flashesOf(s: IxSlice): Record<string, FlashState> { return (s.flashes ??= {}); }
 function markFlash(s: IxSlice, id: string): void { const f = flashesOf(s)[id]; (s.patch.flashes ??= {})[id] = f ? { ...f } : null; }
+function luresOf(s: IxSlice): Map<string, LureRun> { return (s.lures ??= new Map()); }
+function listeningOf(s: IxSlice): Record<string, number> { return (s.listening ??= {}); }
 
 /** Send pending changes to the crew (call at the end of a request / tick / API mutation batch). */
 export function flush(crew: Crew): void {
@@ -336,6 +393,9 @@ function rebuild(crew: Crew, s: IxSlice): void {
   clearObj(s.respawnInfo);
   s.heldOnce.clear();
   for (const it of Object.values(s.items)) s.heldOnce.add(it.id);
+  // v1.3: armed lures lay in the old layout's world; receiver listens end with it
+  luresOf(s).clear();
+  clearObj(listeningOf(s));
   if (L) {
     try {
       s.grid = buildEdgeGrid(L);
@@ -1484,7 +1544,16 @@ function eyeOf(pl: ServerPlayer, eye?: Vec3): Vec3 {
   return base;
 }
 
-export function act(crew: Crew, pl: ServerPlayer, dirIn: Vec3, eyeIn?: Vec3): IxResult {
+/** v1.3 extras of 'interaction.act' (TODO(integrator): add `fuse?: number; door?: number` to the args of
+ *  'interaction.act' in messages/interaction.ts; the handler reads them untyped until then) */
+export interface ActExtra {
+  /** noise lure: the fuse the thrower picked (s, one of lureFuseSec; anything else = on landing) */
+  fuse?: unknown;
+  /** field receiver: the closed door held to (ear to the door) */
+  door?: unknown;
+}
+
+export function act(crew: Crew, pl: ServerPlayer, dirIn: Vec3, eyeIn?: Vec3, more: ActExtra = {}): IxResult & { listen?: ListenGrant } {
   const s = slice(crew);
   if (!pl.alive || s.dead.includes(pl.id)) return { ok: false };
   if (s.hidden[pl.id]) return { ok: false, msg: 'You are hiding' };
@@ -1501,6 +1570,9 @@ export function act(crew: Crew, pl: ServerPlayer, dirIn: Vec3, eyeIn?: Vec3): Ix
     consumeOne(s, it);
     emitItem(crew, { kind: 'consume', pid: pl.id, type, id: iid, count: 1 });
   };
+  // v1.3 F3 gear (by type: ItemUse is frozen this round)
+  if (type === 'lure') return throwLure(crew, s, pl, it, eye, dir, t, more.fuse);
+  if (type === 'receiver') return useReceiver(crew, s, pl, it, eye, t, more.door);
   switch (d.use) {
     case 'throw': {
       if (t - (s.lastAct[pl.id] ?? 0) < 400) return { ok: false };
@@ -1640,7 +1712,8 @@ function tickThrown(crew: Crew, s: IxSlice, dt: number): void {
       th.p = n;
       if (th.t >= maxT) impact = [n[0], Math.max(0.05, n[1]), n[2]];
     }
-    if (impact && th.item === 'flare') {
+    if (impact && th.item === 'lure') landLure(crew, s, th, impact);
+    else if (impact && th.item === 'flare') {
       // a flare lands and burns: red area light for flareBurnSec (litAt), a faint hiss. Off a wall it drops back
       // 0.35 m towards the thrower (never inside the wall's thickness, where neither the light nor the glow would show)
       const hv = Math.hypot(th.v[0], th.v[2]);
@@ -1659,6 +1732,117 @@ function tickThrown(crew: Crew, s: IxSlice, dt: number): void {
     } else keep.push(th);
   }
   s.thrown = keep;
+}
+
+// ---------------------------------------------------------------- v1.3 F3: noise lure + field receiver
+
+/** fx kind of a lure rattle (count = which rattle, open = the first). TODO(integrator): add 'lure' to IxFxKind in
+ *  packages/shared/src/messages/interaction.ts (additive); until then the string is cast (only interaction's client
+ *  reads interaction.fx). */
+export const LURE_FX = 'lure' as string as IxFxKind;
+
+/** the fuse a thrower asked for (s): one of lureFuseSec (default 0 / 5 / 10 / 20), anything else = on landing */
+export function lureFuse(v: unknown): number {
+  const raw = bal().lureFuseSec;
+  const allowed = Array.isArray(raw) && raw.every((x) => typeof x === 'number' && Number.isFinite(x) && x >= 0) ? (raw as number[]) : [0, 5, 10, 20];
+  const n = Number(v);
+  return Number.isFinite(n) && allowed.includes(n) ? n : 0;
+}
+
+/** LMB with a noise lure: thrown like a bottle (lureSpeed / lureUp), landing armed with the thrower's fuse */
+function throwLure(crew: Crew, s: IxSlice, pl: ServerPlayer, it: ItemState, eye: Vec3, dir: Vec3, t: number, fuseIn: unknown): IxResult {
+  if (!flagOn(F3_FLAGS.lure)) return { ok: false, msg: 'The noise lure is not cleared for site use yet' };
+  if (t - (s.lastAct[pl.id] ?? 0) < 400) return { ok: false };
+  s.lastAct[pl.id] = t;
+  const fuse = lureFuse(fuseIn);
+  const sp = num('lureSpeed', 10), up = num('lureUp', 2.2);
+  const p: Vec3 = [eye[0] + dir[0] * 0.35, eye[1] - 0.1, eye[2] + dir[2] * 0.35];
+  if (!losClear(s, eye[0], eye[2], p[0], p[2])) { p[0] = eye[0]; p[2] = eye[2]; }
+  s.thrown.push({ id: `thrown:lure:${s.nextId++}`, p, v: [dir[0] * sp, dir[1] * sp + up, dir[2] * sp], t: 0, by: pl.id, item: 'lure', fuse });
+  emitItem(crew, { kind: 'use', pid: pl.id, type: 'lure', id: it.id, p: eye, dir });
+  consumeOne(s, it);
+  emitItem(crew, { kind: 'consume', pid: pl.id, type: 'lure', id: it.id, count: 1 });
+  fx(crew, 'throw', { p: eye, pid: pl.id, item: 'lure' });
+  return { ok: true, ...(fuse > 0 ? { msg: `Noise lure: it rattles ${fuse} s after it lands` } : {}) };
+}
+
+/** a thrown lure lands: a world item (armed: true, E picks it back up) whose rattles start fuse s later. Off a wall it
+ *  drops back 0.35 m towards the thrower (as a flare does). A faint landing knock (lureLandNoiseM, below every
+ *  monster's hearing threshold). */
+function landLure(crew: Crew, s: IxSlice, th: Thrown, impact: Vec3): void {
+  const hv = Math.hypot(th.v[0], th.v[2]);
+  if (impact[1] > 0.05 && hv > 0.01) {
+    const bx = impact[0] - (th.v[0] / hv) * 0.35, bz = impact[2] - (th.v[2] / hv) * 0.35;
+    if (losClear(s, impact[0], impact[2], bx, bz)) { impact[0] = bx; impact[2] = bz; }
+  }
+  const rot = hv > 0.01 ? Math.atan2(th.v[0], th.v[2]) : 0;
+  const it = newItem(s, 'lure', { p: [impact[0], 0, impact[2]], rot, count: 1, armed: true });
+  s.heldOnce.add(it.id);
+  markItem(s, it.id);
+  const fuse = Math.max(0, Number(th.fuse) || 0);
+  luresOf(s).set(it.id, { id: it.id, by: th.by, at: now() + fuse * 1000, n: 0 });
+  fx(crew, 'drop', { p: [impact[0], 0.05, impact[2]], pid: th.by, item: 'lure', id: it.id, count: fuse });
+  const land = num('lureLandNoiseM', 2);
+  if (land > 0) noise(crew, impact[0], impact[2], land, 'landThud', it.id);
+}
+
+/** per tick: armed lures rattle lureRattles times over lureSpanSec (a lureNoiseM 'lure' noise each, source = the
+ *  lure's item id: monsters go to the lure, never to its thrower); a lure picked back up stops; the last rattle uses it
+ *  up */
+function tickLures(crew: Crew, s: IxSlice, t: number): void {
+  const runs = luresOf(s);
+  // the flag is the kill switch: armed lures go quiet (they stay armed and pick up where they were if it comes back)
+  if (!runs.size || !flagOn(F3_FLAGS.lure)) return;
+  const total = Math.max(1, Math.round(num('lureRattles', 3)));
+  const gap = total > 1 ? (num('lureSpanSec', 8) * 1000) / (total - 1) : 0;
+  for (const [id, run] of runs) {
+    const it = s.items[id];
+    if (!it || it.where !== 'world' || !it.armed || !it.p) { runs.delete(id); continue; }
+    if (t < run.at) continue;
+    run.n++;
+    const [x, , z] = it.p;
+    noise(crew, x, z, num('lureNoiseM', 12), 'lure', id);
+    fx(crew, LURE_FX, { p: [x, 0.1, z], pid: run.by, id, count: run.n, open: run.n === 1 });
+    if (run.n >= total) {
+      runs.delete(id);
+      deleteItem(s, id);
+    } else run.at += gap;
+  }
+}
+
+/** the space on the far side of a door from (px, pz): the cell across its edge (-1 = none) */
+export function farSpaceOf(crew: Crew, g: DoorGeom, px: number, pz: number): number {
+  if (g.dir === 'v') return spaceAtXZ(crew, g.cx + (px < g.cx ? 0.5 : -0.5), g.cz);
+  return spaceAtXZ(crew, g.cx, g.cz + (pz < g.cz ? 0.5 : -0.5));
+}
+
+/** LMB with the field receiver (one charge = a receiverListenSec listen, contracts only); door = ear to a closed door
+ *  within reach: the client also hears what is in the space behind it */
+function useReceiver(crew: Crew, s: IxSlice, pl: ServerPlayer, it: ItemState, eye: Vec3, t: number, doorIn: unknown): IxResult & { listen?: ListenGrant } {
+  if (!flagOn(F3_FLAGS.receiver)) return { ok: false, msg: 'The field receiver is not cleared for site use yet' };
+  if (crew.phase !== 'contract') return { ok: false, msg: 'Nothing on the air here: use it on a site' };
+  if ((listeningOf(s)[pl.id] ?? 0) > t) return { ok: false, msg: 'Still listening' };
+  if (t - (s.lastAct[pl.id] ?? 0) < 400) return { ok: false };
+  let door: number | undefined;
+  let space: number | undefined;
+  if (doorIn !== undefined && doorIn !== null) {
+    const id = Number(doorIn);
+    const g = Number.isInteger(id) ? s.doorGeom.get(id) : undefined;
+    const st = g ? s.doors[id] : undefined;
+    if (!g || !st || g.kind === 'open' || g.kind === 'blocked') return { ok: false, msg: 'Nothing to listen through' };
+    if (st.open) return { ok: false, msg: 'It is open: just listen' };
+    const why = canReach(s, pl, { kind: 'door', p: [g.cx, 1.1, g.cz], ref: id });
+    if (why) return { ok: false, msg: why };
+    door = id;
+    space = farSpaceOf(crew, g, pl.pose.p[0], pl.pose.p[2]);
+  }
+  s.lastAct[pl.id] = t;
+  const ms = Math.round(Math.max(1, num('receiverListenSec', 6)) * 1000);
+  const left = spendOne(crew, s, pl.id, it, eye);
+  listeningOf(s)[pl.id] = t + ms;
+  const grant: ListenGrant = { ms, until: t + ms, ...(door !== undefined ? { door, space } : {}) };
+  const what = door !== undefined ? 'Ear to the door' : 'Listening';
+  return { ok: true, msg: `${what}: ${ms / 1000} s · ${left} charge${left === 1 ? '' : 's'} left`, listen: grant };
 }
 
 // ---------------------------------------------------------------- death / revive
@@ -1699,6 +1883,7 @@ export function killPid(crew: Crew, pid: string, cause: DeathCause): boolean {
   if (s.hidden[pid]) unhidePid(crew, pid);
   cancelEase(s, pid);
   if (nvOf(s)[pid]) { delete nvOf(s)[pid]; markNv(s, pid); }
+  delete listeningOf(s)[pid];
   const t = now();
   const p: Vec3 = [pl.pose.p[0], 0, pl.pose.p[2]];
   pl.alive = false;
@@ -2055,6 +2240,9 @@ function resetContractState(s: IxSlice): void {
   clearObj(s.vanMats);
   clearObj(s.respawnInfo);
   s.pendingSpawns.length = 0;
+  // v1.3: no lure keeps rattling and no listen carries over into the next contract
+  luresOf(s).clear();
+  clearObj(listeningOf(s));
 }
 
 /** contract ended / phase left 'contract': everyone alive again, bodies/badges/respawns/glows gone, loot left behind */
@@ -2156,6 +2344,7 @@ export function tick(crew: Crew, dt: number): void {
   }
   tickThrown(crew, s, dt);
   const t = now();
+  tickLures(crew, s, t);
   for (const [pid, at] of Object.entries(s.respawns)) {
     if (t >= at) {
       delete s.respawns[pid];
@@ -2216,6 +2405,12 @@ function tickIdol(crew: Crew, s: IxSlice, t: number): void {
     fx(crew, 'whisper', { p: [pl.pose.p[0], 1.3, pl.pose.p[2]], pid: pl.id, open: wail });
     s.idolNext[pl.id] = t + delay();
   }
+}
+
+/** v1.3 F3 (dev / tests): the armed lures' schedules and the receiver listens */
+export function f3Peek(crew: Crew): { lures: LureRun[]; listening: Record<string, number> } {
+  const s = slice(crew);
+  return { lures: [...luresOf(s).values()].map((r) => ({ ...r })), listening: { ...listeningOf(s) } };
 }
 
 export function thrownDyn(crew: Crew): { id: string; p: Vec3; yaw: number }[] {

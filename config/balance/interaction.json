@@ -255,5 +255,22 @@
   "stretcherReviveSec": 8,
   "stretcherReviveHp": 75,
   "chargingRackRechargeSec": 8,
-  "chargingRackCapacityMult": 1.3
+  "chargingRackCapacityMult": 1.3,
+  "lureSpeed": 10,
+  "lureUp": 2.2,
+  "lureFuseSec": [
+    0,
+    5,
+    10,
+    20
+  ],
+  "lureRattles": 3,
+  "lureSpanSec": 8,
+  "lureNoiseM": 12,
+  "lureLandNoiseM": 2,
+  "receiverListenSec": 6,
+  "receiverRangeMult": 2.5,
+  "receiverPathM": 30,
+  "receiverEarHoldMs": 1000,
+  "receiverMuffle": 0.7
 }

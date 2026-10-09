@@ -99,6 +99,10 @@ export const ITEM_DEFS: Record<string, ItemDef> = {
   nvg: { name: 'Night-vision module', short: 'NVG', use: 'none', color: '#5cff7a', tier: 2, hint: 'Passive (any slot): N toggles night vision (flashlight off, 2x battery)', note: 'N: see in the dark · no flashlight · twice the battery' },
   flashbulb: { name: 'Flashbulbs', short: 'FLB', use: 'flash', stack: 3, color: '#fff2c2', tier: 2, hint: 'LMB: a blinding flash (14 m cone, a 6 m pop)', note: 'LMB: a blinding flash that makes them flinch' },
   'loot.curio': { name: 'Curio', short: 'CUR', use: 'none', color: '#d6a63f', loot: true, tier: 2, hint: 'One of a kind. Deposit in the van', note: 'one of a kind: the Company pays well for these' },
+  // v1.3 gear (crafted at the van workbench). Behind the flags noiseLure / fieldReceiver (missing = off): interaction
+  // keeps each entry here only while its flag is on (server and client), so the bench hides the recipe until then.
+  lure: { name: 'Noise lure', short: 'LUR', use: 'throw', stack: 2, color: '#f0b43c', tier: 1, hint: 'LMB throw · RMB sets the fuse (on landing / 5 / 10 / 20 s): 3 rattles over 8 s, heard 12 m off', note: 'throw it: it rattles where it lands, away from you' },
+  receiver: { name: 'Field receiver', short: 'RCV', use: 'none', stack: 5, unit: 'charge', color: '#62e0c4', tier: 2, hint: 'LMB listen 6 s: monster sounds 2.5x as far (30 m), yours muffled · HOLD E on a closed door: the next room · 1 charge', note: 'listen in: monster sounds carry 2.5x as far, you hear less' },
   // crafting materials: picked up into the salvage pouch (no slot), deposited at the van into the crew stash
   ...Object.fromEntries(MATERIAL_TYPES.map((t) => [t, {
     name: MATERIAL_LABEL[t], short: t.slice(4, 7).toUpperCase(), use: 'none' as const, stack: 1, color: MATERIAL_COLOR[t],

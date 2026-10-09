@@ -4,6 +4,9 @@
 // never changes mid-game), armed motion sensors (blinking LED), the v1.2 gear and field-note page models, crafting
 // materials + dropped pouches (one global InstancedMesh per type: 7 draws at most, no shadows, compacted to the visible
 // spaces), one pooled unshadowed flashbulb SpotLight, and the view model on render.layers.firstPerson when render has it.
+// v1.3 (4b): a parked flare / flashbulb light is invisible once the warm-up is over (out of the batched per-pixel loop).
+// v1.3 (F3): the noise lure (in flight; armed in the world with a blinking LED) and the field receiver, procedural on the
+// shared item material (no new assets, no new pipeline).
 // v1.2 item models (client flag itemModels; off = the v1.2.0 procedural models, boxes for salvage):
 // - every item has a visual key: salvage by name (the safe's bearer bonds too), curios by name, otherwise its type;
 // - real models where one exists: the Poly Haven GLBs staged as prop.item_* (matched by their manifest source) and the
@@ -914,7 +917,7 @@ export function itemSamples(): { key: string; type: string; name?: string }[] {
   for (const name of Object.keys(CURIO_KEYS)) out.push({ key: CURIO_KEYS[name]!, type: CURIO_TYPE, name });
   out.push({ key: CURIO_TYPE, type: CURIO_TYPE, name: 'Unlisted curio' });
   for (const t of ['loot.idol', 'bottle', 'crowbar', 'glowstick', 'medkit', 'walkie', 'airhorn', 'keycard', 'badge', 'flashlight_pro', 'flare', 'sensor',
-    'syringe', 'charm', 'battery', 'lockpick', 'masterkey', 'soles', 'nvg', 'flashbulb', 'page', ...MATERIAL_TYPES, POUCH_TYPE]) out.push({ key: t, type: t });
+    'syringe', 'charm', 'battery', 'lockpick', 'masterkey', 'soles', 'nvg', 'flashbulb', 'page', 'lure', 'receiver', ...MATERIAL_TYPES, POUCH_TYPE]) out.push({ key: t, type: t });
   return out;
 }
 
@@ -1107,6 +1110,14 @@ function legacyParts(type: string, lit: boolean, vm: boolean, P: Parts, LED: Par
       P.add(g('fb.grip', () => new THREE.CylinderGeometry(0.012, 0.012, 0.07, 10)), { color: 0x1b1d20, rough: 0.6 }, 0, 0.035, 0);
       break;
     }
+    // ---------------------------------------------------------------- v1.3 gear (the same models in both modes)
+    case 'lure':
+    case 'lure.armed':
+      lureParts(P, LED, type === 'lure.armed', o);
+      break;
+    case 'receiver':
+      receiverParts(P);
+      break;
     case 'loot.curio': {
       // a one-of-a-kind keepsake under a glass bell jar on a walnut base, a warm brass glint inside
       const brass: Surf = { color: 0xc99b45, rough: 0.28, metal: 1, emissive: 0x5a3a08, ei: 0.8 };
@@ -1207,6 +1218,9 @@ const V2: Record<string, V2Build> = {
   page: (P) => {
     P.add(pageSheet(), { ...pr('page.notes', 0.9), emissive: 0x2a2618, ei: 0.4 }, 0, 0.004, 0, -H);
   },
+  lure: (P, LED, _o, out) => lureParts(P, LED, false, out),
+  'lure.armed': (P, LED, _o, out) => lureParts(P, LED, true, out),
+  receiver: (P) => receiverParts(P),
   'loot.idol': (P, _L, _o, out) => {
     const stone: Surf = { color: 0x6b6178, rough: 0.88, metal: 0.05, emissive: 0x1a0830, ei: 0.4, tex: 'speckle' };
     P.add(lathe('id2.base', [0, 0, 0.09, 0, 0.088, 0.02, 0.078, 0.05, 0.062, 0.056, 0.058, 0.07, 0.05, 0.12, 0.04, 0.17, 0.03, 0.2, 0.018, 0.21, 0, 0.212], 9), stone);
@@ -1589,6 +1603,34 @@ const V2: Record<string, V2Build> = {
 function cassette(P: Parts, face: string): void {
   P.add(rbox('ct.body', 0.1, 0.012, 0.064, 0.003, 1), { color: 0x1a1a1a, rough: 0.45, metal: 0.05 }, 0, 0.006, 0);
   P.add(pln('ct.face', 0.096, 0.06), pr(face, 0.45), 0, 0.01205, 0, -H);
+}
+/** v1.3 F3 noise lure: a wind-up tin noisemaker (the workbench art): dark tin, a hazard label, a grille, a brass winding
+ *  key on top and a red LED that blinks while it is armed (a separate mesh then, plus a faint red floor halo) */
+function lureParts(P: Parts, LED: Parts, armed: boolean, out: BuildOut): void {
+  const tin: Surf = { color: 0x3a3226, rough: 0.48, metal: 0.65, tex: 'brushed' };
+  P.add(rbox('lu.body', 0.08, 0.058, 0.06, 0.009, 2), tin, 0, 0.029, 0);
+  // the amber band glints faintly (it reads at a flashlight's edge on a dark floor, like the keycards)
+  P.add(rbox('lu.band', 0.082, 0.012, 0.062, 0.004, 1), { color: 0xf0b43c, rough: 0.45, metal: 0.3, emissive: 0xf0a020, ei: 0.35 }, 0, 0.046, 0);
+  P.add(pln('lu.label', 0.05, 0.026), pr('label.hazard', 0.5), 0, 0.022, 0.0302);
+  P.add(pln('lu.grille', 0.04, 0.03), pr('grill', 0.85), 0.0402, 0.026, 0, 0, H, 0);
+  P.add(cyl('lu.stem', 0.0032, 0.0032, 0.014, 8), SF.brass!, 0, 0.064, -0.008);
+  P.add(rbox('lu.key', 0.034, 0.012, 0.004, 0.003, 1), SF.brass!, 0, 0.076, -0.008);
+  P.add(tor('lu.keyring', 0.0075, 0.0018, 5, 12), SF.brass!, -0.012, 0.076, -0.008);
+  P.add(tor('lu.keyring', 0.0075, 0.0018, 5, 12), SF.brass!, 0.012, 0.076, -0.008);
+  (armed ? LED : P).add(sph('lu.led', 0.0045, 8, 6), armed ? { color: 0xff5040, emissive: 0xff2010, ei: 9 } : { color: 0x401412, rough: 0.4 }, 0.03, 0.061, 0.022);
+  if (armed) out.hg = haloGeometry('lu', [{ w: 0.62, color: 0xff3020, a: 0.26, y: 0 }], [0, 0.006, 0]);
+}
+/** v1.3 F3 field receiver: a handheld receiver (the workbench art): a dark body, a lit teal tuning display over the
+ *  frequency band print, a speaker grille, a dial and a whip antenna with a teal tip */
+function receiverParts(P: Parts): void {
+  P.add(rbox('rc.body', 0.075, 0.13, 0.04, 0.008, 2), { color: 0x1d2326, rough: 0.55, metal: 0.15, tex: 'leather' }, 0, 0.065, 0);
+  P.add(rbox('rc.screen', 0.052, 0.024, 0.003, 0.0012, 1), { color: 0x0b1513, rough: 0.2, metal: 0.1, emissive: 0x62e0c4, ei: 1.1 }, 0, 0.104, 0.0205);
+  P.add(pln('rc.band', 0.054, 0.016), pr('dial.radio', 0.5), 0, 0.083, 0.0202);
+  P.add(pln('rc.grille', 0.054, 0.04), pr('grill', 0.85), 0, 0.045, 0.0202);
+  P.add(cyl('rc.dial', 0.0095, 0.0095, 0.008, 14), SF.black!, 0.021, 0.134, 0.004);
+  P.add(cyl('rc.ant', 0.0022, 0.003, 0.12, 6), SF.chrome!, -0.024, 0.19, -0.006, 0, 0, 0.12);
+  P.add(sph('rc.tip', 0.0045, 8, 6), { color: 0x62e0c4, emissive: 0x30ffd0, ei: 2 }, -0.0312, 0.249, -0.006);
+  P.add(rbox('rc.clip', 0.03, 0.05, 0.004, 0.0015, 1), SF.dsteel!, 0, 0.09, -0.022);
 }
 function flareSticks(P: Parts, n: number): void {
   const red: Surf = { color: 0xc8241b, rough: 0.6 };
@@ -2146,6 +2188,9 @@ const VM_POSE: Record<string, VmPose> = {
   nvg: { pos: [0, -0.07, 0], rot: [0.3, 0.6, 0], scale: 1.3 },
   flashbulb: { pos: [0.02, -0.1, 0], rot: [0.15, 0.2, 0], scale: 1.25 },
   'loot.curio': { pos: [0, -0.16, -0.02], rot: [0.15, 0.4, 0], scale: 1.2 },
+  // held up a little (the left hand sits behind the inventory row at 16:9): the tin's key, the receiver's display
+  lure: { pos: [0.02, -0.05, 0], rot: [0.35, 0.45, 0], scale: 1.25 },
+  receiver: { pos: [0, -0.04, 0], rot: [0.22, -0.45, 0], scale: 1 },
 };
 /** v1.2 item models: view-model poses of the real models (their size and rest frame differ from the procedural ones) */
 const VM_GLB: Record<string, VmPose> = {
@@ -2232,7 +2277,7 @@ interface Placed {
 interface FlareObj { obj: THREE.Group; space: number; gen: number; x: number; z: number; until: number; k: number; d: number; halo: THREE.Object3D | null; glow: THREE.Object3D | null }
 interface RingObj { mesh: THREE.Mesh; until: number; gen: number }
 
-export function createVisuals(scene: THREE.Scene, cfg: { propModels?: boolean; itemModels?: boolean } = {}): Visuals {
+export function createVisuals(scene: THREE.Scene, cfg: { propModels?: boolean; itemModels?: boolean; hideParkedLights?: boolean } = {}): Visuals {
   const root = new THREE.Group();
   root.name = 'interaction';
   scene.add(root);
@@ -2281,6 +2326,22 @@ export function createVisuals(scene: THREE.Scene, cfg: { propModels?: boolean; i
   flashLight.target.position.set(0, -550, 0);
   root.add(flashLight, flashLight.target);
   let flashT = -1;
+  // v1.3 (plan 4b): a parked (dark) flare or flashbulb light leaves the batched light loop (visible = false). three's
+  // DynamicLighting batches unshadowed lights into uniform arrays with a count uniform, so the count drops and no
+  // program changes. The lights stay visible until the start-up warm-up is over, so the scene's lights node has built
+  // its SpotLight data node with them (its light-type set is kept from then on: hiding them never changes a program).
+  // hideParkedLights: false (a renderer without DynamicLighting, where every light is its own program) keeps the v1.2
+  // behaviour: always visible, dark while parked.
+  const hideLights = cfg.hideParkedLights !== false;
+  let lightsSettled = false;
+  const parkedVisible = (): boolean => !hideLights || !lightsSettled;
+  /** the warm-up is over: every parked light leaves the loop */
+  const settleLights = () => {
+    if (lightsSettled) return;
+    lightsSettled = true;
+    for (const l of flareLights) if (l.intensity === 0) l.visible = parkedVisible();
+    if (flashT < 0) flashLight.visible = parkedVisible();
+  };
   const tmpCam = new THREE.Vector3();
   // view model follows the camera (matrix copied each frame; the camera need not be in the scene)
   const vmRoot = new THREE.Group();
@@ -2422,6 +2483,7 @@ export function createVisuals(scene: THREE.Scene, cfg: { propModels?: boolean; i
     if (!done) return;
     warmOn = false;
     root.remove(warm);
+    settleLights();
   };
   /** draw the warm set again (a new material layout arrived) */
   const rearmWarm = () => {
@@ -2559,14 +2621,14 @@ export function createVisuals(scene: THREE.Scene, cfg: { propModels?: boolean; i
       const it = st.items[id]!;
       if (it.where !== 'world' || !it.p) continue;
       if (matMeshes.has(it.type)) continue; // instanced (syncMaterials)
-      const mtype = it.type === 'sensor' && it.armed ? 'sensor.armed' : it.type;
+      const mtype = it.type === 'sensor' && it.armed ? 'sensor.armed' : it.type === 'lure' && it.armed ? 'lure.armed' : it.type;
       const key = visualKey({ type: mtype, name: it.name }, legacy);
       const rev = legacy ? null : tplRev(key);
       let e = items.get(id);
       if (e && (e.type !== mtype || e.key !== key || e.glb !== rev)) { dropItem(id, e); e = undefined; }
       if (!e) {
         const obj = tagDetail(buildItemModel(mtype, { name: it.name, legacy, glb: glbOk() }));
-        const led = mtype === 'sensor.armed' ? (obj.getObjectByName('led') ?? null) : null;
+        const led = mtype === 'sensor.armed' || mtype === 'lure.armed' ? (obj.getObjectByName('led') ?? null) : null;
         if (led) armedLeds.add(led);
         const size = (obj.userData.size as THREE.Vector3 | undefined) ?? new THREE.Vector3(0.1, 0.1, 0.1);
         const made: Placed = { obj, type: mtype, key, glb: rev, x: NaN, y: NaN, z: NaN, rot: NaN, space: -1, gen: gn, led, size, base: 1, lying: false, drawer: null, along: 0, lid: id };
@@ -2724,6 +2786,7 @@ export function createVisuals(scene: THREE.Scene, cfg: { propModels?: boolean; i
         l.position.set(0, -520 - i, 0);
         l.target.position.set(0, -530 - i, 0);
         l.target.updateMatrixWorld();
+        l.visible = parkedVisible();
       }
       return;
     }
@@ -2750,8 +2813,10 @@ export function createVisuals(scene: THREE.Scene, cfg: { propModels?: boolean; i
       const f = flareOrder[i];
       if (!f) {
         if (l.intensity !== 0) { l.intensity = 0; l.position.set(0, -520 - i, 0); l.target.position.set(0, -530 - i, 0); l.target.updateMatrixWorld(); }
+        l.visible = parkedVisible();
         continue;
       }
+      l.visible = true;
       l.position.set(f.x, 1.45, f.z);
       l.target.position.set(f.x, 0, f.z);
       l.target.updateMatrixWorld();
@@ -2775,7 +2840,7 @@ export function createVisuals(scene: THREE.Scene, cfg: { propModels?: boolean; i
       const t = list[i]!;
       let e = thrown.get(t.id);
       if (!e) {
-        const obj = tagDetail(buildItemModel(t.id.includes(':flare:') ? 'flare.lit' : 'bottle', { legacy: !modelsOn }));
+        const obj = tagDetail(buildItemModel(t.id.includes(':flare:') ? 'flare.lit' : t.id.includes(':lure:') ? 'lure' : 'bottle', { legacy: !modelsOn }));
         const h = obj.getObjectByName('halo');
         if (h) h.visible = false;
         root.add(obj);
@@ -2903,6 +2968,11 @@ export function createVisuals(scene: THREE.Scene, cfg: { propModels?: boolean; i
       drawers: drawerList.length,
     }),
     key: (type: string, name?: string) => visualKey({ type, name }, !modelsOn),
+    /** v1.3 (4b): the pooled flare / flashbulb lights (a parked one is invisible once the warm-up is over) */
+    lights: () => ({
+      settled: lightsSettled, hide: hideLights,
+      list: [...flareLights, flashLight].map((l) => ({ name: l.name, visible: l.visible, intensity: Math.round(l.intensity * 100) / 100 })),
+    }),
     samples: () => itemSamples(),
     realKeys: () => realModelKeys(),
     /** the view models of these items side by side in front of the camera (4 per row, 2 rows); null clears */
@@ -2983,6 +3053,7 @@ export function createVisuals(scene: THREE.Scene, cfg: { propModels?: boolean; i
           flashLight.position.set(0, -540, 0);
           flashLight.target.position.set(0, -550, 0);
           flashLight.target.updateMatrixWorld();
+          flashLight.visible = parkedVisible();
         }
       }
       tickFlares(o.camera, o.serverNow);
@@ -3041,6 +3112,7 @@ export function createVisuals(scene: THREE.Scene, cfg: { propModels?: boolean; i
       flashLight.target.position.set(p[0] + dir[0] * 8, p[1] + dir[1] * 8, p[2] + dir[2] * 8);
       flashLight.target.updateMatrixWorld();
       flashLight.intensity = 260;
+      flashLight.visible = true;
       flashT = 0;
     },
     setFirstPersonLayer(layer) {

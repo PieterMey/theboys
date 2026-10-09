@@ -35,6 +35,9 @@ const PHASES: readonly Phase[] = ['hub', 'drive', 'contract', 'results'];
 export async function install(ctx: ServerContext): Promise<void> {
   E.bindCtx(ctx);
   await loadAdapters(ctx);
+  // v1.3 F3: the noise lure / field receiver ITEM_DEFS follow their flags (missing = off), on every reload too
+  E.syncFlaggedDefs();
+  ctx.hooks.config.push(function interactionFlags() { E.syncFlaggedDefs(); });
 
   ctx.registerSystem({
     name: 'interaction',
@@ -50,7 +53,11 @@ export async function install(ctx: ServerContext): Promise<void> {
     return r;
   };
   ctx.registerReq('interaction.use', (crew, player, a) => done(crew, E.use(crew, player, String(a?.id ?? ''), !!a?.hold)));
-  ctx.registerReq('interaction.act', (crew, player, a) => done(crew, E.act(crew, player, a?.dir as Vec3, a?.eye as Vec3 | undefined)));
+  // v1.3: fuse (noise lure) and door (field receiver at a door) ride along untyped (TODO(integrator): messages/interaction.ts)
+  ctx.registerReq('interaction.act', (crew, player, a) => {
+    const x = (a ?? {}) as { fuse?: unknown; door?: unknown };
+    return done(crew, E.act(crew, player, a?.dir as Vec3, a?.eye as Vec3 | undefined, { fuse: x.fuse, door: x.door }));
+  });
   ctx.registerReq('interaction.drop', (crew, player, a) => done(crew, E.dropActive(crew, player, typeof a?.slot === 'number' ? a.slot : undefined)));
   ctx.registerReq('interaction.slot', (crew, player, a) => done(crew, E.selectSlot(crew, player, Number(a?.slot))));
   ctx.registerReq('interaction.consoleDoor', (crew, player, a) => done(crew, E.consoleDoor(crew, player, Number(a?.id), typeof a?.open === 'boolean' ? a.open : undefined)));
@@ -106,7 +113,7 @@ export async function install(ctx: ServerContext): Promise<void> {
   });
   ctx.registerDbg('interaction.state', (crew) => {
     const s = E.slice(crew);
-    return { ...E.publicState(s), thrown: s.thrown, deaths: s.deaths, powerPush: s.powerPush, blackoutPush: s.blackoutPush, switches: s.switches, adapters: { noise: !!E.adapters.noise, obj: !!E.adapters.obj, meta: !!E.adapters.meta } };
+    return { ...E.publicState(s), thrown: s.thrown, deaths: s.deaths, powerPush: s.powerPush, blackoutPush: s.blackoutPush, switches: s.switches, adapters: { noise: !!E.adapters.noise, obj: !!E.adapters.obj, meta: !!E.adapters.meta }, ...E.f3Peek(crew) };
   });
   ctx.registerDbg('interaction.give', (crew, p, args) => {
     const a = (args ?? {}) as { type?: string; pid?: string; count?: number; value?: number; name?: string; lock?: number; via?: string };

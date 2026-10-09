@@ -7,11 +7,15 @@
 // (level.setContainerOpen / setContainerProgress), level.setDoorProgress while a door eases, the salvage pouch chips,
 // night vision (KeyN, render.setNightVision or a CSS fallback, flashlight off, 2x battery), the battery swap, the
 // flashbulb flash, the charging-rack upgrade, the death-card creeping tip and heldNote sub-lines.
+// v1.3 (F3, flags noiseLure / fieldReceiver, missing = off): the noise lure (RMB picks its fuse, LMB throws it, its
+// rattles sound where it lies) and the field receiver (LMB = a 6 s listen: monster cues on the air through a radio chain,
+// your own hearing muffled through sfx.muffle when E5 has it; HOLD E on a closed door = the same listen plus the tells of
+// whatever is in the room behind it). See receiver.ts.
 import './interaction.css';
 import * as THREE from 'three/webgpu';
 import type { ClientContext } from '../core/context.ts';
 import { SYS } from '../core/loop.ts';
-import { INV_SLOTS, applyInteractionPatch, emptyInteractionState, itemDef, itemLabel } from '@dead-air/shared/interactables.ts';
+import { INV_SLOTS, ITEM_DEFS, applyInteractionPatch, emptyInteractionState, itemDef, itemLabel } from '@dead-air/shared/interactables.ts';
 import type { InteractableInfo } from '@dead-air/shared/interactables.ts';
 import type { EaseState, InteractionState, IxResult, ItemState } from '@dead-air/shared/messages/interaction.ts';
 import type { ReqName } from '@dead-air/shared/messages/index.ts';
@@ -21,6 +25,8 @@ import { pick } from './targeting.ts';
 import type { Hit, PickOpts, V3 } from './targeting.ts';
 import { createVisuals } from './visuals.ts';
 import type { HeldView, ThrownView, VisualOpts, Visuals } from './visuals.ts';
+import { AirField, CUE_SOUND, RadioOut, TELL_SOUND, airGain, airPan, dueTells, farPoint, onAir, spaceAcross } from './receiver.ts';
+import type { TellMonster } from './receiver.ts';
 import {
   BatteryHud, DeathCardHud, FlashHud, InventoryHud, LockerHud, NightVisionHud, PromptHud, RadioHud, SpectatorHud, flashMsg, ui,
 } from './hud.tsx';
@@ -121,12 +127,26 @@ function isTextTarget(t: EventTarget | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true;
 }
 
+/** v1.3 (4b): the renderer batches unshadowed lights (three's DynamicLighting: uniform arrays + a count uniform, render
+ *  sets it unless ?dbg=nodyn), so a parked flare / flashbulb light can leave the loop (visible = false) without a
+ *  program change. Plain lighting (one program per light set) keeps them visible. */
+function batchedLights(renderer: unknown): boolean {
+  const opts = (renderer as { lighting?: { options?: { maxSpotLights?: unknown } } } | null)?.lighting?.options;
+  return typeof opts?.maxSpotLights === 'number';
+}
+
 /** the meta settings' reduce-flicker toggle (localStorage; absent / blocked = off) */
 function reduceFlicker(): boolean {
   try { return !!(JSON.parse(localStorage.getItem('deadair.meta.settings') ?? '{}') as { reduceFlicker?: boolean }).reduceFlicker; } catch { return false; }
 }
 
 export function install(ctx: ClientContext): void {
+  // v1.3 F3: the lure / receiver ITEM_DEFS exist only while their flag is on (the server drops them the same way), so a
+  // flag-off client shows exactly v1.2 (labels, the collection log). ctx.flags = the server's live flags at page load.
+  const lureOn = ctx.flags.noiseLure === true;
+  const rcvOn = ctx.flags.fieldReceiver === true;
+  if (!lureOn) delete ITEM_DEFS.lure;
+  if (!rcvOn) delete ITEM_DEFS.receiver;
   const st: InteractionState = emptyInteractionState();
   let version = 0;
   const me = () => ctx.net.me;
@@ -156,6 +176,11 @@ export function install(ctx: ClientContext): void {
     const v = (ctx.balance.interaction as Record<string, unknown> | undefined)?.[k];
     return typeof v === 'number' && Number.isFinite(v) ? v : d;
   };
+  /** v1.3: the lure fuses on offer (s; interaction.json lureFuseSec) */
+  const fuses = (): number[] => {
+    const v = (ctx.balance.interaction as Record<string, unknown> | undefined)?.lureFuseSec;
+    return Array.isArray(v) && v.length && v.every((x) => typeof x === 'number' && Number.isFinite(x) && x >= 0) ? (v as number[]) : [0, 5, 10, 20];
+  };
 
   // ---------------- state helpers ----------------
   const myInv = (): (ItemState | null)[] => {
@@ -181,6 +206,21 @@ export function install(ctx: ClientContext): void {
   const nameOf = (id: string) => ctx.world.crew?.players.find((p) => p.id === id)?.name ?? 'Someone';
   const nvMine = () => !!st.nv?.[me() ?? ''];
 
+  // ---------------- v1.3 F3: lure fuse, receiver listen ----------------
+  /** the lure fuse picked with RMB (index into fuses()) */
+  let fuseIdx = 0;
+  const fuseSec = (): number => { const f = fuses(); return f[Math.min(fuseIdx, f.length - 1)] ?? 0; };
+  const fuseText = (): string => (fuseSec() > 0 ? `${fuseSec()} S` : 'ON LANDING');
+  /** a listen in progress (performance.now ms); space = the room behind the door held to (-1 = a plain listen) */
+  interface Listen { end: number; door: number | null; space: number; nextField: number; tells: Map<string, number>; heard: number; startedAt: number; quietShown: boolean }
+  let listen: Listen | null = null;
+  const receiverItem = (): ItemState | null => {
+    const a = activeItem();
+    return a && a.type === 'receiver' && (a.count ?? 1) > 0 ? a : null;
+  };
+  /** the receiver is in hand and free: HOLD E on a closed door listens through it */
+  const earReady = (): boolean => rcvOn && !!receiverItem() && !listen;
+
   // ---------------- requests ----------------
   const send = async (r: ReqName, a: unknown): Promise<IxResult | null> => {
     try {
@@ -197,7 +237,8 @@ export function install(ctx: ClientContext): void {
   // ---------------- targeting ----------------
   let hit: Hit | null = null;
   let targetInfo: InteractableInfo | null = null;
-  let holding: { id: string; start: number; ms: number } | null = null;
+  /** a client-timed hold (holdMs interactables; v1.3: ear = the door the receiver listens through) */
+  let holding: { id: string; start: number; ms: number; ear?: number } | null = null;
   const cam = () => ctx.services.use('three')?.camera;
   const rayO = new THREE.Vector3();
   const rayD = new THREE.Vector3();
@@ -229,6 +270,13 @@ export function install(ctx: ClientContext): void {
   const easeHint = (open: boolean) => (easeOn() ? { sub: open ? 'HOLD E · ease it shut quietly' : 'HOLD E · ease it open quietly' } : {});
 
   const doorText = (id: number): { text: string; key: TargetView['key']; enabled: boolean; sub?: string } => {
+    const v = doorBase(id);
+    // v1.3 F3: with the field receiver in hand, HOLD E on a closed door listens through it (a tap still uses the door)
+    const d = st.doors[id];
+    if (earReady() && d && !d.open && d.kind !== 'open' && d.kind !== 'blocked') return { ...v, key: v.key ?? 'HOLD E', enabled: true, sub: 'HOLD E · listen through it (receiver · 1 charge)' };
+    return v;
+  };
+  const doorBase = (id: number): { text: string; key: TargetView['key']; enabled: boolean; sub?: string } => {
     const d = st.doors[id];
     const kind = d?.kind ?? 'door';
     const open = !!d?.open;
@@ -255,6 +303,7 @@ export function install(ctx: ClientContext): void {
       const it = st.items[c.item!];
       if (!it) return null;
       if (it.type === 'sensor' && it.armed) return { id: c.id, text: 'Motion sensor (armed)', key: 'E', enabled: true, sub: 'E picks it back up · the van console sees movement within 6 m' };
+      if (it.type === 'lure' && it.armed) return { id: c.id, text: 'Noise lure (armed)', key: 'E', enabled: true, sub: 'E picks it back up: it stops' };
       // a field-note page's name is its page id (the fieldguide's key): never show it
       if (it.type === 'page') return { id: c.id, text: 'Pick up a field-note page', key: 'E', enabled: true, sub: itemDef('page').note };
       if (it.type === 'mat.pouch') {
@@ -375,14 +424,35 @@ export function install(ctx: ClientContext): void {
       if (res?.msg) flashMsg(res.msg);
     }).catch((e) => ctx.reportError(`interaction.ease: ${e instanceof Error ? e.message : e}`));
   };
+  /** v1.3 F3: the closed door under the crosshair the receiver can listen through (null = none) */
+  const earDoor = (h: Hit | null): number | null => {
+    const info = h?.c.info;
+    if (!info || info.kind !== 'door') return null;
+    const id = Number(info.ref);
+    const d = st.doors[id];
+    return d && !d.open && d.kind !== 'open' && d.kind !== 'blocked' ? id : null;
+  };
+  /** E held past the tap time on a door with the receiver in hand: the client-timed ear hold (receiverEarHoldMs total) */
+  const startEar = (id: string, door: number) => {
+    if (!ePending || ePending.id !== id) return;
+    ePending = null;
+    if (!eDown || !earReady()) return;
+    const tap = Math.max(60, bnum('easeTapMs', 220));
+    holding = { id, start: performance.now() - tap, ms: Math.max(tap + 100, bnum('receiverEarHoldMs', 1000)), ear: door };
+    ui.holdLabel.value = 'Ear to the door…';
+  };
+  const dropHold = () => {
+    if (holding?.ear !== undefined && ui.holdLabel.value === 'Ear to the door…') ui.holdLabel.value = null;
+    holding = null;
+    ui.hold.value = null;
+  };
   ctx.bus.on('action:interact', ({ down }) => {
     if (!inGame()) return;
     const mine = me();
     if (!mine) return;
     if (!down) {
       eDown = false;
-      holding = null;
-      ui.hold.value = null;
+      dropHold();
       if (ePending) {
         // released before easeTapMs: today's loud use. Not when the release came from alt-tab (players releases E on
         // blur, possibly before our own blur listener runs): decide after this event dispatch.
@@ -397,6 +467,14 @@ export function install(ctx: ClientContext): void {
     eDown = true;
     if (st.hidden[mine]) return doUse(st.hidden[mine]);
     if (isDeadId(mine) || !hit) return;
+    // v1.3 F3: receiver in hand + a closed door: a tap uses the door as ever, a hold listens through it
+    const ear = earReady() ? earDoor(hit) : null;
+    if (ear !== null) {
+      const id = hit.c.id;
+      if (ePending) clearTimeout(ePending.timer);
+      ePending = { id, timer: setTimeout(() => startEar(id, ear), Math.max(60, bnum('easeTapMs', 220))) };
+      return;
+    }
     const view = viewFor(hit);
     if (!view || !view.enabled) {
       if (view && !view.enabled && hit.c.kind !== 'body') doUse(hit.c.id); // let the server explain (locked, vault)
@@ -429,6 +507,8 @@ export function install(ctx: ClientContext): void {
     if (!mine || isDeadId(mine) || st.hidden[mine]) return;
     const it = activeItem();
     if (!it) return;
+    // v1.3 F3: the receiver's LMB is a listen (its ItemUse stays 'none': the union is frozen this round)
+    if (it.type === 'receiver' && rcvOn) return void listenNow(null);
     const use = itemDef(it.type).use;
     if (use === 'none') return;
     if (use === 'radio') return flashMsg('Hold Q to talk on the walkie', 1500);
@@ -438,8 +518,23 @@ export function install(ctx: ClientContext): void {
     if (use === 'swing') visuals?.animate('swing');
     else if (use === 'throw') visuals?.animate('throw');
     else visuals?.animate('use');
-    void send('interaction.act', { dir: ray.d, eye: ray.o });
+    // v1.3 F3: a lure goes with the fuse picked on RMB (TODO(integrator): `fuse` in the 'interaction.act' args type)
+    void send('interaction.act', { dir: ray.d, eye: ray.o, ...(it.type === 'lure' && lureOn ? { fuse: fuseSec() } : {}) });
   });
+  // v1.3 F3: RMB with a lure in hand picks its fuse (on landing / 5 / 10 / 20 s); no context menu over the game
+  const cycleFuse = () => {
+    fuseIdx = (fuseIdx + 1) % Math.max(1, fuses().length);
+    flashMsg(`Lure fuse: ${fuseText().toLowerCase()}`, 1400);
+    sfx('sfx.metal_click', undefined, { ui: true, volume: 0.45, rate: 1.5 });
+  };
+  addEventListener('mousedown', (e) => {
+    if (e.button !== 2 || !lureOn || !inGame() || !document.pointerLockElement) return;
+    const mine = me();
+    if (!mine || isDeadId(mine) || st.hidden[mine] || activeItem()?.type !== 'lure') return;
+    e.preventDefault();
+    cycleFuse();
+  });
+  addEventListener('contextmenu', (e) => { if (lureOn && inGame() && document.pointerLockElement) e.preventDefault(); });
   ctx.bus.on('action:drop', ({ down }) => {
     if (!down || !inGame()) return;
     const mine = me();
@@ -599,9 +694,148 @@ export function install(ctx: ClientContext): void {
       }
       return;
     }
+    // ---------------- v1.3 F3
+    if (d.kind === 'drop' && d.item === 'lure') return void sfx('sfx.metal_hit', d.p, { volume: 0.3, rate: 1.7, radius: 6 });
+    if ((d.kind as string) === 'lure') return rattle(d.p, d.id ?? '', d.count ?? 1);
     const key = FX_SFX[d.kind];
     if (key) sfx(key, d.p);
   });
+  /** v1.3 F3: a lure rattle where it lies (the synthesized handle rattle, occluded by walls; metal clicks without it) */
+  const rattle = (p: V3 | undefined, id: string, n: number) => {
+    if (!p) return;
+    let seed = 0x9e3779b9 ^ n;
+    for (let i = 0; i < id.length; i++) seed = Math.imul(seed ^ id.charCodeAt(i), 16777619) >>> 0;
+    let played = false;
+    try { played = !!ctx.services.use('sfx')?.synth?.('handle_rattle', p, { seed, count: 5, radius: 14, volume: 0.95, rate: 1.1 }); } catch { played = false; }
+    if (!played) for (let i = 0; i < 3; i++) setTimeout(() => sfx('sfx.metal_click', p, { volume: 0.9, rate: 1.05 + i * 0.18, radius: 12 }), i * 85);
+    sfx('sfx.metal_hit', p, { volume: 0.22, rate: 1.9, radius: 12 });
+  };
+
+  // ---------------- v1.3 F3: the field receiver listen ----------------
+  interface ListenGrant { ms: number; until: number; door?: number; space?: number }
+  interface MuffleLike { muffle?(source: string, amount: number, ms?: number): void }
+  /** the radio's level: the player's own master x sfx volume (meta settings), as the rest of the game sounds */
+  const radioVolume = (): number => {
+    try {
+      const s = JSON.parse(localStorage.getItem('deadair.meta.settings') ?? '{}') as { master?: number; sfx?: number };
+      const k = (typeof s.master === 'number' ? s.master : 1) * (typeof s.sfx === 'number' ? s.sfx : 1);
+      return Math.max(0, Math.min(1.5, k)) * 0.9;
+    } catch { return 0.9; }
+  };
+  const radio = new RadioOut(() => ctx.audio.ctx, radioVolume);
+  const air = new AirField();
+  const airCfg = () => ({ mult: bnum('receiverRangeMult', 2.5), maxPath: bnum('receiverPathM', 30) });
+  /** your own hearing muffled while you listen. TODO(E5): sfx.muffle(source, amount 0..1, ms?) = a ref-counted low-pass
+   *  + gain dip on the sfx / ambience / voice buses (amount 0 clears the source); without it nothing is muffled */
+  const muffle = (amount: number, ms?: number) => {
+    try { (ctx.services.use('sfx') as MuffleLike | undefined)?.muffle?.('receiver', amount, ms); } catch { /* audio not ready */ }
+  };
+  const doorOpenFn = (id: number) => !!st.doors[id]?.open;
+  /** the listener: the camera and its facing (own temporaries: the targeting ray is left alone) */
+  const earP = new THREE.Vector3();
+  const earD = new THREE.Vector3();
+  const earAt = { x: 0, z: 0, fx: 0, fz: 1 };
+  const earPose = (): typeof earAt | null => {
+    const c = cam();
+    if (!c) return null;
+    c.updateMatrixWorld();
+    c.getWorldPosition(earP);
+    c.getWorldDirection(earD);
+    earAt.x = earP.x; earAt.z = earP.z; earAt.fx = earD.x; earAt.fz = earD.z;
+    return earAt;
+  };
+  const refreshAir = () => {
+    if (!listen) return;
+    const e = earPose();
+    if (e) air.update(ctx.world.layout, e.x, e.z, airCfg().maxPath, doorOpenFn);
+    listen.nextField = performance.now() + 400;
+  };
+  const listenNow = async (door: number | null): Promise<void> => {
+    if (!rcvOn) return;
+    if (listen) return flashMsg('Still listening', 1200);
+    const ray = camRay();
+    if (!ray) return;
+    visuals?.animate('use');
+    const res = (await send('interaction.act', { dir: ray.d, eye: ray.o, ...(door !== null ? { door } : {}) })) as (IxResult & { listen?: ListenGrant }) | null;
+    if (res?.ok && res.listen) beginListen(res.listen);
+  };
+  const beginListen = (g: ListenGrant) => {
+    const now = performance.now();
+    const L = ctx.world.layout;
+    let space = typeof g.space === 'number' ? g.space : -1;
+    air.clearRegion();
+    if (g.door !== undefined && L) {
+      const e = earPose();
+      if (e && space < 0) space = spaceAcross(L, g.door, e.x, e.z);
+      // the open floor behind the door: the tells come from there
+      const fp = e ? farPoint(L, g.door, e.x, e.z) : null;
+      if (fp) air.region(L, fp[0], fp[1], airCfg().maxPath);
+    }
+    listen = { end: now + Math.max(500, g.ms), door: g.door ?? null, space: g.door !== undefined ? space : -1, nextField: 0, tells: new Map(), heard: 0, startedAt: now, quietShown: false };
+    refreshAir();
+    radio.open();
+    sfx('sfx.radio_squelch_on', undefined, { ui: true, volume: 0.55 });
+    muffle(bnum('receiverMuffle', 0.7), g.ms);
+  };
+  const endListen = () => {
+    if (!listen) return;
+    listen = null;
+    air.clearRegion();
+    radio.close();
+    sfx('sfx.radio_squelch_off', undefined, { ui: true, volume: 0.5 });
+    muffle(0);
+  };
+  // a monster cue on the air: within mult x its radius AND maxPath by sound path from you (the monsters module plays the
+  // ordinary one within its radius as ever)
+  ctx.net.on('monsters.cue', (d) => {
+    if (!listen) return;
+    const s = CUE_SOUND[d.cue];
+    const e = earPose();
+    if (!s || !e) return;
+    const dist = Math.hypot(d.p[0] - e.x, d.p[2] - e.z);
+    const path = air.at(d.p[0], d.p[2]);
+    const cfg = airCfg();
+    if (!onAir(dist, d.radius, path, cfg)) return;
+    const reach = Math.min(d.radius * cfg.mult, cfg.maxPath);
+    radio.play(s[0], s[1] * airGain(path, reach), airPan(e.fx, e.fz, e.x, e.z, d.p[0], d.p[2]), s[2] ?? 1, `cue:${d.cue}:${d.kind}`);
+  });
+  /** per frame while listening: the window, a fresh path field, the tells of whatever is behind the door */
+  const tellPool: TellMonster[] = [];
+  const tellList: TellMonster[] = [];
+  const tellOut: { id: string; kind: string; path: number }[] = [];
+  const behindAt = (x: number, z: number) => air.behindAt(x, z);
+  const tickListen = () => {
+    const ls = listen;
+    if (!ls) return;
+    const now = performance.now();
+    const mine = me();
+    if (now >= ls.end || !mine || isDeadId(mine) || !inGame() || ctx.world.phase !== 'contract') return endListen();
+    if (now >= ls.nextField) refreshAir();
+    if (ls.door === null) return;
+    const e = earPose();
+    if (!e) return;
+    const maxPath = airCfg().maxPath;
+    // the snapshots' monsters as pooled views (no allocation per frame)
+    tellList.length = 0;
+    ctx.world.monsters.forEach((_buf, id) => {
+      const m = ctx.world.sampleMonster(id);
+      if (!m) return;
+      const v = tellPool[tellList.length] ?? (tellPool[tellList.length] = { id: '', kind: '', x: 0, z: 0, active: false });
+      v.id = id; v.kind = m.kind; v.x = m.p[0]; v.z = m.p[2]; v.active = m.active;
+      tellList.push(v);
+    });
+    for (const t of dueTells(tellList, behindAt, maxPath, now, ls.tells, tellOut)) {
+      const s = TELL_SOUND[t.kind]!;
+      const m = tellList.find((q) => q.id === t.id)!;
+      ls.heard++;
+      // through the door: a door's worth of muffling on top of the walk behind it
+      radio.play(s[0], s[1] * Math.max(0.4, airGain(t.path + 2, maxPath)), airPan(e.fx, e.fz, e.x, e.z, m.x, m.z), s[2], `tell:${t.kind}`);
+    }
+    if (!ls.quietShown && ls.heard === 0 && now - ls.startedAt > 1500) {
+      ls.quietShown = true;
+      flashMsg('Nothing stirs behind this door', 1800);
+    }
+  };
 
   // ---------------- services.interaction ----------------
   const service: InteractionService = {
@@ -764,16 +998,24 @@ export function install(ctx: ClientContext): void {
   let statusVer = -1;
   let statusLeft = -1;
   let statusMe: string | null = null;
+  /** v1.3 F3: the lure fuse, the active slot and the listen seconds left, as one number (no per-frame strings) */
+  let statusF3 = -1;
   const updateStatus = () => {
     const mine = me();
-    const left = Math.max(0, Math.ceil((adrenUntil - performance.now()) / 1000));
-    if (version === statusVer && left === statusLeft && mine === statusMe) return;
+    const now = performance.now();
+    const left = Math.max(0, Math.ceil((adrenUntil - now) / 1000));
+    const listenLeft = listen ? Math.max(0, Math.ceil((listen.end - now) / 1000)) : -1;
+    const f3 = fuseIdx + 16 * (activeIdx() + 1) + 256 * (listenLeft + 1) + (listen && listen.space >= 0 ? 65536 : 0);
+    if (version === statusVer && left === statusLeft && mine === statusMe && f3 === statusF3) return;
     statusVer = version;
     statusLeft = left;
     statusMe = mine;
+    statusF3 = f3;
     const chips: { id: string; text: string; tone: 'good' | 'bad' | 'info' }[] = [];
     if (mine && !isDeadId(mine)) {
       if (left > 0) chips.push({ id: 'adren', text: `ADRENALINE ${left} S · SPRINT FREELY`, tone: 'good' });
+      if (listen) chips.push({ id: 'rcv', text: `RECEIVER · ${listen.space >= 0 ? 'NEXT ROOM' : 'LISTENING'} ${listenLeft} S · YOU HEAR LESS`, tone: 'info' });
+      if (lureOn && activeItem()?.type === 'lure') chips.push({ id: 'fuse', text: `LURE FUSE: ${fuseText()} · RMB`, tone: 'info' });
       if (hasType(mine, 'loot.idol')) chips.push({ id: 'idol', text: 'CURSED IDOL · IT WHISPERS · THEY HEAR YOU', tone: 'bad' });
       if (hasType(mine, 'charm')) chips.push({ id: 'charm', text: 'LUCKY CHARM · DEPOSITS +10%', tone: 'good' });
       if (hasType(mine, 'flashlight_pro')) chips.push({ id: 'pro', text: 'PRO FLASHLIGHT · LED II', tone: 'info' });
@@ -996,16 +1238,15 @@ export function install(ctx: ClientContext): void {
     // client-timed hold progress (interactables with holdMs that the server does not time)
     if (holding) {
       if (!hit || hit.c.id !== holding.id) {
-        holding = null;
-        ui.hold.value = null;
+        dropHold();
       } else {
         const k = Math.min(1, (performance.now() - holding.start) / holding.ms);
         ui.hold.value = k;
         if (k >= 1) {
-          const id = holding.id;
-          holding = null;
-          ui.hold.value = null;
-          doUse(id, true);
+          const { id, ear } = holding;
+          dropHold();
+          if (ear !== undefined) void listenNow(ear);
+          else doUse(id, true);
         }
       }
     }
@@ -1060,13 +1301,14 @@ export function install(ctx: ClientContext): void {
   function frame(dt: number): void {
     {
       const three = ctx.services.use('three');
-      if (three && !visuals) visuals = createVisuals(three.scene);
+      if (three && !visuals) visuals = createVisuals(three.scene, { hideParkedLights: batchedLights(three.renderer) });
       updateTarget();
       tickBattery(dt);
       syncDoorsAndLights(dt);
       syncEases();
       syncHidden();
       syncNightVision();
+      tickListen();
       updateUi();
       updateStatus();
       if (visuals && three) {
@@ -1118,8 +1360,11 @@ export function install(ctx: ClientContext): void {
       target: () => (targetInfo ? { ...targetInfo, view: hit ? viewFor(hit) : null } : null),
       use: (id: string, hold = false) => send('interaction.use', { id, hold }),
       act: () => {
+        // v1.3 F3: as LMB does it: the receiver listens, a lure goes with the fuse
+        const a = activeItem();
+        if (a?.type === 'receiver' && rcvOn) return listenNow(null);
         const ray = camRay();
-        return send('interaction.act', { dir: ray?.d ?? [0, 0, 1], eye: ray?.o });
+        return send('interaction.act', { dir: ray?.d ?? [0, 0, 1], eye: ray?.o, ...(a?.type === 'lure' && lureOn ? { fuse: fuseSec() } : {}) });
       },
       drop: () => send('interaction.drop', {}),
       slot: (slot: number) => send('interaction.slot', { slot }),
@@ -1164,6 +1409,19 @@ export function install(ctx: ClientContext): void {
       status: () => ui.status.value.map((c) => c.text),
       /** interaction.fx events received so far, by kind */
       fx: () => ({ ...fxCount }),
+      /** v1.3 F3: the lure fuse (s); with a value: pick that one if it is on offer */
+      fuse: (sec?: number) => {
+        if (typeof sec === 'number') { const i = fuses().indexOf(sec); if (i >= 0) fuseIdx = i; }
+        return fuseSec();
+      },
+      cycleFuse: () => { cycleFuse(); return fuseSec(); },
+      /** v1.3 F3: the receiver listen in progress and every clip it put on the air */
+      receiver: () => ({
+        on: rcvOn, lure: lureOn, listening: !!listen, left: listen ? Math.max(0, Math.round(listen.end - performance.now())) : 0,
+        door: listen?.door ?? null, space: listen?.space ?? -1, earReady: earReady(), log: radio.log.slice(),
+      }),
+      /** v1.3 F3: LMB with the receiver (door = ear to that door, as the 1 s hold sends it) */
+      listen: (door?: number) => listenNow(door ?? null),
       battery: () => battery,
       setBattery: (v: number) => { battery = clamp01(v); },
       tier: (id?: string) => service.flashlightTier(id ?? me() ?? ''),
