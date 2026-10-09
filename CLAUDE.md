@@ -1,6 +1,49 @@
 # DEAD AIR: rules for build agents
 
-The browser co-op horror game we're building tonight. The full design is in PLAN.md, and the research is in docs/research/. Read the PLAN.md sections relevant to your track before coding.
+DEAD AIR is a browser and desktop co-op horror game. The full design is in PLAN.md, and the research is in docs/research/. Read the PLAN.md sections relevant to your track before coding, and the status section below before anything else.
+
+## Status and handoff (updated 2026-10-09)
+
+Read this first when you pick the project up on any PC.
+
+**What's live.** https://play.dead-air.io runs on the host PC (Windows 11, Ryzen 9950X3D, an RTX 5090 with a GPU-side PCIe fault).
+- The server runs from a git worktree, `C:\Users\Pieter\repos\theboys-live`, detached at the deployed commit. Its untracked `start-live.cmd` points `SAVES_DIR`, `SESSION_FILE`, `HOST_STATE` and `AI_USAGE_LOG` at this repo's `saves/` and `logs/`, then runs `node tools\host.mjs --no-build`. host.mjs starts the STT sidecar (:3100), checks the tunnel, starts the game server (:3000) and stays open, following `logs/server.log` with the hang watchdog (it restarts a server that stops answering `/healthz` for 60 s).
+- The tunnel is a named Cloudflare tunnel in the `Cloudflared` Windows service, which starts at boot. The server starts at login from the Startup-folder shortcut `DEAD AIR Server.lnk` (minimised); the `DEAD AIR Server` shortcuts on the desktop and in the Start menu start it by hand.
+- Logs: `theboys-live/logs/server.log`. Player telemetry every 30 s, plus `[diag]` lines from telemetry v2 (no player names). Saves live in this repo's `saves/` (gitignored); backups go to `C:\Users\Pieter\repos\theboys-backups\`.
+- Desktop app: `node apps/desktop/scripts/pack.mjs` builds `apps/desktop/out/win-unpacked`; it's installed at `%LOCALAPPDATA%\DEAD AIR Dev Build v3` (the `DEAD AIR` shortcuts). It loads the game from the server, so game updates need no new build; only shell changes do. Friends get a zip of `win-unpacked`. Steam uses app 480 (Spacewar) until the Steamworks app exists; `docs/STEAM.md` is a local, gitignored guide.
+
+**Deploying (integrator, on the host PC).**
+1. Check nobody is connected: `netstat -ano | findstr "127.0.0.1:3000" | findstr ESTABLISHED` prints nothing.
+2. Commit and push `main`. Back up `saves/` to `..\theboys-backups\saves-before-<version>-<date>`.
+3. `git -C ..\theboys-live checkout --detach <commit>`, then in `theboys-live` run `npx vite build --config apps/client/vite.config.ts`. That writes theboys-live's own `apps/client/dist`, which the live server serves; never build this repo's dist.
+4. New assets: stage them with `node tools/fetch-assets.mjs --dist <stage>/dist`, then promote with `node tools/promote-assets.mjs <stage>/dist`. It only adds files and swaps the manifest last; the live server reads this repo's `.assets/dist`.
+5. Smoke-test from `theboys-live` on a spare port: `node apps/server/src/index.ts --selftest` with `NODE_ENV=development AI_MODE=mock SAVES_DIR=<tmp> SESSION_FILE=<tmp>/session.json`.
+6. Restart: open a new window with `start-live.cmd --restart` (it stops the old server and starts the new one; its window owns the watchdog), then close the previous host window. Check `/healthz` locally and on play.dead-air.io, and the boot lines in `logs/server.log`.
+To change saves while the server is down (for example a scrub), stop the old host window first, so its watchdog can't restart the server midway.
+
+**Versions.**
+- v1.2 (8 Oct): stealth and crouch, a fair Listener, gear, searchable containers, crafting, the field guide, records, themed sites, mirrors, mist, paranormal events, audio, the new van.
+- v1.3-night (9 Oct): the name filter (`packages/shared/src/names.ts`; word lists stored ROT13), the drive preload and van wait, fewer shader compiles, cheaper Low frames, the Lite preset and the SIGNAL bodycam look (both opt-in in Settings), an AUTO preset entry, telemetry v2 (`core.diag`), steadier network clock, a Listener wake fix, the Snatcher from the 3rd contract, and flag-gated feature slices.
+
+**Feature flags** live in `config/flags.json`; they gate behaviour, never persistence. Tonight's new features ship OFF: `deadPokes`, `earwigs`, `companyLine`, `siteRules`, `noiseLure`, `fieldReceiver`. To turn one on, set it to true, restart the server, and have players reload the page.
+
+**Host decisions (2026-10-09 night review)**; follow them without asking again:
+1. Blocked display names become `Contractor-NNNN` with a private notice; they are not refused.
+2. Lite and SIGNAL stay opt-in until one session of friend telemetry shows they help; then they become the WebGL2 default.
+3. Real-GPU checks happen on friends' own PCs through consented `?diag=1` sessions (not built yet). Agents never use the host GPU (software lane only). The host keeps their stored Medium preset while the PCIe fault persists.
+4. The next AI round unfreezes `ai` and `stt` for platform fixes first: prompt caching, per-player rate limits, TTS spend counted in the budget, the STT confidence filter (it drops 44% of confirmed speech) and a Parakeet CPU fallback. Then the Company Line with an LLM, and the séance. Live TTS only for short lines inside a priced, shared budget; one capped live check under $0.05 is approved. The Ledger comes only after a red-team pass, and it may only haunt or protect teammates.
+5. The Cloudflare cache rule for `/assets/*` and `/app/*` (excluding `/ws`, `/api/*` and `/healthz`) plus Smart Tiered Cache is the host's own dashboard action.
+
+**What's next.** The ranked backlog is in `docs/research/2026-10-09-night/synthesis.md` ("Next sessions backlog"), with the nine research reports beside it. Known open items: Low with lit flashlight beams still draws about 206 times against a 140 budget (needs the content consolidation, phase C); asynchronous shader compiles (phase B); the friend `?diag=1` A/B test; the AI platform round.
+
+**Working from another PC.**
+- Clone and run `npm ci`.
+- Copy `.env` from the host PC by a secure route (never commit it).
+- `.assets/` is gitignored: copy it from the host PC. Rebuilding with `tools/fetch-assets.mjs` re-downloads the CC0 sources, and new ElevenLabs takes cost credits.
+- The STT sidecar's `.venv` and models are gitignored too (`services/stt/`); voice works without them, the Listener just hears loudness only.
+- Develop with `npm run dev` on a port other than 3000.
+- The live server, tunnel, saves and logs stay on the host PC: deploy by remote-controlling it.
+- Claude Code's local memory doesn't travel between PCs; what it needs is in this file and in `docs/`.
 
 ## Working model
 - All agents share ONE working tree: `C:\Users\Pieter\repos\theboys`. File ownership is strict (see the table below).
@@ -34,7 +77,8 @@ The browser co-op horror game we're building tonight. The full design is in PLAN
 | env | `tools/bin/**`, `tools/ai-*.mjs`, `docs/bench/**`, `services/stt/**` (in P0, handed to (e) afterwards) |
 | tests | `tests/lib/**` and `tests/gates/**` are integrator/skeleton-owned. Each track owns `tests/<track>/**` |
 
-## v1.2 build ownership (supersedes the rows above for this round)
+## Package split (v1.2 and v1.3-night; supersedes the rows above)
+Both rounds are finished. A new round reuses this split unless the integrator reassigns it.
 | Package (port) | Paths |
 |---|---|
 | G1 players-stealth (3801) | apps/client/src/players/**, apps/server/src/players/**, apps/server/src/net/movement.ts, apps/client/src/loading/LoadingScreen.tsx, apps/desktop/{src,static,test}/**, messages/players.ts, config/balance/players.json, tests/{players,stealth}/** |
@@ -49,7 +93,7 @@ The browser co-op horror game we're building tonight. The full design is in PLAN
 | E4 env-paranormal (3814) | apps/*/src/paranormal/**, messages/paranormal.ts, config/balance/paranormal.json, tests/paranormal/** |
 | E5 env-audio (3815) | apps/client/src/audio/**, tools/sfx-manifest.json, config/balance/audio.json, tests/audio/** |
 | integrator | the integrator row above + packages/shared/src/{catalog,progress}.ts, tests/fixtures/** (incl. the frozen tests/fixtures/identity-v11), tools/make-identity-fixtures.ts, apps/desktop/{package.json,config.json,build,scripts}, promotion into .assets/dist |
-Nobody edits objectives, voice, net (except movement.ts), ai (except director.ts), stt or services this round: request instead.
+During v1.2 and v1.3-night, objectives, voice, net (except movement.ts), ai (except director.ts), stt and services were frozen. For the next round, ai, stt and services are unfrozen for the AI platform work (host decision 4); objectives, voice and net stay frozen unless the integrator says otherwise: request instead.
 
 - **Input (replaces the Input rule).** The web client never reads Ctrl or Meta (no ctrlKey/metaKey, no 'ControlLeft'): Ctrl+W closes the tab. Only the desktop shell maps Left Ctrl to crouch, via window.deadAirDesktop.onHotkey, ignoring AltGr. Crouch is C.
 - **Assets.** Never run tools/fetch-assets.mjs against .assets/dist. Stage with --dist C:/Users/Pieter/AppData/Local/Temp/dead-air-assets-stage/dist; test servers use ASSETS_DIR=C:/Users/Pieter/AppData/Local/Temp/dead-air-assets-stage. The integrator promotes additively.
@@ -78,7 +122,7 @@ Nobody edits objectives, voice, net (except movement.ts), ai (except director.ts
   - Copy patterns from the r186 examples in `node_modules/three/examples/`.
 - **Input.** Never bind Ctrl or Meta: Ctrl+W closes the tab. Crouch is C.
 - **Audio.** No `ScriptProcessorNode`. Mic constraints are `echoCancellation:true, noiseSuppression:true, autoGainControl:false`. Never use `'remote-only'`. Every remote WebRTC stream also gets a muted, playing `<audio>` keep-alive element.
-- **Claude API.** Read `docs/claude-api-notes.md` first. Then read the SDK docs in `C:\Users\Pieter\AppData\Local\Temp\claude\bundled-skills\2.1.291\47bac98defa643f89cebfe3371a586f9\claude-api\typescript\claude-api\*.md` and `...\claude-api\shared\prompt-caching.md`.
+- **Claude API.** Read `docs/claude-api-notes.md` first. Then read the claude-api skill that ships with Claude Code (invoke it with the Skill tool): its `typescript/claude-api/*.md` docs and `shared/prompt-caching.md`.
   - No `temperature`/`top_p`/`top_k`, no `budget_tokens`, no `thinking:{type:'disabled'}`, no forced `tool_choice`, no prefill, no `effort` on Haiku 4.5, no `messages.parse`. Use `create()` with `output_config.format` json_schema, then branch on `stop_reason`.
   - Model IDs come from env; every Claude call is Claude Haiku 5.5 (`MODEL_WRITER`, `MODEL_FAST` and `MODEL_RETRY` all default to `claude-haiku-5-5`; a retry model equal to the writer means a refusal keeps the template). JEV stays the Listener's first brain and the director picker. Haiku 5.5 thinks by default: the gateway adds effort low (briefs: balance `briefEffort` medium) and a 1024 max_tokens floor (see docs/claude-api-notes.md); never size a Haiku 5.5 route's max_tokens for the answer alone.
 - **Costs (the user asked to limit them).** Never call live AI in loops or tests. Use `AI_MODE=mock` by default; only `tools/ai-*.mjs` makes live calls, and it's small. ElevenLabs generation happens once, at build time, and is cached.

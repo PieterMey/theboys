@@ -1,5 +1,7 @@
 # Research notes (2026-10-06)
 
+> Newer: the night review of 8–9 Oct 2026 (performance, graphics, generative AI, new concepts, and the current ranked backlog) is in [2026-10-09-night/](2026-10-09-night/README.md).
+
 Background research for [PLAN.md](../../PLAN.md). Ten researchers covered the topics below in parallel. A critic then looked for contradictions and gaps, and five fact-checkers re-verified the claims the plan depends on: 50 were confirmed, 17 partially true, 1 refuted and 1 unverified. Many of the fact-checks were measured on the host PC (RTX 5090, Chrome 154, Node 24).
 
 Each topic has two files: `*.core.md` holds the summary, recommendations, risks and open questions, and `*.details.md` holds the implementation notes and sourced key facts.

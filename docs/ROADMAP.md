@@ -1,5 +1,7 @@
 # DEAD AIR: roadmap after tonight
 
+> The current, ranked plan is the night review of 8–9 Oct 2026: [docs/research/2026-10-09-night/synthesis.md](research/2026-10-09-night/synthesis.md) ("Next sessions backlog"). This file is the older idea list from 6 Oct; several of its monsters and gear have shipped since.
+
 Today's build: three monsters (Hound, Mannequin, Listener), AI briefs, the HR memo, the Listener's brain (JEV, then Haiku, then rules), proximity voice and radio, procedural facilities, and a quota/XP loop. This file collects the ideas that come next, roughly in order of fun per hour of work.
 
 ## Monsters (each forces a different kind of teamwork)
